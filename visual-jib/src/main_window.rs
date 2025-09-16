@@ -158,7 +158,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!("../../cbuoy/examples/test.cb"),
+            include_str!("../../cbuoy/examples/default.cb"),
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),
