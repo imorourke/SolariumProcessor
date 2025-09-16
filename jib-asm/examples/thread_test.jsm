@@ -136,9 +136,6 @@
 :dev_clock_loc
     .u32 0xA020
 
-; Define the location for the interrupt device for setup
-    .u32 0xA020
-
 :msg_init
 .text "Starting Program..."
 
