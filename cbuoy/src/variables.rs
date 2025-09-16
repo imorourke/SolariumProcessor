@@ -386,7 +386,10 @@ impl Statement for LocalVariable {
 
                     asm.extend_asm(mem.get_exec_code(required_stack)?);
                 } else {
-                    return Err(self.token.clone().into_err("mismatch in data type"));
+                    return Err(self.token.clone().into_err(format!(
+                        "mismatch in data type - found {} != {}",
+                        self.dtype, t
+                    )));
                 }
             } else {
                 return Err(self.token.clone().into_err(
