@@ -41,7 +41,14 @@ impl DataType {
     }
 
     pub fn signed(&self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::F32)
+    }
+
+    pub fn integral(&self) -> bool {
+        matches!(
+            self,
+            Self::U8 | Self::I8 | Self::U16 | Self::I16 | Self::U32 | Self::I32
+        )
     }
 
     pub fn get_id(&self) -> u8 {
@@ -94,16 +101,16 @@ impl TryFrom<&str> for DataType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DataTypeError(u8);
+pub struct UnknownDataTypeArg(u8);
 
-impl fmt::Display for DataTypeError {
+impl fmt::Display for UnknownDataTypeArg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Data Type Error {}", self.0)
     }
 }
 
 impl TryFrom<u8> for DataType {
-    type Error = DataTypeError;
+    type Error = UnknownDataTypeArg;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         Ok(match val {
@@ -114,7 +121,7 @@ impl TryFrom<u8> for DataType {
             5 => Self::U32,
             6 => Self::I32,
             7 => Self::F32,
-            _ => return Err(DataTypeError(val)),
+            _ => return Err(UnknownDataTypeArg(val)),
         })
     }
 }
@@ -167,7 +174,7 @@ impl Instruction {
         Register::GeneralPurpose((arg & 0x1F) as usize)
     }
 
-    fn dt_from_arg(arg: u8) -> Result<DataType, DataTypeError> {
+    fn dt_from_arg(arg: u8) -> Result<DataType, UnknownDataTypeArg> {
         let dt = (arg >> 5) & 7;
         DataType::try_from(dt)
     }
@@ -176,7 +183,7 @@ impl Instruction {
         self.data[1]
     }
 
-    pub fn arg0_data_type(&self) -> Result<DataType, DataTypeError> {
+    pub fn arg0_data_type(&self) -> Result<DataType, UnknownDataTypeArg> {
         Self::dt_from_arg(self.arg0())
     }
 
@@ -188,7 +195,7 @@ impl Instruction {
         self.data[2]
     }
 
-    pub fn arg1_data_type(&self) -> Result<DataType, DataTypeError> {
+    pub fn arg1_data_type(&self) -> Result<DataType, UnknownDataTypeArg> {
         Self::dt_from_arg(self.arg1())
     }
 
@@ -200,7 +207,7 @@ impl Instruction {
         self.data[3]
     }
 
-    pub fn arg2_data_type(&self) -> Result<DataType, DataTypeError> {
+    pub fn arg2_data_type(&self) -> Result<DataType, UnknownDataTypeArg> {
         Self::dt_from_arg(self.arg2())
     }
 

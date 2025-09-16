@@ -6,7 +6,7 @@ use alloc::{fmt, rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use core::hash::{Hash, Hasher};
 
-pub use crate::cpu::instruction::{DataType, DataTypeError, Instruction};
+pub use crate::cpu::instruction::{DataType, Instruction, UnknownDataTypeArg};
 use crate::device::{DeviceAction, ProcessorDevice};
 use crate::memory::{MemoryError, MemoryMap, MemorySegment};
 
@@ -27,7 +27,7 @@ pub enum ProcessorError {
     UnsupportedDataType(Instruction, DataType),
     Operation(OperationError),
     StackUnderflow,
-    DataType(DataTypeError),
+    DataType(UnknownDataTypeArg),
     OpcodeAlignment(u32),
 }
 
@@ -61,8 +61,8 @@ impl From<RegisterError> for ProcessorError {
     }
 }
 
-impl From<DataTypeError> for ProcessorError {
-    fn from(value: DataTypeError) -> Self {
+impl From<UnknownDataTypeArg> for ProcessorError {
+    fn from(value: UnknownDataTypeArg) -> Self {
         Self::DataType(value)
     }
 }
@@ -678,28 +678,32 @@ impl Processor {
                 };
                 let reg_target = inst.arg0_register();
 
-                if dt.signed() {
-                    match dt.byte_size() {
-                        1 => self
-                            .registers
-                            .set(reg_target, (self.memory.get(addr)? as i32) as u32)?,
-                        2 => self
-                            .registers
-                            .set(reg_target, (self.memory.get_u16(addr)? as i32) as u32)?,
-                        4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
-                        _ => return Err(ProcessorError::UnknownInstruction(inst)),
+                if dt.integral() {
+                    if dt.signed() {
+                        match dt.byte_size() {
+                            1 => self
+                                .registers
+                                .set(reg_target, (self.memory.get(addr)? as i32) as u32)?,
+                            2 => self
+                                .registers
+                                .set(reg_target, (self.memory.get_u16(addr)? as i32) as u32)?,
+                            4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
+                            _ => return Err(ProcessorError::UnknownInstruction(inst)),
+                        }
+                    } else {
+                        match dt.byte_size() {
+                            1 => self
+                                .registers
+                                .set(reg_target, self.memory.get(addr)? as u32)?,
+                            2 => self
+                                .registers
+                                .set(reg_target, self.memory.get_u16(addr)? as u32)?,
+                            4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
+                            _ => return Err(ProcessorError::UnknownInstruction(inst)),
+                        }
                     }
                 } else {
-                    match dt.byte_size() {
-                        1 => self
-                            .registers
-                            .set(reg_target, self.memory.get(addr)? as u32)?,
-                        2 => self
-                            .registers
-                            .set(reg_target, self.memory.get_u16(addr)? as u32)?,
-                        4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
-                        _ => return Err(ProcessorError::UnknownInstruction(inst)),
-                    }
+                    return Err(ProcessorError::UnsupportedDataType(inst, dt.into()));
                 }
             }
             Self::OP_SAVE | Self::OP_SAVE_REL => {

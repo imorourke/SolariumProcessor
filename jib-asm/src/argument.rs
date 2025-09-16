@@ -1,5 +1,5 @@
 use core::fmt;
-use jib::cpu::{DataType, DataTypeError, Register, RegisterManager};
+use jib::cpu::{DataType, Register, RegisterManager, UnknownDataTypeArg};
 
 use crate::immediate::ImmediateError;
 
@@ -9,7 +9,7 @@ pub enum ArgumentError {
     UnknownRegister(String),
     UnknownRegisterIndex(usize),
     UnknownDataType(String),
-    DataType(DataTypeError),
+    DataType(UnknownDataTypeArg),
     ExpectedTypeInformation(String),
 }
 
@@ -34,8 +34,8 @@ impl From<ImmediateError> for ArgumentError {
     }
 }
 
-impl From<DataTypeError> for ArgumentError {
-    fn from(value: DataTypeError) -> Self {
+impl From<UnknownDataTypeArg> for ArgumentError {
+    fn from(value: UnknownDataTypeArg) -> Self {
         ArgumentError::DataType(value)
     }
 }
