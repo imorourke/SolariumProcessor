@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 cbuoy = { path = "../cbuoy", version = "*" }
+clap = { version = "4.5", features = ["derive"] }
 jib-asm = { path = "../jib-asm", version = "*" }
