@@ -1,0 +1,55 @@
+const STACK_SIZE: u32 = 1024;
+const STACK_NUM: u32 = 4;
+using thread_stack_t = [STACK_SIZE]u8;
+global THREAD_STACK: [STACK_NUM]thread_stack_t;
+
+global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
+
+asmfn inton() void {
+    "inton";
+}
+
+asmfn intoff() void {
+    "intoff";
+}
+
+asmfn print(c: *u8) void {
+    "ldn 8:u32";
+    ".loadloc %{SERIAL_OUT_LOC}%";
+    "ld 8:u32 8";
+    ".align";
+    "ldi 9:u16 1";
+    "ld 10:u32 $arg";
+    "ldi 11:u16 @{c}@";
+    "add 10:u32 10 11";
+    "ld 11:u8 10";
+    "tz 11";
+    "jmpri 16";
+    "sav 8:u8 11";
+    "add 10:u32 10 9";
+    "jmpri -20";
+    "ret";
+}
+
+fn init_thread(func: fn() void) void {
+}
+
+fn main_tsk_a() void {
+    while (1) {
+        print("TSK_A\n");
+    }
+}
+
+fn main_tsk_b() void {
+    while (1) {
+        print("TSK_B\n");
+    }
+}
+
+asmfn tsk_main() void {
+}
+
+fn main() void {
+    //init_thread(main_tsk_a);
+    //init_thread(main_tsk_b);
+}
