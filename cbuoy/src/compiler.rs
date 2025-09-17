@@ -16,7 +16,7 @@ use crate::{
     functions::FunctionDefinition,
     literals::{Literal, StringLiteral},
     tokenizer::{Token, get_identifier},
-    typing::{FunctionParameter, StructDefinition},
+    typing::{FunctionParameter, Type},
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
 
@@ -38,8 +38,7 @@ enum GlobalType {
     Variable(Rc<GlobalVariable>),
     Function(Rc<dyn FunctionDefinition>),
     Constant(Rc<Literal>),
-    Structure(Token, Rc<StructDefinition>),
-    OpaqueType(Token),
+    UserType(Token, UserTypeOptions),
 }
 
 impl GlobalType {
@@ -48,8 +47,7 @@ impl GlobalType {
             Self::Variable(v) => v.get_token(),
             Self::Function(v) => v.get_token(),
             Self::Constant(v) => v.get_token(),
-            Self::Structure(t, _) => t,
-            Self::OpaqueType(t) => t,
+            Self::UserType(t, _) => t,
         }
     }
 
@@ -58,8 +56,7 @@ impl GlobalType {
             Self::Variable(var) => Some(Rc::new(GlobalVariableStatement::new(var.clone()))),
             Self::Function(func) => Some(func.clone()),
             Self::Constant(..) => None,
-            Self::Structure(..) => None,
-            Self::OpaqueType(..) => None,
+            Self::UserType(..) => None,
         }
     }
 }
@@ -258,33 +255,58 @@ impl ScopeBlock {
 
 #[derive(Debug, Clone)]
 pub enum UserTypeOptions {
-    Struct(Rc<StructDefinition>),
     OpaqueType(Token),
+    ConcreteType(Type),
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct UserTypes {
+struct UserTypes {
     types: HashMap<String, UserTypeOptions>,
 }
 
-impl UserTypes {
-    pub fn get_struct(&self, t: &Token) -> Result<Rc<StructDefinition>, TokenError> {
-        if let Some(e) = self.types.get(t.get_value()) {
-            match e {
+#[derive(Debug, Clone)]
+pub struct UserTypeReference {
+    pub name: Token,
+    db: Rc<RefCell<UserTypes>>,
+}
+
+impl UserTypeReference {
+    pub fn get_type(&self, follow_links: bool) -> Result<Type, TokenError> {
+        if let Some(ty) = self.db.borrow().types.get(self.name.get_value()) {
+            match ty {
+                UserTypeOptions::ConcreteType(inner) => Ok(inner.clone()),
                 UserTypeOptions::OpaqueType(next) => {
-                    if next.get_value() != t.get_value() {
-                        self.get_struct(next)
+                    if next.get_value() != self.name.get_value() {
+                        let user_ref = Self {
+                            name: next.clone(),
+                            db: self.db.clone(),
+                        };
+
+                        user_ref.get_type(follow_links)
+                    } else if follow_links {
+                        Err(self
+                            .name
+                            .clone()
+                            .into_err("recursive type definition found"))
                     } else {
-                        Err(t.clone().into_err(
-                            "recursive loop found when parsing opaque type into structure",
-                        ))
+                        Ok(Type::OpaqueType(self.clone()))
                     }
                 }
-                UserTypeOptions::Struct(s) => Ok(s.clone()),
             }
         } else {
-            Err(t.clone().into_err("no valid type with provided name found"))
+            Err(self
+                .name
+                .clone()
+                .into_err("unable to find a valid user type for the provided token value"))
         }
+    }
+}
+
+impl Eq for UserTypeReference {}
+
+impl PartialEq for UserTypeReference {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.get_value() == other.name.get_value()
     }
 }
 
@@ -350,7 +372,7 @@ impl CompilingState {
         };
 
         for gv in self.global_scope.values() {
-            if let GlobalType::Structure(tok, s) = gv {
+            if let GlobalType::UserType(tok, UserTypeOptions::ConcreteType(Type::Struct(s))) = gv {
                 asm.push(tok.to_asm(AsmToken::LocationComment(format!(
                     "+struct({}) {}",
                     tok,
@@ -473,24 +495,17 @@ impl CompilingState {
         }
     }
 
-    pub fn get_struct(&self, name: &Token) -> Result<Rc<StructDefinition>, TokenError> {
-        if let Some(GlobalType::Structure(_, s)) = self.global_scope.get(name.get_value()) {
-            Ok(s.clone())
-        } else {
-            Err(name
-                .clone()
-                .into_err("no structure with provided name found"))
-        }
+    pub fn add_user_type(&mut self, name: Token, ty: UserTypeOptions) -> Result<(), TokenError> {
+        self.add_to_global_scope(GlobalType::UserType(name, ty))?;
+        self.update_user_types();
+        Ok(())
     }
 
-    pub fn get_opaque_type(&self, name: &Token) -> Result<String, TokenError> {
-        if let Some(GlobalType::OpaqueType(t)) = self.global_scope.get(name.get_value()) {
-            Ok(t.get_value().to_string())
-        } else {
-            Err(name
-                .clone()
-                .into_err("no structure with provided name found"))
-        }
+    pub fn get_user_type(&self, name: &Token) -> Result<UserTypeReference, TokenError> {
+        Ok(UserTypeReference {
+            name: name.clone(),
+            db: self.user_types.clone(),
+        })
     }
 
     pub fn add_global_var(&mut self, def: VariableDefinition) -> Result<(), TokenError> {
@@ -501,6 +516,15 @@ impl CompilingState {
             def.init_expr,
         )?);
         self.add_to_global_scope(GlobalType::Variable(var))
+    }
+
+    pub fn add_type_alias(&mut self, token: Token, alias_type: Type) -> Result<(), TokenError> {
+        self.add_to_global_scope(GlobalType::UserType(
+            token,
+            UserTypeOptions::ConcreteType(alias_type),
+        ))?;
+        self.update_user_types();
+        Ok(())
     }
 
     pub fn add_string_literal(&mut self, token: &Token) -> Result<Rc<dyn Expression>, TokenError> {
@@ -527,41 +551,34 @@ impl CompilingState {
         tv.types.clear();
 
         for (n, v) in self.global_scope.iter() {
-            if let GlobalType::Structure(_, s) = v {
-                tv.types
-                    .insert(n.clone(), UserTypeOptions::Struct(s.clone()));
-            } else if let GlobalType::OpaqueType(t) = v {
-                tv.types
-                    .insert(n.clone(), UserTypeOptions::OpaqueType(t.clone()));
+            if let GlobalType::UserType(_, t) = v {
+                tv.types.insert(n.clone(), t.clone());
             }
         }
     }
 
-    pub fn get_user_type_db(&self) -> Rc<RefCell<UserTypes>> {
-        self.user_types.clone()
-    }
-
-    pub fn add_opaque_type(&mut self, name: Token) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::OpaqueType(name))?;
-        self.update_user_types();
-        Ok(())
-    }
-
-    pub fn upgrade_opaque_type(
-        &mut self,
-        name: Token,
-        s: Rc<StructDefinition>,
-    ) -> Result<(), TokenError> {
-        if self.get_opaque_type(&name)? == name.get_value() {
-            self.global_scope
-                .insert(name.get_value().to_string(), GlobalType::Structure(name, s));
-            self.update_user_types();
-            Ok(())
-        } else {
-            Err(name.clone().into_err(format!(
+    pub fn upgrade_opaque_type(&mut self, name: Token, ty: Type) -> Result<(), TokenError> {
+        let ret = match self.global_scope.entry(name.get_value().to_string()) {
+            Entry::Occupied(mut e) => {
+                let valid = match e.get() {
+                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
+                    _ => {
+                        return Err(name
+                            .clone()
+                            .into_err("unable to find opaque type with provided name"));
+                    }
+                };
+                *e.get_mut() = GlobalType::UserType(valid, UserTypeOptions::ConcreteType(ty));
+                Ok(())
+            }
+            _ => Err(name.clone().into_err(format!(
                 "opaque type with provided name {name} not found for upgrade"
-            )))
-        }
+            ))),
+        };
+
+        self.update_user_types();
+
+        ret
     }
 
     fn add_to_global_scope(&mut self, t: GlobalType) -> Result<(), TokenError> {

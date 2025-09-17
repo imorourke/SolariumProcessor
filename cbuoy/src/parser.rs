@@ -5,9 +5,9 @@ use crate::{
     functions::{AsmFunctionDefinition, StandardFunctionDefinition, StandardFunctionType},
     tokenizer::{
         KEYWORD_ASMFN, KEYWORD_CONST, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_GLOBAL, KEYWORD_STRUCT,
-        TokenError, TokenIter, tokenize,
+        KEYWORD_USING, TokenError, TokenIter, tokenize,
     },
-    typing::StructDefinition,
+    typing::{StructDefinition, Type},
     variables::VariableDefinition,
 };
 
@@ -39,6 +39,17 @@ pub fn parse(s: &str) -> Result<Vec<AsmTokenLoc>, TokenError> {
             AsmFunctionDefinition::parse(&mut token_iter, &mut state)?;
         } else if next == KEYWORD_STRUCT {
             StructDefinition::read_definition(&mut token_iter, &mut state)?;
+        } else if next == KEYWORD_USING {
+            token_iter.expect(KEYWORD_USING)?;
+            let alias_token = token_iter.next()?;
+
+            token_iter.expect("=")?;
+
+            let type_val = Type::read_type(&mut token_iter, &mut state)?;
+
+            token_iter.expect(";")?;
+
+            state.add_type_alias(alias_token, type_val)?;
         } else {
             return Err(token_iter
                 .next()?

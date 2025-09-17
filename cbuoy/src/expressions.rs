@@ -16,7 +16,7 @@ use crate::{
     TokenError,
     compiler::{CompilingState, Statement},
     literals::{Literal, LiteralValue},
-    tokenizer::{Token, TokenIter, get_identifier},
+    tokenizer::{KEYWORD_SIZEOF, Token, TokenIter, get_identifier, is_identifier},
     typing::{StructDefinition, StructField, Type},
     utilities::{MemcpyStatement, load_to_register},
     variables::LocalVariable,
@@ -1021,6 +1021,100 @@ impl Expression for AssignmentExpression {
 }
 
 #[derive(Debug, Clone)]
+struct ArrayIndexExpression {
+    token: Token,
+    address_expr: Rc<dyn Expression>,
+    index_expr: Rc<dyn Expression>,
+}
+
+impl Display for ArrayIndexExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({})[{}]", self.address_expr, self.index_expr)
+    }
+}
+
+impl Expression for ArrayIndexExpression {
+    fn get_token(&self) -> &Token {
+        &self.token
+    }
+
+    fn get_type(&self) -> Result<Type, TokenError> {
+        match self.address_expr.get_type()? {
+            Type::Array(_, inner) => Ok(inner.as_ref().clone()),
+            Type::Pointer(inner) => Ok(inner.as_ref().clone()),
+            v => Err(self.token.clone().into_err(format!(
+                "unable to convert from `{}` into a valid array type",
+                v
+            ))),
+        }
+    }
+
+    fn load_address_to_register(
+        &self,
+        reg: RegisterDef,
+        required_stack: &mut TemporaryStackTracker,
+    ) -> Result<ExpressionData, TokenError> {
+        let mut asm = self
+            .address_expr
+            .load_address_to_register(reg, required_stack)?;
+
+        let pt = self.index_expr.get_primitive_type()?;
+        if !pt.integral() {
+            return Err(self
+                .index_expr
+                .get_token()
+                .clone()
+                .into_err("unable to convert into an integer value for index operator"));
+        }
+
+        let index_reg = reg.increment_token(&self.token)?;
+
+        asm.append(match self.index_expr.simplify() {
+            Some(lit) => lit.load_value_to_register(index_reg, required_stack)?,
+            None => self
+                .index_expr
+                .load_value_to_register(index_reg, required_stack)?,
+        });
+
+        asm.extend_asm(self.token.to_asm_iter(load_to_register(
+            reg.spare,
+            self.get_type()?.byte_size() as u32,
+        )));
+
+        asm.extend_asm(self.token.to_asm_iter([
+            AsmToken::OperationLiteral(Box::new(OpMul::new(
+                ArgumentType::new(index_reg.reg, DataType::I32),
+                index_reg.reg.into(),
+                reg.spare.into(),
+            ))),
+            AsmToken::OperationLiteral(Box::new(OpAdd::new(
+                ArgumentType::new(reg.reg, DataType::I32),
+                reg.reg.into(),
+                index_reg.reg.into(),
+            ))),
+        ]));
+
+        Ok(asm)
+    }
+
+    fn load_value_to_register(
+        &self,
+        reg: RegisterDef,
+        required_stack: &mut TemporaryStackTracker,
+    ) -> Result<ExpressionData, TokenError> {
+        let mut asm = self.load_address_to_register(reg, required_stack)?;
+        asm.push_asm(
+            self.token
+                .to_asm(AsmToken::OperationLiteral(Box::new(OpLd::new(
+                    ArgumentType::new(reg.reg, self.get_primitive_type()?),
+                    reg.reg.into(),
+                )))),
+        );
+        Ok(asm)
+    }
+}
+
+#[derive(Debug, Clone)]
 struct FunctionCallExpression {
     token: Token,
     args: Vec<Rc<dyn Expression>>,
@@ -1264,6 +1358,22 @@ fn parse_expression_without_binary_expressions(
         let inner = parse_expression(tokens, state)?;
         tokens.expect(")")?;
         inner
+    } else if first.get_value() == KEYWORD_SIZEOF {
+        tokens.expect("(")?;
+        let input_t = if let Some(next_token) = tokens.peek()
+            && is_identifier(next_token.get_value())
+            && let Ok(var) = state.get_variable(&next_token)
+        {
+            tokens.next()?;
+            var.get_type()?
+        } else {
+            Type::read_type(tokens, state)?
+        };
+        tokens.expect(")")?;
+        Rc::new(Literal::new(
+            first.clone(),
+            LiteralValue::U32(input_t.byte_size() as u32),
+        ))
     } else if get_identifier(&first).is_ok() {
         state.get_variable(&first)?.clone()
     } else if first.get_value().starts_with('"') {
@@ -1311,6 +1421,21 @@ fn parse_expression_without_binary_expressions(
                 func: expr,
                 args,
             });
+        } else if next.get_value() == "[" {
+            let array_token = tokens.expect("[")?;
+            let index_expr = AsExpression {
+                data_type: Type::Primitive(DataType::U32),
+                token: array_token.clone(),
+                expr: parse_expression(tokens, state)?,
+            };
+
+            expr = Rc::new(ArrayIndexExpression {
+                token: array_token,
+                address_expr: expr,
+                index_expr: Rc::new(index_expr),
+            });
+
+            tokens.expect("]")?;
         } else {
             break;
         }

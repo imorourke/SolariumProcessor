@@ -347,6 +347,8 @@ impl TokenIter<'_> {
 }
 
 pub const KEYWORD_IF: &str = "if";
+pub const KEYWORD_USING: &str = "using";
+pub const KEYWORD_SIZEOF: &str = "sizeof";
 pub const KEYWORD_WHILE: &str = "while";
 pub const KEYWORD_ELSE: &str = "else";
 pub const KEYWORD_GLOBAL: &str = "global";
@@ -364,6 +366,8 @@ pub const KEYWORD_RETURN: &str = "return";
 static RESERVED_KEYWORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
     let keywords = [
         KEYWORD_IF,
+        KEYWORD_USING,
+        KEYWORD_SIZEOF,
         KEYWORD_WHILE,
         KEYWORD_ELSE,
         KEYWORD_GLOBAL,
