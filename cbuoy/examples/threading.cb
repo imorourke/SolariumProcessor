@@ -5,12 +5,16 @@ global THREAD_STACK: [STACK_NUM]thread_stack_t;
 
 global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
 
-asmfn inton() void {
+asmfn scheduler() void {
+    "intoff";
     "inton";
+    "retint";
 }
 
-asmfn intoff() void {
+asmfn tsk_yield() void {
     "intoff";
+    "inton";
+    "retin";
 }
 
 asmfn print(c: *u8) void {

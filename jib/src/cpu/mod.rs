@@ -388,6 +388,7 @@ impl Processor {
         code: 5,
     };
 
+    /// Creates a new Jib CPU with an empty memory map
     pub fn new() -> Self {
         Self {
             memory: MemoryMap::default(),
@@ -398,6 +399,7 @@ impl Processor {
         }
     }
 
+    /// Resets the current CPU based on the given soft/hard reset vector
     pub fn reset(&mut self, reset_type: ResetType) -> Result<(), ProcessorError> {
         if ResetType::Hard == reset_type {
             self.memory.reset();
@@ -421,11 +423,13 @@ impl Processor {
         Ok(())
     }
 
+    /// Provides the current state of the registers
     pub fn get_register_state(&self) -> RegisterManager {
         self.registers
     }
 
-    pub fn interrupt_address(int: Interrupt) -> Result<u32, ProcessorError> {
+    /// provides the resulting address at the given interrupt vector for the specified interrupt
+    fn interrupt_address(int: Interrupt) -> Result<u32, ProcessorError> {
         let (base, num) = match int {
             Interrupt::Software(n) => (Self::BASE_SW_INT_ADDR, n),
             Interrupt::Hardware(n) => (Self::BASE_HW_INT_ADDR, n),
@@ -438,6 +442,9 @@ impl Processor {
         }
     }
 
+    /// Queues an interrupt for processing. If an interrupt is already queued, the lower-numbered interrupt
+    /// will be kept and the higher-numbered interrupt will be dropped. Hardware interrupts have a higher
+    /// priority than software interrupts.
     fn queue_interrupt(&mut self, int: Interrupt) -> Result<bool, ProcessorError> {
         if let Some(current) = self.interrupt_hold {
             if int < current {
@@ -470,16 +477,12 @@ impl Processor {
 
         // Obtain the desired value from the program counter
         let new_pc = self.memory.get_u32(Self::interrupt_address(int)?)?;
-
-        // Return false if the vector value is 0 (Disabled)
         if new_pc == 0 {
             return Ok(false);
         }
 
-        // Push all register values to the stack
-        self.push_all_registers()?;
-
         // Update the program counter to the value in the interrupt vector
+        self.push_all_registers()?;
         self.registers.set(Register::ProgramCounter, new_pc)?;
 
         // Return true if the interrupt was called
