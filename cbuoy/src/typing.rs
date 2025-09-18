@@ -82,6 +82,8 @@ impl Type {
     pub fn primitive_type(&self) -> Option<DataType> {
         if let Some(Self::Primitive(p)) = self.base_type() {
             Some(p)
+        } else if let Self::Function(_) = &self {
+            Some(DataType::U32)
         } else {
             None
         }

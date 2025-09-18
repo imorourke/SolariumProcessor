@@ -435,7 +435,7 @@ impl Expression for FunctionLabelExpr {
         Ok(Type::Function(Rc::new(self.dtype.clone())))
     }
 
-    fn load_value_to_register(
+    fn load_address_to_register(
         &self,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
@@ -448,6 +448,14 @@ impl Expression for FunctionLabelExpr {
             AsmToken::LoadLoc(self.entry_label.clone()),
         ];
         Ok(ExpressionData::new(self.name.to_asm_iter(asm)))
+    }
+
+    fn load_value_to_register(
+        &self,
+        reg: RegisterDef,
+        required_stack: &mut TemporaryStackTracker,
+    ) -> Result<ExpressionData, TokenError> {
+        self.load_address_to_register(reg, required_stack)
     }
 }
 

@@ -32,24 +32,25 @@ asmfn print(c: *u8) void {
 }
 
 fn init_thread(func: fn() void) void {
+    func();
 }
 
 fn main_tsk_a() void {
-    while (1) {
+    //while (1) {
         print("TSK_A\n");
-    }
+    //}
 }
 
 fn main_tsk_b() void {
-    while (1) {
+    //while (1) {
         print("TSK_B\n");
-    }
+    //}
 }
 
 asmfn tsk_main() void {
 }
 
 fn main() void {
-    //init_thread(main_tsk_a);
-    //init_thread(main_tsk_b);
+    init_thread(main_tsk_a);
+    init_thread(main_tsk_b);
 }
