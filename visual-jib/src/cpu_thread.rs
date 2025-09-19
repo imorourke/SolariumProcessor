@@ -85,7 +85,7 @@ impl ThreadState {
             run_thread: true,
             running: false,
             multiplier: 1.0,
-            cpu: Processor::new(),
+            cpu: Processor::default(),
             serial_io_dev: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
             last_code: Vec::new(),
             memory_request: (0, 0),
@@ -185,7 +185,7 @@ impl ThreadState {
     fn reset(&mut self) -> Result<(), ProcessorError> {
         const INIT_RO_LEN: u32 = Processor::TOP_VEC_SEG_ADDR;
 
-        self.cpu = Processor::new();
+        self.cpu = Processor::default();
         self.serial_io_dev.borrow_mut().reset();
 
         self.inst_history.reset();
