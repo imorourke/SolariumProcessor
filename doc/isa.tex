@@ -65,6 +65,11 @@ The processor status flags indicate the current setup for the processor. Current
         Bit & Value \\
         \hline
         0 & Interrupt Enable \\
+        1 & Interrupt Executing \\
+        2-7 & Interrupt Number \\
+        8 & Carry \\
+        \dots & \dots \\
+        31 & \dots \\
         \hline
     \end{tabular}
     \caption{Processor status flags provide a window into the current processor state}
@@ -136,11 +141,7 @@ The stack pointer provides the absolute address of the stack pointer. The pointe
 
 \subsection{Interrupts}
 
-Interrupts provide a means to interrupt the current flow of execution and run a separate method. There are two types of interrupts - hardware interrupts, which originate by request of an external hardware device, and software interrupts, which originate from a specific instruction. When an interrupt is triggered, the flow of program execution is interrupted before the next instruction is started. The current register state is stored on the stack, and the program counter is replaced with the value in the corresponding interrupt vector. Then, the program execution continues from this new location.
-
-At the conclusion of any interrupt, the \texttt{retint} instruction should be called. This will replace the current register state with the values provided off the stack and resume program execution from the location right after the interrupt was called.
-
-It should be noted that, if any values were pushed onto the stack during the interrupt handler, they should be popped off the stack prior to the \texttt{retint} call to avoid corrupting the program state.
+Interrupts provide a means to interrupt the current flow of execution and run a separate method. There are two types of interrupts - hardware interrupts, which originate by request of an external hardware device, and software interrupts, which originate from a specific instruction. When an interrupt is triggered, the flow of program execution is interrupted before the next instruction is started. The current register state is stored on the stack, and the program counter is replaced with the value in the corresponding interrupt vector. The status register is also updated with the current interrupt execution data. Then, the program execution continues from this new location.
 
 The Jib supports 32 software and 32 hardware interrupts, as shown in Table \ref{table:interrupt-vector-locations}. The hardware interrupt vectors are stored in memory at locations \texttt{0x100} for interrupt 0 though \texttt{0x180}, exclusive, for interrupt 31. Similarly, the software interrupts are stored in memory at memory addresses \texttt{0x180} for interrupt 0 through \texttt{0x200}, exclusive, for interrupt 31.
 
@@ -158,9 +159,9 @@ The Jib supports 32 software and 32 hardware interrupts, as shown in Table \ref{
     \label{table:interrupt-vector-locations}
 \end{table}
 
-Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.
+Interrupts are processed by the interrupt controller. This stores all interrupt requests and provides the CPU the next interrupt to process based on their priority. Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run, in priority-order. 
 
-If an interrupt is not able to run immediately, due to interrupts being disabled, an interrupt request is placed into a single buffer. Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run. As this queue only has a size of one, if two interrupts are triggered at the same time, only the first interrupt will run. If multiple interrupts are queued on the same cycle, before interrupt processing can happen, the lower-numbered interrupt will be preferred and kept. Hardware interrupts have a higher priority than software interrupts, and lower-addressed interrupts of the same class have a higher priority than higher-addressed interrupts.
+At the conclusion of any interrupt, the \texttt{retint} instruction should be called. This will replace the current register state with the values provided off the stack and resume program execution from the location right after the interrupt was called. It will also clear the It should be noted that, if any values were pushed onto the stack during the interrupt handler, they should be popped off the stack prior to the \texttt{retint} call to avoid corrupting the program state. The \texttt{retint} instruction will return from the interrupt handler and allow the CPU to mark this interrupt as completed, so that it can move on to the next interrupt handler, or stop interrupt handling and resume normal operation if there are no more interrupts to be run. By clearing the interrupt execution status at the end of the handler, this prevents duplicates of the same interrupt from being run, preventing a execution errors if a hardware device spams the associated hardware interrupt.
 
 \pagebreak
 

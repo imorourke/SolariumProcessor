@@ -129,19 +129,47 @@ impl fmt::Display for RegisterError {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RegisterFlag {
     InterruptEnable,
+    InterruptExecuting,
+    InterruptValue,
     Carry,
 }
 
 impl RegisterFlag {
-    pub fn get_bit(&self) -> i32 {
+    const fn get_base_bit(&self) -> u32 {
         match self {
             Self::InterruptEnable => 0,
-            Self::Carry => 1,
+            Self::InterruptExecuting => 1,
+            Self::InterruptValue => 2,
+            Self::Carry => 8,
         }
     }
 
-    pub fn get_mask(&self) -> u32 {
-        1 << self.get_bit()
+    const fn get_mask(&self) -> u32 {
+        const fn gen_int_value_mask() -> u32 {
+            let mut i = 0;
+            let mut val = 0;
+            while i < 6 {
+                val |= 1 << i;
+                i += 1;
+            }
+            val
+        }
+
+        const INT_VAL_MASK: u32 = gen_int_value_mask();
+
+        match self {
+            Self::InterruptValue => INT_VAL_MASK,
+            _ => 1,
+        }
+    }
+
+    const fn get_value(&self, reg: u32) -> u32 {
+        (reg >> self.get_base_bit()) & self.get_mask()
+    }
+
+    const fn set_value(&self, reg: u32, val: u32) -> u32 {
+        (reg & !(self.get_mask() << self.get_base_bit()))
+            | ((val & self.get_mask()) << self.get_base_bit())
     }
 }
 
@@ -153,7 +181,7 @@ pub struct RegisterManager {
 impl RegisterManager {
     pub const REGISTER_COUNT: usize = Register::NUM_REGISTERS;
 
-    pub fn get(&self, reg: Register) -> Result<u32, RegisterError> {
+    pub const fn get(&self, reg: Register) -> Result<u32, RegisterError> {
         let ind = reg.get_index();
         if ind < self.registers.len() {
             Ok(self.registers[ind])
@@ -162,7 +190,7 @@ impl RegisterManager {
         }
     }
 
-    pub fn set(&mut self, reg: Register, val: u32) -> Result<(), RegisterError> {
+    pub const fn set(&mut self, reg: Register, val: u32) -> Result<(), RegisterError> {
         let ind = reg.get_index();
         if ind < self.registers.len() {
             self.registers[ind] = val;
@@ -172,34 +200,43 @@ impl RegisterManager {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.registers.fill(0);
+    pub const fn reset(&mut self) {
+        self.registers = [0; Self::REGISTER_COUNT];
     }
 
-    pub fn get_state(&self) -> [u32; Self::REGISTER_COUNT] {
+    pub const fn get_state(&self) -> [u32; Self::REGISTER_COUNT] {
         self.registers
     }
 
-    pub fn set_state(&mut self, values: [u32; Self::REGISTER_COUNT]) {
-        for (i, v) in values.into_iter().enumerate() {
-            self.registers[i] = v;
-        }
+    pub const fn set_state(&mut self, values: [u32; Self::REGISTER_COUNT]) {
+        self.registers = values;
     }
 
-    pub fn get_flag(&self, flag: RegisterFlag) -> Result<bool, RegisterError> {
+    pub fn get_status_flag(&self, flag: RegisterFlag) -> Result<bool, RegisterError> {
+        Ok(self.get_status_value(flag)? != 0)
+    }
+
+    pub fn set_status_flag(
+        &mut self,
+        flag: RegisterFlag,
+        value: bool,
+    ) -> Result<(), RegisterError> {
+        self.set_status_value(flag, if value { 1 } else { 0 })
+    }
+
+    pub fn get_status_value(&self, flag: RegisterFlag) -> Result<u32, RegisterError> {
         let val = self.get(Register::Status)?;
-        Ok((val & flag.get_mask()) != 0)
+        Ok(flag.get_value(val))
     }
 
-    pub fn set_flag(&mut self, flag: RegisterFlag, value: bool) -> Result<(), RegisterError> {
+    pub fn set_status_value(
+        &mut self,
+        flag: RegisterFlag,
+        value: u32,
+    ) -> Result<(), RegisterError> {
         let status = self.get(Register::Status)?;
-        let new_status = if value {
-            status | flag.get_mask()
-        } else {
-            status & !flag.get_mask()
-        };
-        self.set(Register::Status, new_status)?;
-        Ok(())
+        let new_status = flag.set_value(status, value);
+        self.set(Register::Status, new_status)
     }
 }
 

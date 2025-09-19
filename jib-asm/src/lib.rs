@@ -715,7 +715,7 @@ impl ParserState {
     }
 
     fn align_boundary(&mut self, val: u32) {
-        if val > 0 && self.addr % val != 0 {
+        if val > 0 && !self.addr.is_multiple_of(val) {
             self.addr += val - (self.addr % val);
         }
     }

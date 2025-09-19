@@ -93,14 +93,14 @@ fn main() -> std::process::ExitCode {
         Ok(r) => {
             if args.include_locations {
                 output.add_string(format!(";Program Start: {:04x}", r.start_address));
-                output.add_string(format!(";Labels:"));
+                output.add_string(";Labels:".to_string());
                 let mut locs: Vec<(u32, &String)> =
                     r.labels.iter().map(|(k, v)| (*v, k)).collect::<Vec<_>>();
                 locs.sort_by(|a, b| a.0.cmp(&b.0));
                 for (v, k) in locs {
                     output.add_string(format!(";  {v:04x} => {k}"));
                 }
-                output.add_string(format!(";Debug:"));
+                output.add_string(";Debug:".to_string());
                 for (addr, cmt) in r.debug.iter() {
                     output.add_string(format!(";  {addr:04x} => {cmt}"));
                 }

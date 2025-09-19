@@ -11,8 +11,8 @@ use crate::device::{DeviceAction, ProcessorDevice};
 use crate::memory::{MemoryError, MemoryMap, MemorySegment};
 
 pub use self::operations::{
-    convert_types, ArithmeticOperations, BinaryOperations, OperationError, OperatorManager,
-    RelationalOperations,
+    ArithmeticOperations, BinaryOperations, OperationError, OperatorManager, RelationalOperations,
+    convert_types,
 };
 
 use self::register::RegisterFlag;
@@ -22,6 +22,7 @@ pub use self::register::{Register, RegisterError, RegisterManager};
 pub enum ProcessorError {
     Memory(MemoryError),
     UnsupportedInterrupt(Interrupt),
+    UnknownInterruptIndex(u32),
     Register(RegisterError),
     UnknownInstruction(Instruction),
     UnsupportedDataType(Instruction, DataType),
@@ -37,6 +38,7 @@ impl fmt::Display for ProcessorError {
             Self::Memory(m) => write!(f, "Memory Error => {m}"),
             Self::DataType(dt) => write!(f, "Data Type Error => {dt}"),
             Self::UnsupportedInterrupt(i) => write!(f, "Unsupported Interrupt => {i}"),
+            Self::UnknownInterruptIndex(i) => write!(f, "Unknown Interrupt Index => {i}"),
             Self::Register(r) => write!(f, "Register Error => {r}"),
             Self::UnknownInstruction(i) => write!(f, "Unknown Instruction => {i}"),
             Self::UnsupportedDataType(i, dt) => {
@@ -119,6 +121,15 @@ pub enum Interrupt {
     Hardware(u32),
 }
 
+impl Interrupt {
+    pub const fn to_index(self) -> u32 {
+        match self {
+            Self::Hardware(x) => x,
+            Self::Software(x) => Processor::NUM_INTERRUPT_PER_CLASS + x,
+        }
+    }
+}
+
 impl core::cmp::PartialOrd for Interrupt {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
@@ -149,12 +160,75 @@ impl fmt::Display for Interrupt {
     }
 }
 
+impl TryFrom<u32> for Interrupt {
+    type Error = ProcessorError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        if value < Processor::NUM_INTERRUPT_PER_CLASS {
+            Ok(Self::Hardware(value))
+        } else if value < InterruptController::NUM_INTERRUPTS {
+            Ok(Self::Software(value - Processor::NUM_INTERRUPT_PER_CLASS))
+        } else {
+            Err(ProcessorError::UnknownInterruptIndex(value))
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct InterruptController {
+    interrupts: u64,
+}
+
+impl InterruptController {
+    /// The total number of supported interrupts allowed by the controller
+    const NUM_INTERRUPTS: u32 = u64::BITS;
+
+    /// Determines the highest-priority interrupt to trigger next
+    pub fn has_interrupt(&self) -> Option<u32> {
+        // We want to find the minum bit set in the integer.
+        // To do this, we will reverse the bits and take the ilog2. Without reversing,
+        // this will give the maximum bit set. Therefore, by reversing, this will give us
+        // the minimum bit set. Because ilog2 rounds down, after reversing, we will have to
+        // add one back, so that 0b1 yields a value of 0, 0b0 yields None, and 0b10 yields 1.
+        self.interrupts
+            .reverse_bits()
+            .checked_ilog2()
+            .map(|x| u64::BITS - (x + 1))
+    }
+
+    /// Queue an interrupt for processing
+    pub fn queue_interrupt(&mut self, index: u32) -> Result<(), ProcessorError> {
+        if index < Self::NUM_INTERRUPTS {
+            self.interrupts |= 1 << index;
+            Ok(())
+        } else {
+            Err(ProcessorError::UnknownInterruptIndex(index))
+        }
+    }
+
+    /// Clear a given interrupt after processing
+    pub fn clear_interrupt(&mut self, index: u32) -> Result<(), ProcessorError> {
+        if index < Self::NUM_INTERRUPTS {
+            self.interrupts &= !(1 << index);
+            Ok(())
+        } else {
+            Err(ProcessorError::UnknownInterruptIndex(index))
+        }
+    }
+
+    /// Resets the interrupt controller
+    pub fn reset(&mut self) {
+        self.interrupts = 0;
+    }
+}
+
+#[derive(Default)]
 pub struct Processor {
     memory: MemoryMap,
     devices: Vec<Rc<RefCell<dyn ProcessorDevice>>>,
     registers: RegisterManager,
     operator_manager: OperatorManager,
-    interrupt_hold: Option<Interrupt>,
+    interrupt_controller: InterruptController,
 }
 
 impl Processor {
@@ -167,17 +241,19 @@ impl Processor {
     /// Defines the number of hard reset location
     pub const SOFT_RESET_VECTOR: u32 = Self::BYTES_PER_WORD;
 
-    /// Defines the number of supported interrupts
-    pub const NUM_INTERRUPT: u32 = 32;
+    /// Defines the number of supported interrupts per interrupt class
+    pub const NUM_INTERRUPT_PER_CLASS: u32 = InterruptController::NUM_INTERRUPTS / 2;
 
     ///Providesthe base address for the hardware interrupts
     pub const BASE_HW_INT_ADDR: u32 = 0x100;
 
     /// Provides the base address for the software interrupts
-    pub const BASE_SW_INT_ADDR: u32 = Self::BYTES_PER_WORD * Self::NUM_INTERRUPT;
+    pub const BASE_SW_INT_ADDR: u32 =
+        Self::BASE_HW_INT_ADDR + Self::BYTES_PER_WORD * Self::NUM_INTERRUPT_PER_CLASS;
 
     /// Provides the top address (next free address) after the vector memory segments
-    pub const TOP_VEC_SEG_ADDR: u32 = Self::BASE_SW_INT_ADDR * Self::NUM_INTERRUPT;
+    pub const TOP_VEC_SEG_ADDR: u32 =
+        Self::BASE_SW_INT_ADDR + Self::BYTES_PER_WORD * Self::NUM_INTERRUPT_PER_CLASS;
 
     const OP_BASE_CPU: u8 = 0;
     pub const OP_NOOP: Opcode = Opcode {
@@ -388,17 +464,6 @@ impl Processor {
         code: 5,
     };
 
-    /// Creates a new Jib CPU with an empty memory map
-    pub fn new() -> Self {
-        Self {
-            memory: MemoryMap::default(),
-            devices: Vec::new(),
-            registers: RegisterManager::default(),
-            operator_manager: OperatorManager::default(),
-            interrupt_hold: None,
-        }
-    }
-
     /// Resets the current CPU based on the given soft/hard reset vector
     pub fn reset(&mut self, reset_type: ResetType) -> Result<(), ProcessorError> {
         if ResetType::Hard == reset_type {
@@ -416,9 +481,9 @@ impl Processor {
             self.memory.get_u32(reset_vec_addr)?,
         )?;
         self.registers
-            .set_flag(RegisterFlag::InterruptEnable, true)?;
+            .set_status_flag(RegisterFlag::InterruptEnable, true)?;
 
-        self.interrupt_hold = None;
+        self.interrupt_controller.reset();
 
         Ok(())
     }
@@ -435,7 +500,7 @@ impl Processor {
             Interrupt::Hardware(n) => (Self::BASE_HW_INT_ADDR, n),
         };
 
-        if num < Self::NUM_INTERRUPT {
+        if num < Self::NUM_INTERRUPT_PER_CLASS {
             Ok(base + num * Self::BYTES_PER_WORD)
         } else {
             Err(ProcessorError::UnsupportedInterrupt(int))
@@ -443,41 +508,32 @@ impl Processor {
     }
 
     /// Queues an interrupt for processing. If an interrupt is already queued, the lower-numbered interrupt
-    /// will be kept and the higher-numbered interrupt will be dropped. Hardware interrupts have a higher
+    /// will have priority. Hardware interrupts have a higher
     /// priority than software interrupts.
     fn queue_interrupt(&mut self, int: Interrupt) -> Result<bool, ProcessorError> {
-        if let Some(current) = self.interrupt_hold {
-            if int < current {
-                self.interrupt_hold = Some(int);
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            self.interrupt_hold = Some(int);
-            Ok(true)
-        }
+        self.interrupt_controller.queue_interrupt(int.to_index())?;
+        Ok(true)
     }
 
     pub fn trigger_hardware_interrupt(&mut self, num: u32) -> Result<bool, ProcessorError> {
-        let int = Interrupt::Hardware(num);
-        let res: Result<bool, ProcessorError> = self.call_interrupt(int);
-        if let Ok(false) = res {
-            self.queue_interrupt(int)
-        } else {
-            res
-        }
+        self.interrupt_controller
+            .queue_interrupt(Interrupt::Hardware(num).to_index())?;
+        Ok(true)
     }
 
     fn call_interrupt(&mut self, int: Interrupt) -> Result<bool, ProcessorError> {
         // Return false if interrupts are not allowed
-        if !self.registers.get_flag(RegisterFlag::InterruptEnable)? {
+        if !self
+            .registers
+            .get_status_flag(RegisterFlag::InterruptEnable)?
+        {
             return Ok(false);
         }
 
         // Obtain the desired value from the program counter
         let new_pc = self.memory.get_u32(Self::interrupt_address(int)?)?;
         if new_pc == 0 {
+            self.interrupt_controller.clear_interrupt(int.to_index())?;
             return Ok(true);
         }
 
@@ -491,10 +547,40 @@ impl Processor {
 
         // Update the program counter to the value in the interrupt vector
         self.push_all_registers()?;
+        self.set_executing_interrupt(Some(int.to_index()))?;
         self.registers.set(Register::ProgramCounter, new_pc)?;
 
         // Return true if the interrupt was called
         Ok(true)
+    }
+
+    fn get_executing_interrupt(&self) -> Result<Option<u32>, ProcessorError> {
+        if self
+            .registers
+            .get_status_flag(RegisterFlag::InterruptExecuting)?
+        {
+            Ok(Some(
+                self.registers
+                    .get_status_value(RegisterFlag::InterruptValue)?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_executing_interrupt(&mut self, int: Option<u32>) -> Result<(), ProcessorError> {
+        if let Some(index) = int {
+            self.registers
+                .set_status_flag(RegisterFlag::InterruptExecuting, true)?;
+            self.registers
+                .set_status_value(RegisterFlag::InterruptValue, index)?;
+        } else {
+            self.registers
+                .set_status_flag(RegisterFlag::InterruptExecuting, false)?;
+            self.registers
+                .set_status_value(RegisterFlag::InterruptValue, 0)?;
+        }
+        Ok(())
     }
 
     fn push_all_registers(&mut self) -> Result<(), ProcessorError> {
@@ -571,23 +657,32 @@ impl Processor {
     }
 
     pub fn step(&mut self) -> Result<(), ProcessorError> {
+        // Run the next interrupt if there is an interrupt queued and either:
+        // (1) no interrupt is currently running
+        // (2) the next interrupt has a lower number
+        if let Some(next_interrupt) = self.interrupt_controller.has_interrupt()
+            && self
+                .get_executing_interrupt()?
+                .is_none_or(|x| next_interrupt < x)
+        {
+            self.call_interrupt(next_interrupt.try_into()?)?;
+        }
+
         let mut inst_jump = Some(1);
 
         let pc = self.get_current_pc()?;
         let inst = Instruction::from(self.memory.get_u32(pc)?);
         let opcode = Opcode::from(inst.opcode());
 
-        // TODO - Jump Condition
-
         match opcode {
             Self::OP_NOOP | Self::OP_DEBUG_BREAK => (),
             Self::OP_RESET => self.reset(ResetType::Soft)?,
             Self::OP_INTERRUPT_ENABLE => self
                 .registers
-                .set_flag(RegisterFlag::InterruptEnable, true)?,
+                .set_status_flag(RegisterFlag::InterruptEnable, true)?,
             Self::OP_INTERRUPT_DISABLE => self
                 .registers
-                .set_flag(RegisterFlag::InterruptEnable, false)?,
+                .set_status_flag(RegisterFlag::InterruptEnable, false)?,
             Self::OP_INTERRUPT => {
                 self.queue_interrupt(Interrupt::Software(inst.imm_unsigned()))?;
             }
@@ -613,6 +708,12 @@ impl Processor {
                 inst_jump = None;
             }
             Self::OP_RETURN | Self::OP_INTERRUPT_RETURN => {
+                // Clear the currently-executing interrupt if we are returning from an interrupt
+                if opcode == Self::OP_INTERRUPT_RETURN
+                    && let Some(index) = self.get_executing_interrupt()?
+                {
+                    self.interrupt_controller.clear_interrupt(index)?;
+                }
                 self.pop_all_registers(opcode == Self::OP_RETURN)?;
                 inst_jump = None;
             }
@@ -785,7 +886,8 @@ impl Processor {
                 };
 
                 self.registers.set(inst.arg0_register(), res.val)?;
-                self.registers.set_flag(RegisterFlag::Carry, res.carry)?;
+                self.registers
+                    .set_status_flag(RegisterFlag::Carry, res.carry)?;
             }
             Opcode {
                 base: Self::OP_BASE_BITS,
@@ -807,7 +909,8 @@ impl Processor {
                 };
 
                 self.registers.set(inst.arg0_register(), res.val)?;
-                self.registers.set_flag(RegisterFlag::Carry, res.carry)?;
+                self.registers
+                    .set_status_flag(RegisterFlag::Carry, res.carry)?;
             }
             Opcode {
                 base: Self::OP_BASE_TEST,
@@ -851,13 +954,6 @@ impl Processor {
             }
         }
 
-        // Save the resulting values
-        if let Some(int) = self.interrupt_hold {
-            if self.call_interrupt(int)? {
-                self.interrupt_hold = None;
-            }
-        }
-
         Ok(())
     }
 
@@ -884,8 +980,25 @@ impl Processor {
     }
 }
 
-impl Default for Processor {
-    fn default() -> Self {
-        Self::new()
+#[cfg(test)]
+mod test {
+    use crate::cpu::InterruptController;
+
+    #[test]
+    fn interrupt_manager_min_bit() {
+        let mut manager = InterruptController { interrupts: 0 };
+        assert_eq!(manager.has_interrupt(), None);
+
+        manager.interrupts = 0b111;
+        assert_eq!(manager.has_interrupt(), Some(0));
+
+        manager.interrupts = 0b110;
+        assert_eq!(manager.has_interrupt(), Some(1));
+
+        manager.interrupts = 0b100;
+        assert_eq!(manager.has_interrupt(), Some(2));
+
+        manager.interrupts = 0b101;
+        assert_eq!(manager.has_interrupt(), Some(0));
     }
 }
