@@ -289,7 +289,7 @@ impl UserTypeReference {
                             .clone()
                             .into_err("recursive type definition found"))
                     } else {
-                        Ok(Type::OpaqueType(self.clone()))
+                        Ok(Type::Opaque(self.clone()))
                     }
                 }
             }

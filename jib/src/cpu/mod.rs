@@ -161,10 +161,10 @@ impl Processor {
     /// Defines the number of bytes per memory address (size of the default memory word)
     pub const BYTES_PER_WORD: u32 = core::mem::size_of::<u32>() as u32;
 
-    /// Defines the hard reset vector number
+    /// Defines the hard reset vector location
     pub const HARD_RESET_VECTOR: u32 = 0;
 
-    /// Defines the hard reset vector number
+    /// Defines the number of hard reset location
     pub const SOFT_RESET_VECTOR: u32 = Self::BYTES_PER_WORD;
 
     /// Defines the number of supported interrupts
@@ -429,7 +429,7 @@ impl Processor {
     }
 
     /// provides the resulting address at the given interrupt vector for the specified interrupt
-    fn interrupt_address(int: Interrupt) -> Result<u32, ProcessorError> {
+    pub fn interrupt_address(int: Interrupt) -> Result<u32, ProcessorError> {
         let (base, num) = match int {
             Interrupt::Software(n) => (Self::BASE_SW_INT_ADDR, n),
             Interrupt::Hardware(n) => (Self::BASE_HW_INT_ADDR, n),
@@ -461,7 +461,7 @@ impl Processor {
 
     pub fn trigger_hardware_interrupt(&mut self, num: u32) -> Result<bool, ProcessorError> {
         let int = Interrupt::Hardware(num);
-        let res = self.call_interrupt(int);
+        let res: Result<bool, ProcessorError> = self.call_interrupt(int);
         if let Ok(false) = res {
             self.queue_interrupt(int)
         } else {
@@ -478,7 +478,15 @@ impl Processor {
         // Obtain the desired value from the program counter
         let new_pc = self.memory.get_u32(Self::interrupt_address(int)?)?;
         if new_pc == 0 {
-            return Ok(false);
+            return Ok(true);
+        }
+
+        // Increment the program counter before calling if it is currently on a HALT instruction
+        if self.get_current_op()? == Self::OP_HALT {
+            self.registers.set(
+                Register::ProgramCounter,
+                self.get_current_pc()? + Self::BYTES_PER_WORD,
+            )?;
         }
 
         // Update the program counter to the value in the interrupt vector
@@ -544,14 +552,28 @@ impl Processor {
         Ok(())
     }
 
+    pub fn get_current_pc(&self) -> Result<u32, ProcessorError> {
+        let pc = self.registers.get(Register::ProgramCounter)?;
+        if pc % Self::BYTES_PER_WORD != 0 {
+            return Err(ProcessorError::OpcodeAlignment(pc));
+        }
+        Ok(pc)
+    }
+
+    pub fn get_current_inst(&self) -> Result<Instruction, ProcessorError> {
+        Ok(Instruction::from(
+            self.memory_inspect_u32(self.get_current_pc()?)?,
+        ))
+    }
+
+    pub fn get_current_op(&self) -> Result<Opcode, ProcessorError> {
+        Ok(Opcode::from(self.get_current_inst()?.opcode()))
+    }
+
     pub fn step(&mut self) -> Result<(), ProcessorError> {
         let mut inst_jump = Some(1);
 
-        let pc = self.registers.get(Register::ProgramCounter)?;
-        if pc % 4 != 0 {
-            return Err(ProcessorError::OpcodeAlignment(pc));
-        }
-
+        let pc = self.get_current_pc()?;
         let inst = Instruction::from(self.memory.get_u32(pc)?);
         let opcode = Opcode::from(inst.opcode());
 
@@ -706,7 +728,7 @@ impl Processor {
                         }
                     }
                 } else {
-                    return Err(ProcessorError::UnsupportedDataType(inst, dt.into()));
+                    return Err(ProcessorError::UnsupportedDataType(inst, dt));
                 }
             }
             Self::OP_SAVE | Self::OP_SAVE_REL => {
@@ -859,21 +881,6 @@ impl Processor {
 
         self.registers.set(Register::StackPointer, sp_curr)?;
         Ok(self.memory.get_u32(sp_curr)?)
-    }
-
-    pub fn get_current_pc(&self) -> Result<u32, ProcessorError> {
-        Ok(self.registers.get(Register::ProgramCounter)?)
-    }
-
-    pub fn get_current_inst(&self) -> Result<Instruction, ProcessorError> {
-        Ok(Instruction::from(
-            self.memory_inspect_u32(self.get_current_pc()?)?,
-        ))
-    }
-
-    pub fn get_current_op(&self) -> Result<Opcode, ProcessorError> {
-        let inst = self.get_current_inst()?;
-        Ok(Opcode::from(inst.opcode()))
     }
 }
 

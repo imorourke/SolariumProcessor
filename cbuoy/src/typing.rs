@@ -17,7 +17,7 @@ pub enum Type {
     Array(usize, Box<Self>),
     Struct(Rc<StructDefinition>),
     Function(Rc<Function>),
-    OpaqueType(UserTypeReference),
+    Opaque(UserTypeReference),
 }
 
 impl Type {
@@ -64,7 +64,7 @@ impl Type {
             Self::Array(size, t) => size * t.byte_size(),
             Self::Struct(s) => s.fields.values().map(|v| v.dtype.byte_size()).sum(),
             Self::Function(_) => DataType::U32.byte_size(),
-            Self::OpaqueType(_) => 0,
+            Self::Opaque(_) => 0,
         }
     }
 
@@ -75,7 +75,7 @@ impl Type {
             Self::Array(_, t) => Some(t.as_ref().clone()),
             Self::Struct(_) => None,
             Self::Function(_) => None,
-            Self::OpaqueType(r) => r.get_type(true).map_or(None, |x| Some(x)),
+            Self::Opaque(r) => r.get_type(true).ok(),
         }
     }
 
@@ -117,7 +117,7 @@ impl Display for Type {
                     .as_ref()
                     .map_or("void".to_string(), |r| r.to_string())
             ),
-            Self::OpaqueType(r) => write!(f, "&{}", r.name.get_value()),
+            Self::Opaque(r) => write!(f, "&{}", r.name.get_value()),
         }
     }
 }
