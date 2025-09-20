@@ -2,11 +2,13 @@
 
 members = [
     "cbuoy",
+    "cbc",
     "jib-asm",
     "jib",
-    "visual-jib", "cbc",
+    "visual-jib-gtk",
+    "visual-jib-egui",
 ]
-default-members = ["visual-jib"]
+default-members = ["visual-jib-egui"]
 resolver = "2"
 
 [profile.release]

@@ -1,0 +1,11 @@
+[package]
+name = "visual-jib-egui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jib = { path = "../jib", version = "*" }
+jib-asm = { path = "../jib-asm", version = "*" }
+cbuoy = { path = "../cbuoy", version = "*" }
+eframe = "0.32"
+image = "0.25"
