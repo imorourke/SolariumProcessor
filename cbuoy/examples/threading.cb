@@ -1,6 +1,7 @@
 const STACK_SIZE: u32 = 1024;
 const STACK_NUM: u32 = 4;
 global THREAD_NUM: u32 = 0;
+global THREAD_CURR: u32 = 0;
 
 struct thread_stack_t {
     last_ptr: u32;
@@ -43,11 +44,11 @@ asmfn print(c: *u8) void {
 
 fn init_thread(func: fn() void) void {
     if (THREAD_NUM < STACK_NUM) {
+        def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
         def current_stack: *u8 = THREAD_STACK[THREAD_NUM].stack;
-        def current: *u32 = current_stack : *u32;
-        current[0] = func;
-        current[2] = (current_stack : u32) + 32 * 4;
-        THREAD_STACK[THREAD_NUM].last_ptr = current[2];
+        current_stack[0] = func;
+        current_stack[2] = (current_stack : u32) + 32 * 4;
+        (*current).last_ptr = current_stack[2];
         THREAD_NUM = THREAD_NUM + 1;
     } else {
         print("Exceed allowed thread count\n");
@@ -67,6 +68,16 @@ fn main_tsk_b() void {
 }
 
 asmfn tsk_main() void {
+    "ldn 8:u32";
+    ".loadloc %{THREAD_NUM}%";
+    "ld 8:u32 8";
+    "tz 8";
+    "ret";
+    "ldn 9:u32";
+    ".loadloc %{THREAD_STACK}%";
+    "ld 9:u32 9";
+    "copy $sp 9";
+    "ret";
 }
 
 fn main() void {
