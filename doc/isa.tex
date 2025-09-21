@@ -548,6 +548,7 @@ To combat this, Jib assembly code can also be mixed in with functions to increas
         Global Literal Value & \texttt{\textasciicircum\{IDENTIFIER\}\textasciicircum} & Provides the raw value of the \\ & & provided literal/constant at the global scope \\
         Local Variable Offset & \texttt{@\{IDENTIFIER\}@ } & Provides the offset (from the argument base) \\ & & for the given local variable or function parameter \\
         Member Offset & \texttt{\&\{IDENTIFIER\}\&} & Provides the offset of the provided \\ & & structure member value \\
+        \texttt{sizeof} & \texttt{\#\{IDENTIFIER\}\#} & Provides the \texttt{sizeof} for the provided \\ & & type or symbol \\
         \hline
     \end{tabular}
     \caption{Formats for parameters that are replaced in the assembly code with the resulting value for better interoperability with the overall function}

@@ -15,7 +15,7 @@ use crate::{
     expressions::{Expression, RegisterDef, TemporaryStackTracker},
     functions::FunctionDefinition,
     literals::{Literal, StringLiteral},
-    tokenizer::{Token, get_identifier},
+    tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize},
     typing::{FunctionParameter, Type},
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
@@ -310,7 +310,7 @@ impl PartialEq for UserTypeReference {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompilingState {
     init_loc: u32,
     statements: Vec<Rc<dyn GlobalStatement>>,
@@ -649,5 +649,36 @@ impl CompilingState {
                 _ => None,
             })
         })
+    }
+
+    pub fn get_identifier_type(&self, name: &str) -> Option<Type> {
+        if is_identifier(name) {
+            if let Some(lv_type) = self.scope_manager.as_ref().and_then(|sm| {
+                sm.get_variable_name(name).and_then(|x| match x {
+                    ScopeVariables::Local(x) => x.get_type().ok(),
+                    _ => None,
+                })
+            }) {
+                return Some(lv_type);
+            } else if let Some(g_type) = self.global_scope.get(name) {
+                match g_type {
+                    GlobalType::Variable(v) => return v.get_type().ok(),
+                    GlobalType::Constant(v) => return v.get_type().ok(),
+                    GlobalType::Function(f) => return f.as_expr().get_type().ok(),
+                    GlobalType::UserType(_, t) => match t {
+                        UserTypeOptions::ConcreteType(x) => return Some(x.clone()),
+                        _ => (),
+                    },
+                };
+            }
+        }
+
+        if let Some(iter) = tokenize(name).ok() {
+            let mut tokens = TokenIter::from(&iter);
+            let mut tmp = self.clone(); // TODO - Don't require cloning here if possible, read_type shouldn't need to be mutable
+            Type::read_type(&mut tokens, &mut tmp).ok()
+        } else {
+            None
+        }
     }
 }

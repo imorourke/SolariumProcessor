@@ -303,7 +303,7 @@ impl AsmFunctionDefinition {
                 unsafe impl Send for MatchFunctionValue {}
                 unsafe impl Sync for MatchFunctionValue {}
 
-                static MATCHES: LazyLock<[MatchFunctionValue; 4]> = LazyLock::new(|| {
+                static MATCHES: LazyLock<[MatchFunctionValue; 5]> = LazyLock::new(|| {
                     [
                         MatchFunctionValue::new("global_loc", "%", |state, name| {
                             state.get_global_location_label(name).map(|x| x.to_string())
@@ -318,6 +318,13 @@ impl AsmFunctionDefinition {
                         }),
                         MatchFunctionValue::new("struct_offset", "&", |_state_, _name| {
                             todo!("dtype.field offsets")
+                        }),
+                        MatchFunctionValue::new("sizeof", "#", |state, name| {
+                            if let Some(t) = state.get_identifier_type(name) {
+                                Some(format!("{}", t.byte_size()))
+                            } else {
+                                None
+                            }
                         }),
                     ]
                 });
