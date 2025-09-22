@@ -42,14 +42,49 @@ asmfn print(c: *u8) void {
     "ret";
 }
 
+fn print_digit(v: u8) void {
+    if (v < 10) {
+        *SERIAL_OUT_LOC = '0' + v;
+    } else {
+        *SERIAL_OUT_LOC = '?';
+    }
+}
+
+fn print_uint(v: u32) void {
+    def chars: [12]u8;
+    def cp: *u8 = &chars;
+    if (v == 0) {
+        print_digit(0);
+    } else {
+        while (v != 0) {
+            *cp = v % 10;
+            v = v / 10;
+            cp = cp + 1;
+        }
+        while (cp != &chars) {
+            cp = cp - 1;
+            print_digit(*cp);
+        }
+    }
+}
+
 fn init_thread(func: fn() void) void {
     if (THREAD_NUM < STACK_NUM) {
         def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
         def current_stack: *u8 = THREAD_STACK[THREAD_NUM].stack;
         current_stack[0] = func;
-        current_stack[2] = (current_stack : u32) + 32 * 4;
+        current_stack[2] = ((current_stack : *u32) + 32) : *u8;
         (*current).last_ptr = current_stack[2];
+        print("Stack Location: ");
+        print_uint((*current).last_ptr);
+        print("\n");
+        print("Stack Size: ");
+        print_uint(((*current).last_ptr : u32) - (current_stack : u32));
+        print("\n");
         THREAD_NUM = THREAD_NUM + 1;
+        print("Current Thread Count: ");
+        print_uint(THREAD_NUM);
+        print("\n");
     } else {
         print("Exceed allowed thread count\n");
     }
@@ -82,7 +117,7 @@ asmfn tsk_main() void {
 
 fn main() void {
     def irq0_loc: *u32 = 0x100;
-    *irq0_loc = scheduler();
+    *irq0_loc = scheduler;
     init_thread(main_tsk_a);
     init_thread(main_tsk_b);
     tsk_main();

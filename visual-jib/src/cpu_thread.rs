@@ -183,7 +183,7 @@ impl ThreadState {
     }
 
     fn reset(&mut self) -> Result<(), ProcessorError> {
-        const INIT_RO_LEN: u32 = Processor::TOP_VEC_SEG_ADDR;
+        const INIT_RO_LEN: u32 = Processor::BASE_HW_INT_ADDR;
 
         self.cpu = Processor::default();
         self.serial_io_dev.borrow_mut().reset();
