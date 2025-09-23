@@ -21,10 +21,10 @@ use crate::{
     },
     typing::{Function, Type},
     utilities::load_to_register,
-    variables::{LocalVariable, VariableDefinition},
+    variables::{LocalVariable, LocalVariableStatement, VariableDefinition},
 };
 
-pub trait FunctionDefinition: GlobalStatement {
+pub trait FunctionDefinition: GlobalStatement + Display {
     fn get_token(&self) -> &Token;
     fn as_expr(&self) -> Rc<dyn Expression>;
     fn get_entry_label(&self) -> &str;
@@ -251,6 +251,44 @@ impl GlobalStatement for StandardFunctionDefinition {
     }
 }
 
+impl Display for StandardFunctionDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{} {}({}) {} {{",
+            match self.func_type {
+                StandardFunctionType::Default => "fn",
+                StandardFunctionType::Interrupt => "fnint",
+            },
+            self.name.get_value(),
+            self.dtype
+                .parameters
+                .iter()
+                .map(|x| format!(
+                    "{}: {}",
+                    x.name
+                        .as_ref()
+                        .map(|x| x.get_value().to_string())
+                        .unwrap_or("?".to_string()),
+                    x.dtype
+                ))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.dtype
+                .return_type
+                .as_ref()
+                .map(|x| format!("{x}"))
+                .unwrap_or("void".to_string())
+        )?;
+
+        for s in self.statements.iter() {
+            writeln!(f, "    {s}")?;
+        }
+
+        writeln!(f, "}}")
+    }
+}
+
 #[derive(Debug)]
 pub struct AsmFunctionDefinition {
     name: Token,
@@ -423,6 +461,40 @@ impl GlobalStatement for AsmFunctionDefinition {
 
     fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(Vec::default())
+    }
+}
+
+impl Display for AsmFunctionDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "asmfn {}({}) {} {{",
+            self.name.get_value(),
+            self.dtype
+                .parameters
+                .iter()
+                .map(|x| format!(
+                    "{}: {}",
+                    x.name
+                        .as_ref()
+                        .map(|x| x.get_value().to_string())
+                        .unwrap_or("?".to_string()),
+                    x.dtype
+                ))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.dtype
+                .return_type
+                .as_ref()
+                .map(|x| format!("{x}"))
+                .unwrap_or("void".to_string())
+        )?;
+
+        for s in self.asm_text.iter() {
+            writeln!(f, "  {};", s.get_value())?;
+        }
+
+        writeln!(f, "}}")
     }
 }
 
@@ -747,7 +819,8 @@ impl Statement for ReturnStatementTempVar {
         &self,
         temporary_stack_tracker: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        let mut asm = self.temp_var.get_exec_code(temporary_stack_tracker)?;
+        let mut asm = LocalVariableStatement::new(Rc::new(self.temp_var.clone()))
+            .get_exec_code(temporary_stack_tracker)?;
 
         asm.extend(self.token.to_asm_iter([
             AsmToken::OperationLiteral(Box::new(OpLdn::new(ArgumentType::new(
@@ -850,7 +923,9 @@ fn parse_statement(
     if let Some(next) = tokens.peek() {
         if next.get_value() == KEYWORD_DEF {
             let def = VariableDefinition::parse(KEYWORD_DEF, tokens, state)?;
-            Ok(Some(state.get_scopes_mut()?.add_var(def)?))
+            Ok(Some(Rc::new(LocalVariableStatement::new(
+                state.get_scopes_mut()?.add_var(def)?,
+            ))))
         } else if next.get_value() == KEYWORD_CONST {
             let def = VariableDefinition::parse(KEYWORD_CONST, tokens, state)?;
             state.get_scopes_mut()?.add_const(def)?;

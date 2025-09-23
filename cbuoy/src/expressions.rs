@@ -356,7 +356,7 @@ impl Expression for AddressOfExpression {
 
 impl Display for AddressOfExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "*{}", self.base)
+        write!(f, "&{}", self.base)
     }
 }
 
@@ -1029,7 +1029,7 @@ struct ArrayIndexExpression {
 
 impl Display for ArrayIndexExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({})[{}]", self.address_expr, self.index_expr)
+        write!(f, "(({})[{}])", self.address_expr, self.index_expr)
     }
 }
 
@@ -1076,23 +1076,30 @@ impl Expression for ArrayIndexExpression {
                 .load_value_to_register(index_reg, required_stack)?,
         });
 
-        asm.extend_asm(self.token.to_asm_iter(load_to_register(
-            reg.spare,
-            self.get_type()?.byte_size() as u32,
-        )));
+        let type_size = self.get_type()?.byte_size() as u32;
+        if type_size != 1 {
+            asm.extend_asm(self.token.to_asm_iter(load_to_register(
+                reg.spare,
+                self.get_type()?.byte_size() as u32,
+            )));
+            asm.push_asm(
+                self.token
+                    .to_asm(AsmToken::OperationLiteral(Box::new(OpMul::new(
+                        ArgumentType::new(index_reg.reg, DataType::I32),
+                        index_reg.reg.into(),
+                        reg.spare.into(),
+                    )))),
+            );
+        }
 
-        asm.extend_asm(self.token.to_asm_iter([
-            AsmToken::OperationLiteral(Box::new(OpMul::new(
-                ArgumentType::new(index_reg.reg, DataType::I32),
-                index_reg.reg.into(),
-                reg.spare.into(),
-            ))),
-            AsmToken::OperationLiteral(Box::new(OpAdd::new(
-                ArgumentType::new(reg.reg, DataType::I32),
-                reg.reg.into(),
-                index_reg.reg.into(),
-            ))),
-        ]));
+        asm.push_asm(
+            self.token
+                .to_asm(AsmToken::OperationLiteral(Box::new(OpAdd::new(
+                    ArgumentType::new(reg.reg, DataType::I32),
+                    reg.reg.into(),
+                    index_reg.reg.into(),
+                )))),
+        );
 
         Ok(asm)
     }

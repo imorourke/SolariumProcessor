@@ -35,6 +35,13 @@ struct CompilerArguments {
         help = "Includes location/debugging information in output assembly code"
     )]
     include_locations: bool,
+    #[arg(
+        short = 'a',
+        long = "ast",
+        default_value_t = false,
+        help = "Prints the AST to the console"
+    )]
+    print_ast: bool,
 }
 
 struct CbcOutput {
@@ -75,8 +82,20 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let asm = match parse(&input_text) {
+    let cbstate = match parse(&input_text) {
         Ok(asm) => asm,
+        Err(e) => {
+            print_error(&input_text, &e);
+            return 1.into();
+        }
+    };
+
+    if args.print_ast {
+        println!("{}", cbstate.get_statements().join("\n"));
+    }
+
+    let asm = match cbstate.get_assembler() {
+        Ok(v) => v,
         Err(e) => {
             print_error(&input_text, &e);
             return 1.into();

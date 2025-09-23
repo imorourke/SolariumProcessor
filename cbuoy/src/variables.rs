@@ -119,6 +119,22 @@ pub struct GlobalVariableStatement {
     global_var: Rc<GlobalVariable>,
 }
 
+impl Display for GlobalVariableStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "global {}: {}{};",
+            self.global_var.name.get_value(),
+            self.global_var.dtype,
+            self.global_var
+                .init_expr
+                .as_ref()
+                .map(|x| format!(" = {x}"))
+                .unwrap_or_default()
+        )
+    }
+}
+
 impl GlobalVariableStatement {
     pub fn new(var: Rc<GlobalVariable>) -> Self {
         Self {
@@ -160,22 +176,17 @@ impl GlobalStatement for GlobalVariableStatement {
             );
         } else {
             // Create space for the variable
-            let mut needed_size = var.get_type()?.byte_size();
-            while needed_size > 0 {
-                let tok = if needed_size >= 4 {
-                    needed_size -= 4;
-                    AsmToken::Literal4(0)
-                } else if needed_size >= 2 {
-                    needed_size -= 2;
-                    AsmToken::Literal2(0)
-                } else {
-                    needed_size -= 1;
-                    AsmToken::Literal1(0)
-                };
-
-                asm_static.push(name.to_asm(tok));
+            let needed_size = var.get_type()?.byte_size();
+            if needed_size > 0 {
+                asm_static.push(name.to_asm(AsmToken::Reserve(needed_size as u32)));
+            } else {
+                return Err(name
+                    .clone()
+                    .into_err("unable to create a global variable with 0 size"));
             }
         }
+
+        asm_static.push(name.to_asm(AsmToken::AlignInstruction));
 
         Ok(asm_static)
     }
@@ -309,99 +320,6 @@ impl LocalVariable {
     }
 }
 
-impl Statement for LocalVariable {
-    fn get_exec_code(
-        &self,
-        required_stack: &mut TemporaryStackTracker,
-    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        let mut asm = ExpressionData::default();
-
-        asm.push_asm(self.token.to_asm(AsmToken::LocationComment(format!(
-            "+lvar({}) ${}+{} : {}{}",
-            self.token,
-            self.base,
-            self.offset,
-            self.dtype,
-            self.dtype.primitive_type().map(|x| format!(" ({x})")).unwrap_or_default()
-        ))));
-
-        if let Some(e) = &self.init_expr {
-            asm.push_asm(self.token.to_asm(AsmToken::Comment(format!(
-                "initializing local variable \"{}\" with offset {} from {}",
-                self.token.get_value(),
-                self.offset,
-                self.base
-            ))));
-
-            if let Some(var_type) = self.dtype.primitive_type() {
-                let expr_type = e.get_primitive_type()?;
-
-                let def = RegisterDef::default();
-                let load_val = def.increment_token(&self.token)?;
-
-                let addr_reg = if self.offset > 0 {
-                    asm.append(self.load_address_to_register(def, required_stack)?);
-                    def.reg
-                } else {
-                    self.base
-                };
-                asm.append(e.load_value_to_register(load_val, required_stack)?);
-
-                if var_type != expr_type {
-                    asm.push_asm(self.token.to_asm(AsmToken::OperationLiteral(Box::new(
-                        OpConv::new(
-                            ArgumentType::new(load_val.reg, var_type),
-                            ArgumentType::new(load_val.reg, expr_type),
-                        ),
-                    ))));
-                }
-
-                asm.push_asm(
-                    self.token
-                        .to_asm(AsmToken::OperationLiteral(Box::new(OpSav::new(
-                            ArgumentType::new(addr_reg, var_type),
-                            load_val.reg.into(),
-                        )))),
-                );
-            } else if let Ok(t) = e.get_type() {
-                if t == self.dtype {
-                    let def = RegisterDef::default();
-                    let load_val = def.increment_token(&self.token)?;
-
-                    let local_reg = if self.offset > 0 {
-                        asm.append(self.load_address_to_register(def, required_stack)?);
-                        def.reg
-                    } else {
-                        self.base
-                    };
-
-                    asm.append(e.load_address_to_register(load_val, required_stack)?);
-
-                    let mem = MemcpyStatement::new(
-                        self.token.clone(),
-                        load_val.reg,
-                        local_reg,
-                        self.dtype.byte_size(),
-                    );
-
-                    asm.extend_asm(mem.get_exec_code(required_stack)?);
-                } else {
-                    return Err(self.token.clone().into_err(format!(
-                        "mismatch in data type - found {} != {}",
-                        self.dtype, t
-                    )));
-                }
-            } else {
-                return Err(self.token.clone().into_err(
-                    "unable to obtain a valid type for the provided variable init expression",
-                ));
-            }
-        }
-
-        Ok(asm.into_asm())
-    }
-}
-
 impl Display for LocalVariable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.token.get_value())
@@ -462,6 +380,127 @@ impl Expression for LocalVariable {
                 .clone()
                 .into_err("unable to move non-primitive type into register"))
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalVariableStatement {
+    var: Rc<LocalVariable>,
+}
+
+impl LocalVariableStatement {
+    pub fn new(var: Rc<LocalVariable>) -> Self {
+        Self { var }
+    }
+}
+
+impl Statement for LocalVariableStatement {
+    fn get_exec_code(
+        &self,
+        required_stack: &mut TemporaryStackTracker,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
+        let mut asm = ExpressionData::default();
+        let var = self.var.as_ref();
+
+        asm.push_asm(var.token.to_asm(AsmToken::LocationComment(format!(
+            "+lvar({}) ${}+{} : {}{}",
+            var.token,
+            var.base,
+            var.offset,
+            var.dtype,
+            var.dtype.primitive_type().map(|x| format!(" ({x})")).unwrap_or_default()
+        ))));
+
+        if let Some(e) = &var.init_expr {
+            asm.push_asm(var.token.to_asm(AsmToken::Comment(format!(
+                "initializing local variable \"{}\" with offset {} from {}",
+                var.token.get_value(),
+                var.offset,
+                var.base
+            ))));
+
+            if let Some(var_type) = var.dtype.primitive_type() {
+                let expr_type = e.get_primitive_type()?;
+
+                let def = RegisterDef::default();
+                let load_val = def.increment_token(&var.token)?;
+
+                let addr_reg = if var.offset > 0 {
+                    asm.append(var.load_address_to_register(def, required_stack)?);
+                    def.reg
+                } else {
+                    var.base
+                };
+                asm.append(e.load_value_to_register(load_val, required_stack)?);
+
+                if var_type != expr_type {
+                    asm.push_asm(var.token.to_asm(AsmToken::OperationLiteral(Box::new(
+                        OpConv::new(
+                            ArgumentType::new(load_val.reg, var_type),
+                            ArgumentType::new(load_val.reg, expr_type),
+                        ),
+                    ))));
+                }
+
+                asm.push_asm(
+                    var.token
+                        .to_asm(AsmToken::OperationLiteral(Box::new(OpSav::new(
+                            ArgumentType::new(addr_reg, var_type),
+                            load_val.reg.into(),
+                        )))),
+                );
+            } else if let Ok(t) = e.get_type() {
+                if t == var.dtype {
+                    let def = RegisterDef::default();
+                    let load_val = def.increment_token(&var.token)?;
+
+                    let local_reg = if var.offset > 0 {
+                        asm.append(var.load_address_to_register(def, required_stack)?);
+                        def.reg
+                    } else {
+                        var.base
+                    };
+
+                    asm.append(e.load_address_to_register(load_val, required_stack)?);
+
+                    let mem = MemcpyStatement::new(
+                        var.token.clone(),
+                        load_val.reg,
+                        local_reg,
+                        var.dtype.byte_size(),
+                    );
+
+                    asm.extend_asm(mem.get_exec_code(required_stack)?);
+                } else {
+                    return Err(var.token.clone().into_err(format!(
+                        "mismatch in data type - found {} != {}",
+                        var.dtype, t
+                    )));
+                }
+            } else {
+                return Err(var.token.clone().into_err(
+                    "unable to obtain a valid type for the provided variable init expression",
+                ));
+            }
+        }
+
+        Ok(asm.into_asm())
+    }
+}
+
+impl Display for LocalVariableStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "def {}: {}{};",
+            self.var.token.get_value(),
+            self.var.dtype,
+            self.var
+                .init_expr
+                .as_ref()
+                .map(|x| format!(" = {x}"))
+                .unwrap_or_default()
+        )
     }
 }
 

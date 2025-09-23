@@ -681,4 +681,38 @@ impl CompilingState {
             None
         }
     }
+
+    pub fn get_statements(&self) -> Vec<String> {
+        let mut statements = Vec::default();
+        for (n, i) in self.global_scope.iter() {
+            if let GlobalType::Constant(c) = i {
+                statements.push(format!("const {n} = {c};"));
+            }
+        }
+
+        for (_, i) in self.global_scope.iter() {
+            if let GlobalType::UserType(_, ut) = i {
+                match ut {
+                    UserTypeOptions::OpaqueType(s) => {
+                        statements.push(format!("struct {};", s.get_value()))
+                    }
+                    UserTypeOptions::ConcreteType(s) => statements.push(format!("{s};")),
+                }
+            }
+        }
+
+        for (_, i) in self.global_scope.iter() {
+            if let GlobalType::Variable(v) = i {
+                statements.push(format!("{};", GlobalVariableStatement::new(v.clone())));
+            }
+        }
+
+        for (_, i) in self.global_scope.iter() {
+            if let GlobalType::Function(f) = i {
+                statements.push(format!("{f}"))
+            }
+        }
+
+        statements
+    }
 }

@@ -1,0 +1,14 @@
+global input_array: [8]u8;
+global output_test: u8 = 0;
+global output_ptr: *u8;
+
+fn main() void {
+    input_array[0] = 3;
+    input_array[1] = 85;
+    input_array[2] = 143;
+    input_array[4] = 4;
+    input_array[7] = 393;
+
+    output_test = input_array[2];
+    output_ptr = &input_array[4];
+}

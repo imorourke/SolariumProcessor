@@ -23,7 +23,7 @@ use immediate::{
 };
 use regex::Regex;
 
-static LABEL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z](a-z0-9_)*").unwrap());
+static LABEL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z_](a-z0-9_)*").unwrap());
 
 pub fn is_valid_label(s: &str) -> bool {
     LABEL_REGEX.is_match(s)
@@ -155,6 +155,7 @@ pub enum AsmToken {
     Literal1(u8),
     Literal2(u16),
     Literal4(u32),
+    Reserve(u32),
     LiteralText(String),
     AlignInstruction,
     Comment(String),
@@ -322,6 +323,7 @@ impl TryFrom<&str> for AsmToken {
                     "u8" => Self::Literal1(parse_imm_u8(arg)?),
                     "u16" => Self::Literal2(parse_imm_u16(arg)?),
                     "u32" => Self::Literal4(parse_imm_u32(arg)?),
+                    "reserve" => Self::Reserve(parse_imm_u32(arg)?),
                     "i8" => Self::Literal1(parse_imm_i8(arg)? as u8),
                     "i16" => Self::Literal2(parse_imm_i16(arg)? as u16),
                     "i32" => Self::Literal4(parse_imm_i32(arg)? as u32),
@@ -379,10 +381,11 @@ impl Display for AsmToken {
             Self::LocationComment(s) => write!(f, "! {}", update_comment_values(s)),
             Self::LoadLoc(l) => write!(f, ".loadloc {l}"),
             Self::AlignInstruction => write!(f, ".align"),
-            Self::ChangeAddress(addr) => write!(f, ".oper 0x{addr:x}"),
-            Self::Literal1(x) => write!(f, ".u8 0x{x:x}"),
-            Self::Literal2(x) => write!(f, ".u16 0x{x:x}"),
-            Self::Literal4(x) => write!(f, ".u32 0x{x:x}"),
+            Self::ChangeAddress(addr) => write!(f, ".oper {addr:#x}"),
+            Self::Literal1(x) => write!(f, ".u8 {x:#x}"),
+            Self::Literal2(x) => write!(f, ".u16 {x:#x}"),
+            Self::Literal4(x) => write!(f, ".u32 {x:#x}"),
+            Self::Reserve(x) => write!(f, ".reserve {x:#x}"),
             Self::LiteralText(t) => write!(f, ".text \"{t}\""),
             Self::CreateLabel(lbl) => write!(f, ":{lbl}"),
             Self::Operation(_, name, args) => {
@@ -606,6 +609,9 @@ impl TokenList {
                 }
                 AsmToken::Literal4(i) => {
                     state.add_bytes(&i.to_be_bytes(), loc)?;
+                }
+                AsmToken::Reserve(x) => {
+                    state.add_bytes(&vec![0; *x as usize], loc)?;
                 }
                 AsmToken::CreateLabel(lbl) => {
                     if state.labels.contains_key(lbl) {

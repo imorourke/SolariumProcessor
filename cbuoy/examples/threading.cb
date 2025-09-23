@@ -68,22 +68,25 @@ fn print_uint(v: u32) void {
     }
 }
 
+fn print_stat(name: *u8, v: u32) void {
+    print(name);
+    print(": ");
+    print_uint(v);
+    print("\n");
+}
+
 fn init_thread(func: fn() void) void {
     if (THREAD_NUM < STACK_NUM) {
         def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
-        def current_stack: *u8 = THREAD_STACK[THREAD_NUM].stack;
+        def current_stack: *u32 = &((*current).stack);
         current_stack[0] = func;
-        current_stack[2] = ((current_stack : *u32) + 32) : *u8;
-        (*current).last_ptr = current_stack[2];
-        print("Stack Location: ");
-        print_uint((*current).last_ptr);
-        print("\n");
-        print("Stack Size: ");
-        print_uint(((*current).last_ptr : u32) - (current_stack : u32));
-        print("\n");
+        print_stat("Function Location", func : u32);
+        current_stack[2] = (current_stack + 32) : u32;
+        (*current).last_ptr = &current_stack[2];
+        print_stat("Stack Location", (*current).last_ptr);
+        print_stat("Stack Size", (((*current).last_ptr) : u32) - (current_stack : u32));
         THREAD_NUM = THREAD_NUM + 1;
-        print("Current Thread Count: ");
-        print_uint(THREAD_NUM);
+        print_stat("Current Thread Count", THREAD_NUM);
         print("\n");
     } else {
         print("Exceed allowed thread count\n");
@@ -116,6 +119,9 @@ asmfn tsk_main() void {
 }
 
 fn main() void {
+    def test_array: [2]u32;
+    &test_array[0];
+    &test_array[1];
     def irq0_loc: *u32 = 0x100;
     *irq0_loc = scheduler;
     init_thread(main_tsk_a);

@@ -427,7 +427,7 @@ impl GlobalStatement for StringLiteral {
 
 impl Display for StringLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", self.value)
+        write!(f, "\"{}\"", self.value.replace("\n", "\\n"))
     }
 }
 

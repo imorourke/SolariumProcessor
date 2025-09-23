@@ -1,5 +1,3 @@
-use jib_asm::AsmTokenLoc;
-
 use crate::{
     compiler::CompilingState,
     functions::{AsmFunctionDefinition, StandardFunctionDefinition, StandardFunctionType},
@@ -11,7 +9,7 @@ use crate::{
     variables::VariableDefinition,
 };
 
-pub fn parse(s: &str) -> Result<Vec<AsmTokenLoc>, TokenError> {
+pub fn parse(s: &str) -> Result<CompilingState, TokenError> {
     let mut state = CompilingState::default();
     let tokens = tokenize(s)?;
     let mut token_iter = TokenIter::from(&tokens);
@@ -58,7 +56,7 @@ pub fn parse(s: &str) -> Result<Vec<AsmTokenLoc>, TokenError> {
         }
     }
 
-    state.get_assembler()
+    Ok(state)
 }
 
 #[cfg(test)]
