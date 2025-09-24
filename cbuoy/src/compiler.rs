@@ -665,15 +665,16 @@ impl CompilingState {
                     GlobalType::Variable(v) => return v.get_type().ok(),
                     GlobalType::Constant(v) => return v.get_type().ok(),
                     GlobalType::Function(f) => return f.as_expr().get_type().ok(),
-                    GlobalType::UserType(_, t) => match t {
-                        UserTypeOptions::ConcreteType(x) => return Some(x.clone()),
-                        _ => (),
-                    },
+                    GlobalType::UserType(_, t) => {
+                        if let UserTypeOptions::ConcreteType(x) = t {
+                            return Some(x.clone());
+                        }
+                    }
                 };
             }
         }
 
-        if let Some(iter) = tokenize(name).ok() {
+        if let Ok(iter) = tokenize(name) {
             let mut tokens = TokenIter::from(&iter);
             let mut tmp = self.clone(); // TODO - Don't require cloning here if possible, read_type shouldn't need to be mutable
             Type::read_type(&mut tokens, &mut tmp).ok()

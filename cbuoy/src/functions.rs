@@ -358,11 +358,9 @@ impl AsmFunctionDefinition {
                             todo!("dtype.field offsets")
                         }),
                         MatchFunctionValue::new("sizeof", "#", |state, name| {
-                            if let Some(t) = state.get_identifier_type(name) {
-                                Some(format!("{}", t.byte_size()))
-                            } else {
-                                None
-                            }
+                            state
+                                .get_identifier_type(name)
+                                .map(|t| format!("{}", t.byte_size()))
                         }),
                     ]
                 });
