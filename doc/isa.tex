@@ -141,7 +141,7 @@ On a hard-reset, all registers will be reset to 0 and memory values will be rese
 
 On soft-reset, as called by the reset the program counter will be assigned the value contained in the soft-reset vector, which is stored at memory location 1. All of the other registers are reset to their default value of 0. Processor memory will be left unchanged and processor execution is then started.
 
-On any reset, interrupts will be allowed by default.
+On any reset, interrupts will be disabled by default, and must be enabled manually.
 
 \subsection{The Stack}
 \label{sec:the-stack}
@@ -168,7 +168,7 @@ The Jib supports 32 software and 32 hardware interrupts, as shown in Table \ref{
     \label{table:interrupt-vector-locations}
 \end{table}
 
-Interrupts are processed by the interrupt controller. This stores all interrupt requests and provides the CPU the next interrupt to process based on their priority. Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run, in priority-order. 
+Interrupts are processed by the interrupt controller. This stores all interrupt requests and provides the CPU the next interrupt to process based on their priority. Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run, in priority-order.
 
 At the conclusion of any interrupt, the \texttt{retint} instruction should be called. This will replace the current register state with the values provided off the stack and resume program execution from the location right after the interrupt was called. It will also clear the It should be noted that, if any values were pushed onto the stack during the interrupt handler, they should be popped off the stack prior to the \texttt{retint} call to avoid corrupting the program state. The \texttt{retint} instruction will return from the interrupt handler and allow the CPU to mark this interrupt as completed, so that it can move on to the next interrupt handler, or stop interrupt handling and resume normal operation if there are no more interrupts to be run. By clearing the interrupt execution status at the end of the handler, this prevents duplicates of the same interrupt from being run, preventing a execution errors if a hardware device spams the associated hardware interrupt.
 

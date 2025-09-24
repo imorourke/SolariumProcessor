@@ -481,7 +481,7 @@ impl Processor {
             self.memory.get_u32(reset_vec_addr)?,
         )?;
         self.registers
-            .set_status_flag(RegisterFlag::InterruptEnable, true)?;
+            .set_status_flag(RegisterFlag::InterruptEnable, false)?;
 
         self.interrupt_controller.reset();
 
