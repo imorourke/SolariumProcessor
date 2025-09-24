@@ -6,11 +6,11 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Display, rc::Rc, sync::LazyLock};
 
 pub use instructions::{
-    Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl, OpBshr,
-    OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp, OpJmpr,
-    OpJmpri, OpLd, OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr, OpPush,
-    OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle, OpTneq,
-    OpTnz, OpTz, INST_SIZE,
+    INST_SIZE, Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl,
+    OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp,
+    OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr,
+    OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle,
+    OpTneq, OpTnz, OpTz,
 };
 
 pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
@@ -18,8 +18,8 @@ pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
 use jib::cpu::{Opcode, Processor, ProcessorError};
 
 use immediate::{
-    parse_imm_i16, parse_imm_i32, parse_imm_i8, parse_imm_u16, parse_imm_u32, parse_imm_u8,
-    ImmediateError,
+    ImmediateError, parse_imm_i8, parse_imm_i16, parse_imm_i32, parse_imm_u8, parse_imm_u16,
+    parse_imm_u32,
 };
 use regex::Regex;
 
@@ -186,11 +186,7 @@ impl AsmToken {
             }
         }
 
-        if let Some(ind) = ind {
-            &s[..ind]
-        } else {
-            s
-        }
+        if let Some(ind) = ind { &s[..ind] } else { s }
     }
 
     fn split_asm_delim(s: &str) -> Result<Vec<String>, ParseError> {
@@ -323,7 +319,6 @@ impl TryFrom<&str> for AsmToken {
                     "u8" => Self::Literal1(parse_imm_u8(arg)?),
                     "u16" => Self::Literal2(parse_imm_u16(arg)?),
                     "u32" => Self::Literal4(parse_imm_u32(arg)?),
-                    "reserve" => Self::Reserve(parse_imm_u32(arg)?),
                     "i8" => Self::Literal1(parse_imm_i8(arg)? as u8),
                     "i16" => Self::Literal2(parse_imm_i16(arg)? as u16),
                     "i32" => Self::Literal4(parse_imm_i32(arg)? as u32),
@@ -334,6 +329,7 @@ impl TryFrom<&str> for AsmToken {
                         }
                         .to_bits(),
                     ),
+                    "reserve" => Self::Reserve(parse_imm_u32(arg)?),
                     _ => {
                         return Err(Self::Error::UnknownInstruction(
                             op.to_string(),
@@ -644,21 +640,45 @@ impl TokenList {
 
         state.process_delays()?;
 
-        if let Some(min_addr) = state.values.keys().min().copied() {
-            if let Some(max_addr) = state.values.keys().max().copied() {
-                let mut bytes = vec![0; (max_addr - min_addr) as usize + 1];
+        if let Some(min_addr) = state.values.keys().min().copied()
+            && let Some(max_addr) = state.values.keys().max().copied()
+        {
+            let mut bytes = vec![0; (max_addr - min_addr) as usize + 1];
 
-                for (a, v) in state.values {
-                    bytes[(a - min_addr) as usize] = v;
-                }
-
-                return Ok(AssemblerOutput {
-                    start_address: min_addr,
-                    bytes,
-                    labels: state.labels,
-                    debug: state.debug_comment,
-                });
+            for (a, v) in state.values {
+                bytes[(a - min_addr) as usize] = v;
             }
+
+            // Construct the textual representation
+            let mut text_lines: Vec<String> = Vec::new();
+
+            for i in &self.tokens {
+                text_lines.push(format!("{}", i.tok).replace("\n", "\\n"));
+            }
+
+            text_lines.push(format!(";Program Start: {:04x}", min_addr));
+            text_lines.push(";Labels:".to_string());
+            let mut locs: Vec<(u32, &String)> = state
+                .labels
+                .iter()
+                .map(|(k, v)| (*v, k))
+                .collect::<Vec<_>>();
+            locs.sort_by(|a, b| a.0.cmp(&b.0));
+            for (v, k) in locs {
+                text_lines.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
+            }
+            text_lines.push(";Debug:".to_string());
+            for (addr, cmt) in state.debug_comment.iter() {
+                text_lines.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
+            }
+
+            return Ok(AssemblerOutput {
+                start_address: min_addr,
+                bytes,
+                labels: state.labels,
+                debug: state.debug_comment,
+                assembly_lines: text_lines,
+            });
         }
 
         Ok(AssemblerOutput::default())
@@ -671,6 +691,7 @@ pub struct AssemblerOutput {
     pub bytes: Vec<u8>,
     pub labels: HashMap<String, u32>,
     pub debug: Vec<(u32, String)>,
+    pub assembly_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -781,13 +802,15 @@ impl ParserState {
 }
 
 pub fn assemble_text(txt: &str) -> Result<AssemblerOutput, AssemblerErrorLoc> {
-    assemble_lines(&txt.lines().collect::<Vec<_>>())
+    assemble_lines(txt.lines())
 }
 
-pub fn assemble_lines(txt: &[&str]) -> Result<AssemblerOutput, AssemblerErrorLoc> {
+pub fn assemble_lines<'a, T: Iterator<Item = &'a str>>(
+    txt: T,
+) -> Result<AssemblerOutput, AssemblerErrorLoc> {
     let mut state = TokenList::default();
 
-    for (i, l) in txt.iter().enumerate() {
+    for (i, l) in txt.enumerate() {
         let loc = LocationInfo {
             line: i + 1,
             column: 0,
@@ -801,10 +824,9 @@ pub fn assemble_lines(txt: &[&str]) -> Result<AssemblerOutput, AssemblerErrorLoc
     state.to_bytes()
 }
 
-pub fn assemble_tokens<T>(tokens: T) -> Result<AssemblerOutput, AssemblerErrorLoc>
-where
-    T: IntoIterator<Item = AsmTokenLoc>,
-{
+pub fn assemble_tokens<T: IntoIterator<Item = AsmTokenLoc>>(
+    tokens: T,
+) -> Result<AssemblerOutput, AssemblerErrorLoc> {
     let mut state = TokenList::default();
     for t in tokens.into_iter() {
         state.add_token(t);

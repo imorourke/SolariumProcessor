@@ -288,9 +288,15 @@ The assembler also has several commands available, detailed in Table \ref{table:
         & or as a signed word (if negative) in the current memory location \\
         \texttt{.loadloc [label]} & Loads the data index associated with the provided label into \\
         & the current memory location \\
-        \texttt{.loadtext "[TEXT]"} & Loads the text into memory, starting at the current memory location, \\
-        & placing each character into the next subsequent memory location, with \\
-        & a null-terminator as copied into memory after the text value \\
+        \texttt{.text "[TEXT]"} & Loads the text into memory, starting at the current memory location, \\
+        & placing each character into the next subsequent memory location, \\
+        & with a null-terminator as copied into memory after the text value \\
+        \texttt{.reserve [num]} & Reserves the the next \texttt{[num]} bytes of memory for data, \\
+        & filling the memory with zeros \\
+        \hline
+        \texttt{.u8/.u16/.u32 [num]} & Loads the given unsigned integer at the current location \\
+        \texttt{.i8/.i16/.ui32 [num]} & Loads the given signed integer at the current location \\
+        \texttt{.f32 [num]} & Loads the given floating point number at the current location \\
         \hline
     \end{tabular}
     \caption{Available assembler commands}
