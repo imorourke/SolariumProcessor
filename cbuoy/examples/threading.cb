@@ -84,7 +84,7 @@ fn init_thread(func: fn() void) void {
         current_stack[0] = func;
         print_stat("Function Location", func : u32);
         current_stack[2] = (current_stack + 32) : u32;
-        (*current).last_ptr = &current_stack[2];
+        (*current).last_ptr = current_stack[2];
         print_stat("Stack Location", (*current).last_ptr);
         print_stat("Stack Size", (((*current).last_ptr) : u32) - (current_stack : u32));
         THREAD_NUM = THREAD_NUM + 1;
