@@ -108,30 +108,31 @@ impl ThreadState {
         let mut inst_details = "??".to_string();
 
         let pc = self.cpu.get_current_pc().unwrap_or(0);
-        if let Ok(inst) = self.cpu.get_current_inst() {
-            if let Some(disp_val) = self.inst_map.get_display_inst(inst) {
-                inst_details = disp_val;
-            }
+        if let Ok(inst) = self.cpu.get_current_inst()
+            && let Some(disp_val) = self.inst_map.get_display_inst(inst)
+        {
+            inst_details = disp_val;
         }
 
         inst_details = format!("0x{pc:08x} = {inst_details}");
         self.inst_history.push(inst_details.clone());
 
-        if let Some(brk) = self.breakpoint {
-            if brk == pc && enable_breakpoints {
-                self.running = false;
+        if let Some(brk) = self.breakpoint
+            && brk == pc
+            && enable_breakpoints
+        {
+            self.running = false;
 
-                let msg = format!(
-                    "Breaking at 0x{brk:08x}\n{}",
-                    self.inst_history
-                        .list()
-                        .into_iter()
-                        .map(|s| format!("    {s}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                );
-                return Err(ThreadToUi::LogMessage(msg));
-            }
+            let msg = format!(
+                "Breaking at 0x{brk:08x}\n{}",
+                self.inst_history
+                    .list()
+                    .into_iter()
+                    .map(|s| format!("    {s}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            return Err(ThreadToUi::LogMessage(msg));
         }
 
         let debug_stop = if let Ok(op) = self.cpu.get_current_op() {
@@ -406,6 +407,10 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
                 if let Err(msg) = state.step_cpu(true) {
                     state.running = false;
                     tx.send(msg).unwrap();
+                    break;
+                }
+
+                if !state.running {
                     break;
                 }
             }
