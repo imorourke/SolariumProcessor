@@ -11,26 +11,41 @@ struct thread_stack_t {
 global THREAD_STACK: [STACK_NUM]thread_stack_t;
 
 global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
+global CLOCK_LOC: *u32 = 0xA020u32;
 
 asmfn tsk_yield() void {
     "intoff";
+    "; Increment THREAD_NUM to next thread";
     "ldn 8:u32";
     ".loadloc %{THREAD_NUM}%";
     "ld 8:u32 8";
     "ldn 9:u32";
     ".loadloc %{THREAD_CURR}%";
     "ld 10:u32 9";
+    "copy 16 10";
     "ldi 11:u16 1";
     "add 10:u32 10 11";
-    "mod 10:u32 10 8";
+    "rem 10:u32 10 8";
     "sav 9:u32 10";
-    "; TODO - Swap thread pointers!";
-    "brk";
+    "; Swap stack pointer";
+    "; 10 = new pointer";
+    "; 16 = old pointer";
+    "ldi 8:u16 #{thread_stack_t}#";
+    "mul 10:u32 10 8";
+    "mul 16:u32 16 8";
+    "ldn 9:u32";
+    ".loadloc %{THREAD_STACK}%";
+    "add 10:u32 10 9";
+    "add 16:u32 16 9";
+    "sav 16:u32 $sp";
+    "ld $sp:u32 10";
     "inton";
-    "ret";
+    "retint";
 }
 
 asmfn print(c: *u8) void {
+    "push $stat";
+    "intoff";
     "ldn 8:u32";
     ".loadloc %{SERIAL_OUT_LOC}%";
     "ld 8:u32 8";
@@ -45,6 +60,7 @@ asmfn print(c: *u8) void {
     "sav 8:u8 11";
     "add 10:u32 10 9";
     "jmpri -20";
+    "popr $stat";
     "ret";
 }
 
@@ -88,6 +104,7 @@ fn init_thread(func: fn() void) void {
         print_stat("Base Struct", current);
         print_stat("Base Stack", current_stack);
         current_stack[0] = func;
+        current_stack[1] = 1; // Enable Interrupts on the new stack
         print_stat("Function Location", func : u32);
         current_stack[2] = (current_stack + 32) : u32;
         (*current).last_ptr = current_stack[2];
@@ -102,8 +119,10 @@ fn init_thread(func: fn() void) void {
 }
 
 fn main_tsk_a() void {
+    def i_val: u32 = 0;
     while (1) {
         print("TSK_A\n");
+        i_val = (i_val + 1) % 10;
     }
 }
 
@@ -131,8 +150,9 @@ fn main() void {
     &test_array[0];
     &test_array[1];
     def irq0_loc: *u32 = 0x100;
-    *irq0_loc = scheduler;
+    *irq0_loc = tsk_yield;
     init_thread(main_tsk_a);
     init_thread(main_tsk_b);
+    *CLOCK_LOC = 1000;
     tsk_main();
 }
