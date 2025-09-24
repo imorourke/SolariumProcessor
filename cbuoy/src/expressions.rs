@@ -1054,9 +1054,20 @@ impl Expression for ArrayIndexExpression {
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self
-            .address_expr
-            .load_address_to_register(reg, required_stack)?;
+        let mut asm = match self.address_expr.get_type()? {
+            Type::Array(_, _) => self
+                .address_expr
+                .load_address_to_register(reg, required_stack)?,
+            Type::Pointer(_) => self
+                .address_expr
+                .load_value_to_register(reg, required_stack)?,
+            v => {
+                return Err(self.token.clone().into_err(format!(
+                    "unable to convert from `{}` into a valid array type",
+                    v
+                )));
+            }
+        };
 
         let pt = self.index_expr.get_primitive_type()?;
         if !pt.integral() {
