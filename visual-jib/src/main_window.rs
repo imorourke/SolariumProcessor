@@ -362,7 +362,7 @@ fn build_cpu_column(
         .adjustment(
             &gtk::Adjustment::builder()
                 .lower(1.0)
-                .upper(10.0)
+                .upper(50.0)
                 .value(1.0)
                 .build(),
         )
