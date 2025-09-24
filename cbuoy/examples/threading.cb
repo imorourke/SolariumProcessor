@@ -79,6 +79,8 @@ fn init_thread(func: fn() void) void {
     if (THREAD_NUM < STACK_NUM) {
         def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
         def current_stack: *u32 = &((*current).stack);
+        print_stat("Base Struct", current);
+        print_stat("Base Stack", current_stack);
         current_stack[0] = func;
         print_stat("Function Location", func : u32);
         current_stack[2] = (current_stack + 32) : u32;
