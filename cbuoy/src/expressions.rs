@@ -1079,28 +1079,40 @@ impl Expression for ArrayIndexExpression {
         }
 
         let index_reg = reg.increment_token(&self.token)?;
-
-        asm.append(match self.index_expr.simplify() {
-            Some(lit) => lit.load_value_to_register(index_reg, required_stack)?,
-            None => self
-                .index_expr
-                .load_value_to_register(index_reg, required_stack)?,
-        });
-
         let type_size = self.get_type()?.byte_size() as u32;
-        if type_size != 1 {
-            asm.extend_asm(self.token.to_asm_iter(load_to_register(
-                reg.spare,
-                self.get_type()?.byte_size() as u32,
-            )));
-            asm.push_asm(
-                self.token
-                    .to_asm(AsmToken::OperationLiteral(Box::new(OpMul::new(
-                        ArgumentType::new(index_reg.reg, DataType::I32),
-                        index_reg.reg.into(),
-                        reg.spare.into(),
-                    )))),
+
+        let index_expr = BinaryArithmeticExpression::new(
+            self.index_expr.get_token().clone(),
+            BinaryArithmeticOperation::Product,
+            self.index_expr.clone(),
+            Rc::new(Literal::new(
+                self.index_expr.get_token().clone(),
+                LiteralValue::U32(type_size),
+            )),
+        );
+
+        if let Some(lit) = index_expr.simplify() {
+            asm.append(lit.load_value_to_register(index_reg, required_stack)?);
+        } else {
+            asm.append(
+                self.index_expr
+                    .load_value_to_register(index_reg, required_stack)?,
             );
+
+            if type_size != 1 {
+                asm.extend_asm(self.token.to_asm_iter(load_to_register(
+                    reg.spare,
+                    self.get_type()?.byte_size() as u32,
+                )));
+                asm.push_asm(
+                    self.token
+                        .to_asm(AsmToken::OperationLiteral(Box::new(OpMul::new(
+                            ArgumentType::new(index_reg.reg, DataType::I32),
+                            index_reg.reg.into(),
+                            reg.spare.into(),
+                        )))),
+                );
+            }
         }
 
         asm.push_asm(
