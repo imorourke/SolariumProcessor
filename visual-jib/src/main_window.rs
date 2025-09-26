@@ -1,6 +1,3 @@
-use std::{fs::File, io::Write};
-
-//use gtk::glib::clone;
 use crate::cpu_thread::cpu_thread;
 use crate::messages::{ThreadToUi, UiToThread};
 use gtk::glib::clone;
@@ -158,7 +155,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!("../../cbuoy/examples/threading.cb"),
+            include_str!("../../cbuoy/examples/default.cb"),
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),
@@ -245,11 +242,6 @@ fn build_code_column(
                                     .unwrap();
 
                                 buffer_asm_code.set_text(&asm);
-
-                                if crate::cpu_thread::WRITE_CPU_HISTORY || true {
-                                    let mut f = File::create("history.jb").unwrap();
-                                    write!(f, "{asm}").unwrap();
-                                }
                             }
                             Err(err) => {
                                 tx_thread
@@ -261,8 +253,6 @@ fn build_code_column(
                             tx_thread
                                 .send(ThreadToUi::LogMessage(format!("{short_name}: {err}")))
                                 .unwrap();
-
-                            eprintln!("Error: {}", err.msg);
 
                             if let Some(t) = &err.token {
                                 let line_num = t.get_loc().line;

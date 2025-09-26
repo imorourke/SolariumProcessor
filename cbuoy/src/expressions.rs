@@ -1364,7 +1364,7 @@ static BINARY_STR: LazyLock<HashMap<String, BinaryOperation>> = LazyLock::new(||
 
 fn parse_expression_without_binary_expressions(
     tokens: &mut TokenIter,
-    state: &mut CompilingState,
+    state: &CompilingState,
 ) -> Result<Rc<dyn Expression>, TokenError> {
     let first = tokens.next()?;
 
@@ -1407,7 +1407,7 @@ fn parse_expression_without_binary_expressions(
     } else if get_identifier(&first).is_ok() {
         state.get_variable(&first)?.clone()
     } else if first.get_value().starts_with('"') {
-        state.add_string_literal(&first)?
+        state.get_string_literal(&first)?
     } else {
         Rc::new(Literal::try_from(first.clone())?)
     };
@@ -1541,7 +1541,7 @@ fn process_binary_expressions(
 
 pub fn parse_expression(
     tokens: &mut TokenIter,
-    state: &mut CompilingState,
+    state: &CompilingState,
 ) -> Result<Rc<dyn Expression>, TokenError> {
     let mut main_expressions: Vec<BinaryExpressionMatching> =
         vec![BinaryExpressionMatching::Expression(

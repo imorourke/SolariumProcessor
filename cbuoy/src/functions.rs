@@ -24,7 +24,7 @@ use crate::{
     variables::{LocalVariable, LocalVariableStatement, VariableDefinition},
 };
 
-pub trait FunctionDefinition: GlobalStatement + Display {
+pub trait FunctionDefinition: Display + GlobalStatement {
     fn get_token(&self) -> &Token;
     fn as_expr(&self) -> Rc<dyn Expression>;
     fn get_entry_label(&self) -> &str;
@@ -48,32 +48,21 @@ impl StandardFunctionType {
 
 #[derive(Debug)]
 pub struct StandardFunctionDefinition {
-    name: Token,
-    entry_label: String,
-    end_label: String,
+    declaration: FunctionDeclaration,
     statements: Vec<Rc<dyn Statement>>,
-    dtype: Function,
     scope_manager: ScopeManager,
-    func_type: StandardFunctionType,
 }
 
 impl StandardFunctionDefinition {
     pub fn new(
-        label_base: &str,
-        name: Token,
-        func: Function,
+        declaration: FunctionDeclaration,
         statements: Vec<Rc<dyn Statement>>,
         scope_manager: ScopeManager,
-        func_type: StandardFunctionType,
     ) -> Result<Self, TokenError> {
         Ok(Self {
-            name,
-            entry_label: format!("{label_base}_start"),
-            end_label: format!("{label_base}_end"),
+            declaration,
             statements,
-            dtype: func,
             scope_manager,
-            func_type,
         })
     }
 
@@ -85,8 +74,6 @@ impl StandardFunctionDefinition {
         tokens.expect(func_type.keyword())?;
         let name_token = tokens.next()?;
         let ident = get_identifier(&name_token)?;
-
-        // TODO - Self-referrential functions for recursion?
 
         state.init_scope(name_token.clone())?;
 
@@ -108,11 +95,15 @@ impl StandardFunctionDefinition {
             ident
         );
 
+        let declaration = FunctionDeclaration::new(name_token, base_label, dtype, func_type);
+
+        state.add_function_declaration(declaration.clone())?;
+
         while let Some(s) = parse_statement(
             tokens,
             state,
-            &format!("{base_label}_end"),
-            dtype.return_type.as_ref(),
+            &declaration.end_label,
+            declaration.dtype.return_type.as_ref(),
         )? {
             statements.push(s);
         }
@@ -120,32 +111,25 @@ impl StandardFunctionDefinition {
         tokens.expect("}")?;
 
         let def = Rc::new(StandardFunctionDefinition::new(
-            &base_label,
-            name_token.clone(),
-            dtype,
+            declaration,
             statements,
             state.extract_scope()?,
-            func_type,
         )?);
-        state.add_function(def)
+        state.add_function(def.clone())
     }
 }
 
 impl FunctionDefinition for StandardFunctionDefinition {
     fn get_entry_label(&self) -> &str {
-        &self.entry_label
+        self.declaration.get_entry_label()
     }
 
     fn get_token(&self) -> &Token {
-        &self.name
+        self.declaration.get_token()
     }
 
     fn as_expr(&self) -> Rc<dyn Expression> {
-        Rc::new(FunctionLabelExpr {
-            name: self.name.clone(),
-            dtype: self.dtype.clone(),
-            entry_label: self.entry_label.clone(),
-        })
+        self.declaration.as_expr()
     }
 }
 
@@ -160,8 +144,12 @@ impl GlobalStatement for StandardFunctionDefinition {
 
     fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut init_asm = vec![
-            AsmToken::CreateLabel(self.entry_label.clone()),
-            AsmToken::LocationComment(format!("+{}({})", self.func_type.keyword(), self.name)),
+            AsmToken::CreateLabel(self.declaration.entry_label.clone()),
+            AsmToken::LocationComment(format!(
+                "+{}({})",
+                self.declaration.func_type.keyword(),
+                self.declaration.name
+            )),
             AsmToken::OperationLiteral(Box::new(OpCopy::new(
                 RegisterDef::FN_VAR_BASE.into(),
                 Register::StackPointer.into(),
@@ -175,7 +163,11 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         for s in self.statements.iter() {
             let mut local_stack = TemporaryStackTracker::default();
-            statement_asm.push(self.name.to_asm(AsmToken::LocationComment(format!("{s}"))));
+            statement_asm.push(
+                self.declaration
+                    .name
+                    .to_asm(AsmToken::LocationComment(format!("{s}"))),
+            );
             statement_asm.extend(s.get_exec_code(&mut local_stack)?);
             stack_requirements.merge(local_stack);
         }
@@ -211,6 +203,7 @@ impl GlobalStatement for StandardFunctionDefinition {
         }
 
         let mut asm = self
+            .declaration
             .name
             .to_asm_iter(init_asm)
             .into_iter()
@@ -220,7 +213,7 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         let mut asm_end = Vec::new();
 
-        asm_end.push(AsmToken::CreateLabel(self.end_label.clone()));
+        asm_end.push(AsmToken::CreateLabel(self.declaration.end_label.clone()));
         if total_stack_size > 0 {
             asm_end.extend(load_to_register(
                 RegisterDef::SPARE,
@@ -233,7 +226,7 @@ impl GlobalStatement for StandardFunctionDefinition {
             ))));
         }
 
-        let op: Box<dyn Instruction> = match self.func_type {
+        let op: Box<dyn Instruction> = match self.declaration.func_type {
             StandardFunctionType::Default => Box::new(OpRet),
             StandardFunctionType::Interrupt => Box::new(OpRetInt),
         };
@@ -241,11 +234,11 @@ impl GlobalStatement for StandardFunctionDefinition {
         asm_end.push(AsmToken::OperationLiteral(op));
         asm_end.push(AsmToken::LocationComment(format!(
             "-{}({})",
-            self.func_type.keyword(),
-            self.name
+            self.declaration.func_type.keyword(),
+            self.declaration.name
         )));
 
-        asm.extend(self.name.to_asm_iter(asm_end));
+        asm.extend(self.declaration.name.to_asm_iter(asm_end));
 
         Ok(asm)
     }
@@ -253,9 +246,63 @@ impl GlobalStatement for StandardFunctionDefinition {
 
 impl Display for StandardFunctionDefinition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {{", self.declaration)?;
+
+        for s in self.statements.iter() {
+            writeln!(f, "    {s}")?;
+        }
+
+        writeln!(f, "}}")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionDeclaration {
+    name: Token,
+    entry_label: String,
+    end_label: String,
+    dtype: Function,
+    func_type: StandardFunctionType,
+}
+
+impl FunctionDeclaration {
+    fn new(
+        name: Token,
+        label_base: String,
+        dtype: Function,
+        func_type: StandardFunctionType,
+    ) -> Self {
+        Self {
+            name,
+            entry_label: format!("{label_base}_start"),
+            end_label: format!("{label_base}_end"),
+            dtype,
+            func_type,
+        }
+    }
+
+    fn get_entry_label(&self) -> &str {
+        &self.entry_label
+    }
+
+    pub fn get_token(&self) -> &Token {
+        &self.name
+    }
+
+    pub fn as_expr(&self) -> Rc<dyn Expression> {
+        Rc::new(FunctionLabelExpr {
+            name: self.name.clone(),
+            dtype: self.dtype.clone(),
+            entry_label: self.entry_label.clone(),
+        })
+    }
+}
+
+impl Display for FunctionDeclaration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "{} {}({}) {} {{",
+            "{} {}({}) {};",
             match self.func_type {
                 StandardFunctionType::Default => "fn",
                 StandardFunctionType::Interrupt => "fnint",
@@ -279,13 +326,7 @@ impl Display for StandardFunctionDefinition {
                 .as_ref()
                 .map(|x| format!("{x}"))
                 .unwrap_or("void".to_string())
-        )?;
-
-        for s in self.statements.iter() {
-            writeln!(f, "    {s}")?;
-        }
-
-        writeln!(f, "}}")
+        )
     }
 }
 

@@ -43,7 +43,7 @@ pub fn parse(s: &str) -> Result<CompilingState, TokenError> {
 
             token_iter.expect("=")?;
 
-            let type_val = Type::read_type(&mut token_iter, &mut state)?;
+            let type_val = Type::read_type(&mut token_iter, &state)?;
 
             token_iter.expect(";")?;
 

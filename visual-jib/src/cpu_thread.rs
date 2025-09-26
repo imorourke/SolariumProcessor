@@ -3,13 +3,10 @@ use jib::cpu::{Processor, ProcessorError};
 use jib::device::{InterruptClockDevice, SerialInputOutputDevice};
 use jib::memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment};
 use jib_asm::InstructionList;
-use std::io::Write;
 use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 use std::cell::RefCell;
 use std::rc::Rc;
-
-pub const WRITE_CPU_HISTORY: bool = false;
 
 struct CircularBuffer<T, const S: usize> {
     history: [Option<T>; S],
@@ -68,12 +65,11 @@ struct ThreadState {
     run_thread: bool,
     memory_request: (u32, u32),
     cpu: Processor,
-    serial_io_dev: Rc<RefCell<SerialInputOutputDevice>>,
+    dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
     last_code: Vec<u8>,
     inst_history: CircularBuffer<String, 10>,
     inst_map: InstructionList,
     breakpoint: Option<u32>,
-    history_file: Option<std::fs::File>,
     step_count: u128,
 }
 
@@ -86,17 +82,12 @@ impl ThreadState {
             running: false,
             multiplier: 1.0,
             cpu: Processor::default(),
-            serial_io_dev: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
+            dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
             last_code: Vec::new(),
             memory_request: (0, 0),
             inst_history: Default::default(),
             inst_map: InstructionList::default(),
             breakpoint: None,
-            history_file: if WRITE_CPU_HISTORY {
-                Some(std::fs::File::create("history.csv").expect("unable to open file"))
-            } else {
-                None
-            },
             step_count: 0,
         };
 
@@ -144,16 +135,6 @@ impl ThreadState {
         self.step_count += 1;
         let res = self.cpu.step();
 
-        if let Some(h) = self.history_file.as_mut() {
-            write!(h, "{}", self.step_count).unwrap();
-
-            for r in self.cpu.get_register_state().get_state() {
-                write!(h, ",{r:#010x}").unwrap();
-            }
-
-            writeln!(h, ",{inst_details}").unwrap();
-        }
-
         if let Err(e) = res {
             let msg = format!(
                 "{}\n{}",
@@ -165,13 +146,6 @@ impl ThreadState {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-
-            if let Some(h) = self.history_file.as_mut() {
-                writeln!(h, "# {e}").unwrap();
-                for i in self.inst_history.list().into_iter() {
-                    writeln!(h, "#   {i}").unwrap();
-                }
-            }
 
             Err(ThreadToUi::LogMessage(msg))
         } else {
@@ -187,37 +161,10 @@ impl ThreadState {
         const INIT_RO_LEN: u32 = Processor::BASE_HW_INT_ADDR;
 
         self.cpu = Processor::default();
-        self.serial_io_dev.borrow_mut().reset();
+        self.dev_serial_io.borrow_mut().reset();
 
         self.inst_history.reset();
         self.step_count = 0;
-
-        if let Some(h) = self.history_file.as_mut() {
-            write!(h, "#StepCount").unwrap();
-
-            for (i, _) in self.cpu.get_register_state().get_state().iter().enumerate() {
-                let extra_details = match i {
-                    0 => "PC",
-                    1 => "Stat",
-                    2 => "SP",
-                    3 => "OVF",
-                    4 => "Ret",
-                    5 => "ArgBase",
-                    6 => "FunctionLocal",
-                    7 => "FunctionTemp",
-                    8 => "Spare",
-                    _ => "",
-                };
-
-                write!(h, ",{i:02}").unwrap();
-
-                if !extra_details.is_empty() {
-                    write!(h, " ({extra_details})").unwrap();
-                }
-            }
-
-            writeln!(h, ",Details").unwrap();
-        }
 
         let reset_vec_data: Vec<u8> = (0..INIT_RO_LEN)
             .map(|i| {
@@ -243,16 +190,16 @@ impl ThreadState {
             ))),
         )?;
         self.cpu
-            .memory_add_segment(Self::DEVICE_START_IND, self.serial_io_dev.clone())?;
+            .memory_add_segment(Self::DEVICE_START_IND, self.dev_serial_io.clone())?;
 
-        self.cpu.device_add(self.serial_io_dev.clone())?;
+        self.cpu.device_add(self.dev_serial_io.clone())?;
 
-        let dev_interrupt = Rc::new(RefCell::new(InterruptClockDevice::new(0)));
+        let dev_timer = Rc::new(RefCell::new(InterruptClockDevice::new(0)));
 
-        self.cpu.device_add(dev_interrupt.clone())?;
+        self.cpu.device_add(dev_timer.clone())?;
         self.cpu.memory_add_segment(
-            Self::DEVICE_START_IND + self.serial_io_dev.borrow().len(),
-            dev_interrupt,
+            Self::DEVICE_START_IND + self.dev_serial_io.borrow().len(),
+            dev_timer,
         )?;
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
@@ -323,7 +270,7 @@ impl ThreadState {
                     for c in s.chars().chain(['\n'; 1]) {
                         match jib::text::character_to_byte(c) {
                             Ok(word) => {
-                                if !state.serial_io_dev.borrow_mut().push_input(word) {
+                                if !state.dev_serial_io.borrow_mut().push_input(word) {
                                     return Ok(Some(ThreadToUi::LogMessage(
                                         "device serial input buffer full".to_string(),
                                     )));
@@ -380,7 +327,7 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 
         // Check for serial output
         let mut char_vec = Vec::new();
-        while let Some(w) = state.serial_io_dev.borrow_mut().pop_output() {
+        while let Some(w) = state.dev_serial_io.borrow_mut().pop_output() {
             let c = match jib::text::byte_to_character(w) {
                 Ok(v) => v,
                 Err(e) => {

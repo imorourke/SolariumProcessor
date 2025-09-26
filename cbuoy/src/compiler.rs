@@ -13,7 +13,7 @@ use jib_asm::{
 use crate::{
     TokenError,
     expressions::{Expression, RegisterDef, TemporaryStackTracker},
-    functions::FunctionDefinition,
+    functions::{FunctionDeclaration, FunctionDefinition},
     literals::{Literal, StringLiteral},
     tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize},
     typing::{FunctionParameter, Type},
@@ -36,6 +36,7 @@ pub trait GlobalStatement: Debug {
 #[derive(Debug, Clone)]
 enum GlobalType {
     Variable(Rc<GlobalVariable>),
+    FunctionDeclaration(FunctionDeclaration),
     Function(Rc<dyn FunctionDefinition>),
     Constant(Rc<Literal>),
     UserType(Token, UserTypeOptions),
@@ -46,6 +47,7 @@ impl GlobalType {
         match self {
             Self::Variable(v) => v.get_token(),
             Self::Function(v) => v.get_token(),
+            Self::FunctionDeclaration(v) => v.get_token(),
             Self::Constant(v) => v.get_token(),
             Self::UserType(t, _) => t,
         }
@@ -55,8 +57,19 @@ impl GlobalType {
         match self {
             Self::Variable(var) => Some(Rc::new(GlobalVariableStatement::new(var.clone()))),
             Self::Function(func) => Some(func.clone()),
-            Self::Constant(..) => None,
-            Self::UserType(..) => None,
+            _ => None,
+        }
+    }
+}
+
+impl Display for GlobalType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Variable(v) => write!(f, "var({v})"),
+            Self::Function(v) => write!(f, "func({v})"),
+            Self::FunctionDeclaration(v) => write!(f, "funcdec({v})"),
+            Self::Constant(v) => write!(f, "const({v})"),
+            Self::UserType(t, _) => write!(f, "type({t})"),
         }
     }
 }
@@ -316,7 +329,7 @@ pub struct CompilingState {
     statements: Vec<Rc<dyn GlobalStatement>>,
     global_scope: HashMap<String, GlobalType>,
     user_types: Rc<RefCell<UserTypes>>,
-    string_literals: HashMap<String, Rc<StringLiteral>>,
+    string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
     current_id: usize,
     full_program: bool,
     scope_manager: Option<ScopeManager>,
@@ -326,13 +339,13 @@ impl Default for CompilingState {
     fn default() -> Self {
         Self {
             init_loc: 0x2000,
-            global_scope: HashMap::new(),
-            user_types: Rc::new(RefCell::new(UserTypes::default())),
-            string_literals: HashMap::new(),
             current_id: 0,
-            statements: Vec::new(),
             full_program: true,
             scope_manager: None,
+            global_scope: HashMap::default(),
+            user_types: Rc::default(),
+            string_literals: RefCell::default(),
+            statements: Vec::default(),
         }
     }
 }
@@ -441,7 +454,7 @@ impl CompilingState {
             asm.extend_from_slice(&s.get_static_code()?);
         }
 
-        for s in self.string_literals.values() {
+        for s in self.string_literals.borrow().values() {
             asm.extend_from_slice(&s.get_static_code()?);
         }
 
@@ -527,14 +540,18 @@ impl CompilingState {
         Ok(())
     }
 
-    pub fn add_string_literal(&mut self, token: &Token) -> Result<Rc<dyn Expression>, TokenError> {
-        if let Some(existing) = self.string_literals.get(token.get_value()) {
-            Ok(existing.clone())
-        } else {
-            let sv = Rc::new(StringLiteral::new(token.clone(), self.get_next_id())?);
-            self.string_literals
-                .insert(token.get_value().to_string(), sv.clone());
-            Ok(sv)
+    pub fn get_string_literal(&self, token: &Token) -> Result<Rc<dyn Expression>, TokenError> {
+        match self
+            .string_literals
+            .borrow_mut()
+            .entry(token.get_value().to_string())
+        {
+            Entry::Occupied(e) => Ok(e.get().clone()),
+            Entry::Vacant(e) => {
+                let sv = Rc::new(StringLiteral::new(token.clone())?);
+                e.insert(sv.clone());
+                Ok(sv)
+            }
         }
     }
 
@@ -542,7 +559,31 @@ impl CompilingState {
         self.add_to_global_scope(GlobalType::Constant(Rc::new(def.into_literal()?)))
     }
 
+    pub fn add_function_declaration(
+        &mut self,
+        func: FunctionDeclaration,
+    ) -> Result<(), TokenError> {
+        self.add_to_global_scope(GlobalType::FunctionDeclaration(func))
+    }
+
     pub fn add_function(&mut self, func: Rc<dyn FunctionDefinition>) -> Result<(), TokenError> {
+        match self
+            .global_scope
+            .entry(func.get_token().get_value().to_string())
+        {
+            Entry::Occupied(e) => {
+                if let GlobalType::FunctionDeclaration(_) = e.get() {
+                    e.remove_entry();
+                } else {
+                    return Err(func.get_token().clone().into_err(format!(
+                        "token already exists as {} - cannot add as a function",
+                        e.get()
+                    )));
+                };
+            }
+            _ => (),
+        };
+
         self.add_to_global_scope(GlobalType::Function(func))
     }
 
@@ -620,6 +661,7 @@ impl CompilingState {
             GlobalType::Variable(v) => Ok(v),
             GlobalType::Constant(v) => Ok(v),
             GlobalType::Function(f) => Ok(f.as_expr()),
+            GlobalType::FunctionDeclaration(f) => Ok(f.as_expr()),
             x => Err(x
                 .get_token()
                 .clone()
@@ -665,6 +707,7 @@ impl CompilingState {
                     GlobalType::Variable(v) => return v.get_type().ok(),
                     GlobalType::Constant(v) => return v.get_type().ok(),
                     GlobalType::Function(f) => return f.as_expr().get_type().ok(),
+                    GlobalType::FunctionDeclaration(f) => return f.as_expr().get_type().ok(),
                     GlobalType::UserType(_, t) => {
                         if let UserTypeOptions::ConcreteType(x) = t {
                             return Some(x.clone());
@@ -676,8 +719,7 @@ impl CompilingState {
 
         if let Ok(iter) = tokenize(name) {
             let mut tokens = TokenIter::from(&iter);
-            let mut tmp = self.clone(); // TODO - Don't require cloning here if possible, read_type shouldn't need to be mutable
-            Type::read_type(&mut tokens, &mut tmp).ok()
+            Type::read_type(&mut tokens, self).ok()
         } else {
             None
         }
