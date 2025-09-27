@@ -10,8 +10,11 @@ struct thread_stack_t {
 
 global THREAD_STACK: [STACK_NUM]thread_stack_t;
 
+global SERIAL_IN_SIZE: *u8 = 0xA000u32 + 2;
+global SERIAL_IN_LOC: *u8 = 0xA000u32 + 3;
 global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
-global CLOCK_LOC: *u32 = 0xA020u32;
+global CLOCK_LOC: *u32 = 0xA022u32;
+global CLOCK_INT: *u32 = 0xA02Au32;
 
 asmfn tsk_yield() void {
     "intoff";
@@ -132,6 +135,29 @@ fn main_tsk_b() void {
     }
 }
 
+asmfn tsk_intoff() void {
+    "intoff";
+    "ret";
+}
+
+asmfn tsk_inton() void {
+    "inton";
+    "ret";
+}
+
+fn main_tsk_c() void {
+    while (1) {
+        if (*SERIAL_IN_SIZE != 0) {
+            tsk_intoff();
+            while (*SERIAL_IN_SIZE != 0) {
+                *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
+            }
+            tsk_inton();
+        }
+        tsk_yield();
+    }
+}
+
 asmfn tsk_main() void {
     "ldn 8:u32";
     ".loadloc %{THREAD_NUM}%";
@@ -149,10 +175,12 @@ fn main() void {
     def test_array: [2]u32;
     &test_array[0];
     &test_array[1];
-    def irq0_loc: *u32 = 0x100;
-    *irq0_loc = tsk_yield;
+    def irq1_loc: *u32 = 0x104;
+    *irq1_loc = tsk_yield;
     init_thread(main_tsk_a);
     init_thread(main_tsk_b);
+    init_thread(main_tsk_c);
     *CLOCK_LOC = 1000;
+    *CLOCK_INT = 1;
     tsk_main();
 }

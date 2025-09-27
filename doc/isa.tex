@@ -411,6 +411,7 @@ The memory mapping for the serial input and output device is provided in Table \
         \texttt{5} & u8 & Write & Pushes a word onto the output queue \\
         \texttt{6} & u8 & Write & Clears the input queue if the value written is nonzero \\
         \texttt{7} & u8 & Write & Clears the output queue if the value written is nonzero \\
+        \texttt{8} & u8 & Read/Write & If non-zero, interrupt to write to when input is received \\
         \hline
     \end{tabular}
     \caption{Serial Input and Output device provides a simple data structure to read and write data streams}
@@ -431,7 +432,7 @@ The IRQ clock provides a means to trigger a specific hardware interrupt at a reg
 		\texttt{2} & u32 & Read/Write & Gets/sets the clock interval in CPU cycles. Set to 0 to disable. \\
 		\texttt{6} & u32 & Read & Provides the current clock counter in CPU cycles. \\
 		{} & {} & {} & Will be between 0 and the above interval. \\
-		\texttt{10} & u32 & Read/Write & The hardware IRQ to trigger. \\
+		\texttt{10} & u32 & Read/Write & The hardware IRQ to trigger, if non-zero. \\
 		\hline
 	\end{tabular}
 	\caption{Serial Input and Output device provides a simple data structure to read and write data streams}

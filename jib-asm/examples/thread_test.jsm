@@ -3,8 +3,8 @@
 .loadloc program_start
 .loadloc program_start
 
-.oper #0
-.loadloc hw_int_0
+.oper #1
+.loadloc hw_int_1
 
 .oper 0x1000
 :global_num_threads
@@ -84,7 +84,7 @@
     ret
 
 .oper 0x3200
-:hw_int_0
+:hw_int_1
     intoff
     ; Write Switch
     ldn 9:u32
@@ -134,7 +134,10 @@
     .u32 0xA000
 
 :dev_clock_loc
-    .u32 0xA020
+    .u32 0xA022
+
+:dev_clock_int
+    .u32 0xA02A
 
 :msg_init
 .text "Starting Program..."
@@ -226,10 +229,10 @@
     ldi 11:u16 1000 ; Set the clock interval to 1000 cycles
     sav 10:u32 11
 
-    ldi 12:u16 4 ; Set the interrupt to interrupt 0
+    ldi 12:u16 4 ; Set the interrupt to interrupt 1
     add 10:u32 10 12
     add 10:u32 10 12
-    ldi 11:u16 0
+    ldi 11:u16 1
     sav 10:u32 11
 
     ; Set the stack pointer and exit the main loop
