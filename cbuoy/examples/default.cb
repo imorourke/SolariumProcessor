@@ -118,10 +118,20 @@ fn test_fn(a: u16, b: u32) void {
     b = 7;
 }
 
+fn factorial(a: u32) u32 {
+    if (a < 2) {
+        return 1;
+    } else {
+        return a * factorial(a - 1);
+    }
+}
+
 fn main() void {
     print(TEST_STR);
     print("\n");
     print_uint(strlenasm(TEST_STR));
+    print("\n");
+    print_uint(factorial(6));
     print("\n");
 
     print_uint(strlen(TEST_STR));

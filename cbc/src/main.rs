@@ -35,28 +35,13 @@ struct CompilerArguments {
         help = "Includes location/debugging information in output assembly code"
     )]
     include_locations: bool,
-}
-
-struct CbcOutput {
-    assembly_text: Option<Vec<String>>,
-}
-
-impl CbcOutput {
-    fn new(args: &CompilerArguments) -> Self {
-        Self {
-            assembly_text: if args.print_assembly || args.output_assembly.is_some() {
-                Some(Vec::new())
-            } else {
-                None
-            },
-        }
-    }
-
-    fn add_string(&mut self, s: String) {
-        if let Some(v) = self.assembly_text.as_mut() {
-            v.push(s);
-        }
-    }
+    #[arg(
+        short = 'a',
+        long = "ast",
+        default_value_t = false,
+        help = "Prints the AST to the console"
+    )]
+    print_ast: bool,
 }
 
 fn main() -> std::process::ExitCode {
@@ -75,7 +60,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let asm = match parse(&input_text) {
+    let cbstate = match parse(&input_text) {
         Ok(asm) => asm,
         Err(e) => {
             print_error(&input_text, &e);
@@ -83,54 +68,42 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let mut output = CbcOutput::new(&args);
-
-    for i in &asm {
-        output.add_string(format!("{}", i.tok));
+    if args.print_ast {
+        println!("{}", cbstate.get_statements().join("\n"));
     }
 
-    let asm_out = match assemble_tokens(asm) {
-        Ok(r) => {
-            if args.include_locations {
-                output.add_string(format!(";Program Start: {:04x}", r.start_address));
-                output.add_string(";Labels:".to_string());
-                let mut locs: Vec<(u32, &String)> =
-                    r.labels.iter().map(|(k, v)| (*v, k)).collect::<Vec<_>>();
-                locs.sort_by(|a, b| a.0.cmp(&b.0));
-                for (v, k) in locs {
-                    output.add_string(format!(";  {v:04x} => {k}"));
-                }
-                output.add_string(";Debug:".to_string());
-                for (addr, cmt) in r.debug.iter() {
-                    output.add_string(format!(";  {addr:04x} => {cmt}"));
-                }
-            }
-            r
+    let asm = match cbstate.get_assembler() {
+        Ok(v) => v,
+        Err(e) => {
+            print_error(&input_text, &e);
+            return 1.into();
         }
+    };
+
+    let asm_out = match assemble_tokens(asm) {
+        Ok(v) => v,
         Err(e) => {
             eprintln!("{e}");
             return 2.into();
         }
     };
 
-    if let Some(txt) = &output.assembly_text {
-        if args.print_assembly {
-            for l in txt.iter() {
-                println!("{l}");
-            }
+    if args.print_assembly {
+        for l in &asm_out.assembly_lines {
+            println!("{l}");
         }
+    }
 
-        if let Some(out) = args.output_assembly {
-            match std::fs::File::create(out) {
-                Ok(mut f) => {
-                    for l in txt.iter() {
-                        writeln!(f, "{l}").unwrap();
-                    }
+    if let Some(out) = args.output_assembly {
+        match std::fs::File::create(out) {
+            Ok(mut f) => {
+                for l in &asm_out.assembly_lines {
+                    writeln!(f, "{l}").unwrap();
                 }
-                Err(e) => {
-                    eprintln!("{e}");
-                    return 3.into();
-                }
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                return 3.into();
             }
         }
     }

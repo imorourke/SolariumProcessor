@@ -6,11 +6,11 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Display, rc::Rc, sync::LazyLock};
 
 pub use instructions::{
-    Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl, OpBshr,
-    OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp, OpJmpr,
-    OpJmpri, OpLd, OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr, OpPush,
-    OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle, OpTneq,
-    OpTnz, OpTz, INST_SIZE,
+    INST_SIZE, Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl,
+    OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp,
+    OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr,
+    OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle,
+    OpTneq, OpTnz, OpTz,
 };
 
 pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
@@ -18,12 +18,12 @@ pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
 use jib::cpu::{Opcode, Processor, ProcessorError};
 
 use immediate::{
-    parse_imm_i16, parse_imm_i32, parse_imm_i8, parse_imm_u16, parse_imm_u32, parse_imm_u8,
-    ImmediateError,
+    ImmediateError, parse_imm_i8, parse_imm_i16, parse_imm_i32, parse_imm_u8, parse_imm_u16,
+    parse_imm_u32,
 };
 use regex::Regex;
 
-static LABEL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z](a-z0-9_)*").unwrap());
+static LABEL_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z_](a-z0-9_)*").unwrap());
 
 pub fn is_valid_label(s: &str) -> bool {
     LABEL_REGEX.is_match(s)
@@ -155,6 +155,7 @@ pub enum AsmToken {
     Literal1(u8),
     Literal2(u16),
     Literal4(u32),
+    Reserve(u32),
     LiteralText(String),
     AlignInstruction,
     Comment(String),
@@ -185,11 +186,7 @@ impl AsmToken {
             }
         }
 
-        if let Some(ind) = ind {
-            &s[..ind]
-        } else {
-            s
-        }
+        if let Some(ind) = ind { &s[..ind] } else { s }
     }
 
     fn split_asm_delim(s: &str) -> Result<Vec<String>, ParseError> {
@@ -332,6 +329,7 @@ impl TryFrom<&str> for AsmToken {
                         }
                         .to_bits(),
                     ),
+                    "reserve" => Self::Reserve(parse_imm_u32(arg)?),
                     _ => {
                         return Err(Self::Error::UnknownInstruction(
                             op.to_string(),
@@ -379,10 +377,11 @@ impl Display for AsmToken {
             Self::LocationComment(s) => write!(f, "! {}", update_comment_values(s)),
             Self::LoadLoc(l) => write!(f, ".loadloc {l}"),
             Self::AlignInstruction => write!(f, ".align"),
-            Self::ChangeAddress(addr) => write!(f, ".oper 0x{addr:x}"),
-            Self::Literal1(x) => write!(f, ".u8 0x{x:x}"),
-            Self::Literal2(x) => write!(f, ".u16 0x{x:x}"),
-            Self::Literal4(x) => write!(f, ".u32 0x{x:x}"),
+            Self::ChangeAddress(addr) => write!(f, ".oper {addr:#x}"),
+            Self::Literal1(x) => write!(f, ".u8 {x:#x}"),
+            Self::Literal2(x) => write!(f, ".u16 {x:#x}"),
+            Self::Literal4(x) => write!(f, ".u32 {x:#x}"),
+            Self::Reserve(x) => write!(f, ".reserve {x:#x}"),
             Self::LiteralText(t) => write!(f, ".text \"{t}\""),
             Self::CreateLabel(lbl) => write!(f, ":{lbl}"),
             Self::Operation(_, name, args) => {
@@ -607,6 +606,9 @@ impl TokenList {
                 AsmToken::Literal4(i) => {
                     state.add_bytes(&i.to_be_bytes(), loc)?;
                 }
+                AsmToken::Reserve(x) => {
+                    state.add_bytes(&vec![0; *x as usize], loc)?;
+                }
                 AsmToken::CreateLabel(lbl) => {
                     if state.labels.contains_key(lbl) {
                         return Err(AssemblerErrorLoc {
@@ -638,21 +640,45 @@ impl TokenList {
 
         state.process_delays()?;
 
-        if let Some(min_addr) = state.values.keys().min().copied() {
-            if let Some(max_addr) = state.values.keys().max().copied() {
-                let mut bytes = vec![0; (max_addr - min_addr) as usize + 1];
+        if let Some(min_addr) = state.values.keys().min().copied()
+            && let Some(max_addr) = state.values.keys().max().copied()
+        {
+            let mut bytes = vec![0; (max_addr - min_addr) as usize + 1];
 
-                for (a, v) in state.values {
-                    bytes[(a - min_addr) as usize] = v;
-                }
-
-                return Ok(AssemblerOutput {
-                    start_address: min_addr,
-                    bytes,
-                    labels: state.labels,
-                    debug: state.debug_comment,
-                });
+            for (a, v) in state.values {
+                bytes[(a - min_addr) as usize] = v;
             }
+
+            // Construct the textual representation
+            let mut text_lines: Vec<String> = Vec::new();
+
+            for i in &self.tokens {
+                text_lines.push(format!("{}", i.tok).replace("\n", "\\n"));
+            }
+
+            text_lines.push(format!(";Program Start: {:04x}", min_addr));
+            text_lines.push(";Labels:".to_string());
+            let mut locs: Vec<(u32, &String)> = state
+                .labels
+                .iter()
+                .map(|(k, v)| (*v, k))
+                .collect::<Vec<_>>();
+            locs.sort_by(|a, b| a.0.cmp(&b.0));
+            for (v, k) in locs {
+                text_lines.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
+            }
+            text_lines.push(";Debug:".to_string());
+            for (addr, cmt) in state.debug_comment.iter() {
+                text_lines.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
+            }
+
+            return Ok(AssemblerOutput {
+                start_address: min_addr,
+                bytes,
+                labels: state.labels,
+                debug: state.debug_comment,
+                assembly_lines: text_lines,
+            });
         }
 
         Ok(AssemblerOutput::default())
@@ -665,6 +691,7 @@ pub struct AssemblerOutput {
     pub bytes: Vec<u8>,
     pub labels: HashMap<String, u32>,
     pub debug: Vec<(u32, String)>,
+    pub assembly_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -775,13 +802,15 @@ impl ParserState {
 }
 
 pub fn assemble_text(txt: &str) -> Result<AssemblerOutput, AssemblerErrorLoc> {
-    assemble_lines(&txt.lines().collect::<Vec<_>>())
+    assemble_lines(txt.lines())
 }
 
-pub fn assemble_lines(txt: &[&str]) -> Result<AssemblerOutput, AssemblerErrorLoc> {
+pub fn assemble_lines<'a, T: Iterator<Item = &'a str>>(
+    txt: T,
+) -> Result<AssemblerOutput, AssemblerErrorLoc> {
     let mut state = TokenList::default();
 
-    for (i, l) in txt.iter().enumerate() {
+    for (i, l) in txt.enumerate() {
         let loc = LocationInfo {
             line: i + 1,
             column: 0,
@@ -795,10 +824,9 @@ pub fn assemble_lines(txt: &[&str]) -> Result<AssemblerOutput, AssemblerErrorLoc
     state.to_bytes()
 }
 
-pub fn assemble_tokens<T>(tokens: T) -> Result<AssemblerOutput, AssemblerErrorLoc>
-where
-    T: IntoIterator<Item = AsmTokenLoc>,
-{
+pub fn assemble_tokens<T: IntoIterator<Item = AsmTokenLoc>>(
+    tokens: T,
+) -> Result<AssemblerOutput, AssemblerErrorLoc> {
     let mut state = TokenList::default();
     for t in tokens.into_iter() {
         state.add_token(t);

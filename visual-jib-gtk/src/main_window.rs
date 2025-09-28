@@ -1,11 +1,8 @@
-use std::{fs::File, io::Write};
-
-//use gtk::glib::clone;
 use crate::cpu_thread::cpu_thread;
 use crate::messages::{ThreadToUi, UiToThread};
 use gtk::glib::clone;
-use gtk::{glib, prelude::*};
 use gtk::{Application, ApplicationWindow};
+use gtk::{glib, prelude::*};
 use jib::cpu::RegisterManager;
 
 pub fn build_ui(app: &Application) {
@@ -158,7 +155,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!("../../cbuoy/examples/default.cb"),
+            include_str!("../../cbuoy/examples/threading.cb"),
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),
@@ -232,66 +229,30 @@ fn build_code_column(
                     let cb =
                         text_buffer.text(&text_buffer.start_iter(), &text_buffer.end_iter(), false);
 
-                    match cbuoy::parse(cb.as_str()) {
-                        Ok(v) => {
-                            let mut asm = v
-                                .iter()
-                                .map(|x| format!("{}", x.tok))
-                                .collect::<Vec<_>>()
-                                .join("\n");
+                    match cbuoy::parse(cb.as_str()).and_then(|x| x.get_assembler()) {
+                        Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
+                            Ok(asm_out) => {
+                                let asm = asm_out.assembly_lines.join("\n");
 
-                            match jib_asm::assemble_tokens(v) {
-                                Ok(v) => {
-                                    let mut label_locs =
-                                        v.labels.iter().map(|(k, v)| (*v, k)).collect::<Vec<_>>();
-                                    label_locs.sort_by(|a, b| a.0.cmp(&b.0));
-                                    let label_vals = label_locs
-                                        .into_iter()
-                                        .map(|(addr, txt)| format!(";? {addr:04x} = {txt}"))
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-                                    asm = format!("{asm}\n\n{label_vals}").trim().to_string();
+                                tx_ui.send(UiToThread::SetCode(asm_out)).unwrap();
+                                tx_thread
+                                    .send(ThreadToUi::LogMessage(format!(
+                                        "{short_name} Successful"
+                                    )))
+                                    .unwrap();
 
-                                    let mut debug_vals = v.debug.clone();
-                                    debug_vals.sort_by(|a, b| a.0.cmp(&b.0));
-                                    let debug_text = debug_vals
-                                        .into_iter()
-                                        .map(|(addr, txt)| {
-                                            format!(";> {addr:04x} = {}", txt.replace('\n', "\\n"))
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-                                    asm = format!("{asm}\n\n{debug_text}").trim().to_string();
-
-                                    tx_ui.send(UiToThread::SetCode(v)).unwrap();
-                                    tx_thread
-                                        .send(ThreadToUi::LogMessage(format!(
-                                            "{short_name} Successful"
-                                        )))
-                                        .unwrap();
-                                }
-                                Err(err) => {
-                                    tx_thread
-                                        .send(ThreadToUi::LogMessage(format!(
-                                            "{short_name}: {err}"
-                                        )))
-                                        .unwrap();
-                                }
+                                buffer_asm_code.set_text(&asm);
                             }
-
-                            if crate::cpu_thread::WRITE_CPU_HISTORY {
-                                let mut f = File::create("history.jb").unwrap();
-                                write!(f, "{asm}").unwrap();
+                            Err(err) => {
+                                tx_thread
+                                    .send(ThreadToUi::LogMessage(format!("{short_name}: {err}")))
+                                    .unwrap();
                             }
-
-                            buffer_asm_code.set_text(&asm);
-                        }
+                        },
                         Err(err) => {
                             tx_thread
                                 .send(ThreadToUi::LogMessage(format!("{short_name}: {err}")))
                                 .unwrap();
-
-                            eprintln!("Error: {}", err.msg);
 
                             if let Some(t) = &err.token {
                                 let line_num = t.get_loc().line;
@@ -371,7 +332,7 @@ fn build_cpu_column(
         ("Start", UiToThread::CpuStart),
         ("Stop", UiToThread::CpuStop),
         ("Reset", UiToThread::CpuReset),
-        ("IRQ0", UiToThread::CpuIrq(0)),
+        ("IRQ1", UiToThread::CpuIrq(1)),
     ];
 
     for (lbl, action) in cpu_btns.into_iter() {
@@ -391,7 +352,7 @@ fn build_cpu_column(
         .adjustment(
             &gtk::Adjustment::builder()
                 .lower(1.0)
-                .upper(10.0)
+                .upper(50.0)
                 .value(1.0)
                 .build(),
         )

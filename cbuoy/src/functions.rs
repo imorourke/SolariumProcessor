@@ -21,10 +21,10 @@ use crate::{
     },
     typing::{Function, Type},
     utilities::load_to_register,
-    variables::{LocalVariable, VariableDefinition},
+    variables::{LocalVariable, LocalVariableStatement, VariableDefinition},
 };
 
-pub trait FunctionDefinition: GlobalStatement {
+pub trait FunctionDefinition: Display + GlobalStatement {
     fn get_token(&self) -> &Token;
     fn as_expr(&self) -> Rc<dyn Expression>;
     fn get_entry_label(&self) -> &str;
@@ -48,32 +48,21 @@ impl StandardFunctionType {
 
 #[derive(Debug)]
 pub struct StandardFunctionDefinition {
-    name: Token,
-    entry_label: String,
-    end_label: String,
+    declaration: FunctionDeclaration,
     statements: Vec<Rc<dyn Statement>>,
-    dtype: Function,
     scope_manager: ScopeManager,
-    func_type: StandardFunctionType,
 }
 
 impl StandardFunctionDefinition {
     pub fn new(
-        label_base: &str,
-        name: Token,
-        func: Function,
+        declaration: FunctionDeclaration,
         statements: Vec<Rc<dyn Statement>>,
         scope_manager: ScopeManager,
-        func_type: StandardFunctionType,
     ) -> Result<Self, TokenError> {
         Ok(Self {
-            name,
-            entry_label: format!("{label_base}_start"),
-            end_label: format!("{label_base}_end"),
+            declaration,
             statements,
-            dtype: func,
             scope_manager,
-            func_type,
         })
     }
 
@@ -85,8 +74,6 @@ impl StandardFunctionDefinition {
         tokens.expect(func_type.keyword())?;
         let name_token = tokens.next()?;
         let ident = get_identifier(&name_token)?;
-
-        // TODO - Self-referrential functions for recursion?
 
         state.init_scope(name_token.clone())?;
 
@@ -108,11 +95,15 @@ impl StandardFunctionDefinition {
             ident
         );
 
+        let declaration = FunctionDeclaration::new(name_token, base_label, dtype, func_type);
+
+        state.add_function_declaration(declaration.clone())?;
+
         while let Some(s) = parse_statement(
             tokens,
             state,
-            &format!("{base_label}_end"),
-            dtype.return_type.as_ref(),
+            &declaration.end_label,
+            declaration.dtype.return_type.as_ref(),
         )? {
             statements.push(s);
         }
@@ -120,32 +111,25 @@ impl StandardFunctionDefinition {
         tokens.expect("}")?;
 
         let def = Rc::new(StandardFunctionDefinition::new(
-            &base_label,
-            name_token.clone(),
-            dtype,
+            declaration,
             statements,
             state.extract_scope()?,
-            func_type,
         )?);
-        state.add_function(def)
+        state.add_function(def.clone())
     }
 }
 
 impl FunctionDefinition for StandardFunctionDefinition {
     fn get_entry_label(&self) -> &str {
-        &self.entry_label
+        self.declaration.get_entry_label()
     }
 
     fn get_token(&self) -> &Token {
-        &self.name
+        self.declaration.get_token()
     }
 
     fn as_expr(&self) -> Rc<dyn Expression> {
-        Rc::new(FunctionLabelExpr {
-            name: self.name.clone(),
-            dtype: self.dtype.clone(),
-            entry_label: self.entry_label.clone(),
-        })
+        self.declaration.as_expr()
     }
 }
 
@@ -160,8 +144,12 @@ impl GlobalStatement for StandardFunctionDefinition {
 
     fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut init_asm = vec![
-            AsmToken::CreateLabel(self.entry_label.clone()),
-            AsmToken::LocationComment(format!("+{}({})", self.func_type.keyword(), self.name)),
+            AsmToken::CreateLabel(self.declaration.entry_label.clone()),
+            AsmToken::LocationComment(format!(
+                "+{}({})",
+                self.declaration.func_type.keyword(),
+                self.declaration.name
+            )),
             AsmToken::OperationLiteral(Box::new(OpCopy::new(
                 RegisterDef::FN_VAR_BASE.into(),
                 Register::StackPointer.into(),
@@ -175,7 +163,11 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         for s in self.statements.iter() {
             let mut local_stack = TemporaryStackTracker::default();
-            statement_asm.push(self.name.to_asm(AsmToken::LocationComment(format!("{s}"))));
+            statement_asm.push(
+                self.declaration
+                    .name
+                    .to_asm(AsmToken::LocationComment(format!("{s}"))),
+            );
             statement_asm.extend(s.get_exec_code(&mut local_stack)?);
             stack_requirements.merge(local_stack);
         }
@@ -211,6 +203,7 @@ impl GlobalStatement for StandardFunctionDefinition {
         }
 
         let mut asm = self
+            .declaration
             .name
             .to_asm_iter(init_asm)
             .into_iter()
@@ -220,7 +213,7 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         let mut asm_end = Vec::new();
 
-        asm_end.push(AsmToken::CreateLabel(self.end_label.clone()));
+        asm_end.push(AsmToken::CreateLabel(self.declaration.end_label.clone()));
         if total_stack_size > 0 {
             asm_end.extend(load_to_register(
                 RegisterDef::SPARE,
@@ -233,7 +226,7 @@ impl GlobalStatement for StandardFunctionDefinition {
             ))));
         }
 
-        let op: Box<dyn Instruction> = match self.func_type {
+        let op: Box<dyn Instruction> = match self.declaration.func_type {
             StandardFunctionType::Default => Box::new(OpRet),
             StandardFunctionType::Interrupt => Box::new(OpRetInt),
         };
@@ -241,13 +234,99 @@ impl GlobalStatement for StandardFunctionDefinition {
         asm_end.push(AsmToken::OperationLiteral(op));
         asm_end.push(AsmToken::LocationComment(format!(
             "-{}({})",
-            self.func_type.keyword(),
-            self.name
+            self.declaration.func_type.keyword(),
+            self.declaration.name
         )));
 
-        asm.extend(self.name.to_asm_iter(asm_end));
+        asm.extend(self.declaration.name.to_asm_iter(asm_end));
 
         Ok(asm)
+    }
+}
+
+impl Display for StandardFunctionDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {{", self.declaration)?;
+
+        for s in self.statements.iter() {
+            writeln!(f, "    {s}")?;
+        }
+
+        writeln!(f, "}}")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionDeclaration {
+    name: Token,
+    entry_label: String,
+    end_label: String,
+    dtype: Function,
+    func_type: StandardFunctionType,
+}
+
+impl FunctionDeclaration {
+    fn new(
+        name: Token,
+        label_base: String,
+        dtype: Function,
+        func_type: StandardFunctionType,
+    ) -> Self {
+        Self {
+            name,
+            entry_label: format!("{label_base}_start"),
+            end_label: format!("{label_base}_end"),
+            dtype,
+            func_type,
+        }
+    }
+
+    fn get_entry_label(&self) -> &str {
+        &self.entry_label
+    }
+
+    pub fn get_token(&self) -> &Token {
+        &self.name
+    }
+
+    pub fn as_expr(&self) -> Rc<dyn Expression> {
+        Rc::new(FunctionLabelExpr {
+            name: self.name.clone(),
+            dtype: self.dtype.clone(),
+            entry_label: self.entry_label.clone(),
+        })
+    }
+}
+
+impl Display for FunctionDeclaration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{} {}({}) {};",
+            match self.func_type {
+                StandardFunctionType::Default => "fn",
+                StandardFunctionType::Interrupt => "fnint",
+            },
+            self.name.get_value(),
+            self.dtype
+                .parameters
+                .iter()
+                .map(|x| format!(
+                    "{}: {}",
+                    x.name
+                        .as_ref()
+                        .map(|x| x.get_value().to_string())
+                        .unwrap_or("?".to_string()),
+                    x.dtype
+                ))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.dtype
+                .return_type
+                .as_ref()
+                .map(|x| format!("{x}"))
+                .unwrap_or("void".to_string())
+        )
     }
 }
 
@@ -303,7 +382,7 @@ impl AsmFunctionDefinition {
                 unsafe impl Send for MatchFunctionValue {}
                 unsafe impl Sync for MatchFunctionValue {}
 
-                static MATCHES: LazyLock<[MatchFunctionValue; 4]> = LazyLock::new(|| {
+                static MATCHES: LazyLock<[MatchFunctionValue; 5]> = LazyLock::new(|| {
                     [
                         MatchFunctionValue::new("global_loc", "%", |state, name| {
                             state.get_global_location_label(name).map(|x| x.to_string())
@@ -318,6 +397,11 @@ impl AsmFunctionDefinition {
                         }),
                         MatchFunctionValue::new("struct_offset", "&", |_state_, _name| {
                             todo!("dtype.field offsets")
+                        }),
+                        MatchFunctionValue::new("sizeof", "#", |state, name| {
+                            state
+                                .get_identifier_type(name)
+                                .map(|t| format!("{}", t.byte_size()))
                         }),
                     ]
                 });
@@ -416,6 +500,40 @@ impl GlobalStatement for AsmFunctionDefinition {
 
     fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(Vec::default())
+    }
+}
+
+impl Display for AsmFunctionDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "asmfn {}({}) {} {{",
+            self.name.get_value(),
+            self.dtype
+                .parameters
+                .iter()
+                .map(|x| format!(
+                    "{}: {}",
+                    x.name
+                        .as_ref()
+                        .map(|x| x.get_value().to_string())
+                        .unwrap_or("?".to_string()),
+                    x.dtype
+                ))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.dtype
+                .return_type
+                .as_ref()
+                .map(|x| format!("{x}"))
+                .unwrap_or("void".to_string())
+        )?;
+
+        for s in self.asm_text.iter() {
+            writeln!(f, "  {};", s.get_value())?;
+        }
+
+        writeln!(f, "}}")
     }
 }
 
@@ -740,7 +858,8 @@ impl Statement for ReturnStatementTempVar {
         &self,
         temporary_stack_tracker: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        let mut asm = self.temp_var.get_exec_code(temporary_stack_tracker)?;
+        let mut asm = LocalVariableStatement::new(Rc::new(self.temp_var.clone()))
+            .get_exec_code(temporary_stack_tracker)?;
 
         asm.extend(self.token.to_asm_iter([
             AsmToken::OperationLiteral(Box::new(OpLdn::new(ArgumentType::new(
@@ -843,7 +962,9 @@ fn parse_statement(
     if let Some(next) = tokens.peek() {
         if next.get_value() == KEYWORD_DEF {
             let def = VariableDefinition::parse(KEYWORD_DEF, tokens, state)?;
-            Ok(Some(state.get_scopes_mut()?.add_var(def)?))
+            Ok(Some(Rc::new(LocalVariableStatement::new(
+                state.get_scopes_mut()?.add_var(def)?,
+            ))))
         } else if next.get_value() == KEYWORD_CONST {
             let def = VariableDefinition::parse(KEYWORD_CONST, tokens, state)?;
             state.get_scopes_mut()?.add_const(def)?;

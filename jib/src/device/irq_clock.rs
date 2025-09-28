@@ -53,24 +53,28 @@ impl MemorySegment for InterruptClockDevice {
     /// Sets the word at the requested memory location with the given data
     /// Returns true if the value could be set; otherwise returns false
     fn set(&mut self, offset: u32, data: u8) -> Result<(), MemorySegmentError> {
-        let index = offset / Processor::BYTES_PER_WORD;
-        let within = offset % Processor::BYTES_PER_WORD;
+        if offset >= DEVICE_ID_SIZE {
+            let index = (offset - DEVICE_ID_SIZE) / Processor::BYTES_PER_WORD;
+            let within = (offset - DEVICE_ID_SIZE) % Processor::BYTES_PER_WORD;
 
-        let mut mem = [self.clock_interval, self.current_count, self.interrupt];
+            let mut mem = [self.clock_interval, self.current_count, self.interrupt];
 
-        if (index as usize) < mem.len() {
-            let mut val = mem[index as usize].to_be_bytes();
+            if (index as usize) < mem.len() {
+                let mut val = mem[index as usize].to_be_bytes();
 
-            val[within as usize] = data;
-            mem[index as usize] = u32::from_be_bytes(val);
+                val[within as usize] = data;
+                mem[index as usize] = u32::from_be_bytes(val);
 
-            self.clock_interval = mem[0];
-            // self.current_count = mem[1]; // Do not set the current count
-            self.interrupt = mem[2];
+                self.clock_interval = mem[0];
+                // self.current_count = mem[1]; // Do not set the current count
+                self.interrupt = mem[2];
 
-            Ok(())
+                Ok(())
+            } else {
+                Err(MemorySegmentError::InvalidMemoryWrite(offset, data))
+            }
         } else {
-            Err(MemorySegmentError::InvalidMemoryAccess(offset))
+            Err(MemorySegmentError::InvalidMemoryWrite(offset, data))
         }
     }
 
@@ -88,7 +92,7 @@ impl MemorySegment for InterruptClockDevice {
 
 impl ProcessorDevice for InterruptClockDevice {
     fn on_step(&mut self) -> Option<DeviceAction> {
-        if self.clock_interval != 0 {
+        if self.clock_interval != 0 && self.interrupt != 0 {
             self.current_count = (self.current_count + 1) % self.clock_interval;
 
             match self.current_count {

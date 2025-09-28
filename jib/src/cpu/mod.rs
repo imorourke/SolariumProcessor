@@ -481,7 +481,7 @@ impl Processor {
             self.memory.get_u32(reset_vec_addr)?,
         )?;
         self.registers
-            .set_status_flag(RegisterFlag::InterruptEnable, true)?;
+            .set_status_flag(RegisterFlag::InterruptEnable, false)?;
 
         self.interrupt_controller.reset();
 
@@ -521,7 +521,11 @@ impl Processor {
         Ok(true)
     }
 
-    fn call_interrupt(&mut self, int: Interrupt) -> Result<bool, ProcessorError> {
+    fn call_interrupt(
+        &mut self,
+        int: Interrupt,
+        data: Option<u32>,
+    ) -> Result<bool, ProcessorError> {
         // Return false if interrupts are not allowed
         if !self
             .registers
@@ -549,6 +553,11 @@ impl Processor {
         self.push_all_registers()?;
         self.set_executing_interrupt(Some(int.to_index()))?;
         self.registers.set(Register::ProgramCounter, new_pc)?;
+
+        // Add the data field if provided
+        if let Some(val) = data {
+            self.registers.set(Register::ArgumentBase, val)?;
+        }
 
         // Return true if the interrupt was called
         Ok(true)
@@ -665,7 +674,7 @@ impl Processor {
                 .get_executing_interrupt()?
                 .is_none_or(|x| next_interrupt < x)
         {
-            self.call_interrupt(next_interrupt.try_into()?)?;
+            self.call_interrupt(next_interrupt.try_into()?, None)?;
         }
 
         let mut inst_jump = Some(1);

@@ -1,4 +1,9 @@
-use std::{fmt::Display, rc::Rc, sync::LazyLock};
+use std::{
+    fmt::Display,
+    hash::{DefaultHasher, Hash, Hasher},
+    rc::Rc,
+    sync::LazyLock,
+};
 
 use jib::cpu::{DataType, OperationError, OperatorManager, convert_types};
 use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc, OpLdn};
@@ -366,7 +371,7 @@ impl TryFrom<Token> for Literal {
 pub struct StringLiteral {
     token: Token,
     value: Rc<str>,
-    id: usize,
+    id: u64,
 }
 
 impl StringLiteral {
@@ -386,12 +391,14 @@ impl StringLiteral {
         }
     }
 
-    pub fn new(token: Token, id: usize) -> Result<Self, TokenError> {
+    pub fn new(token: Token) -> Result<Self, TokenError> {
         if let Some(txt) = Self::get_quoted_text(token.get_value()).map(|x| x.to_string()) {
+            let mut h = DefaultHasher::new();
+            txt.hash(&mut h);
             Ok(Self {
                 token,
                 value: txt.into(),
-                id,
+                id: h.finish(),
             })
         } else {
             Err(token.into_err("unable to parse into a valid string literal"))
@@ -399,7 +406,7 @@ impl StringLiteral {
     }
 
     fn get_label(&self) -> String {
-        format!("___global_string_value_{}", self.id)
+        format!("___global_string_value_{}_{}", self.id, self.value.len())
     }
 }
 
@@ -427,7 +434,7 @@ impl GlobalStatement for StringLiteral {
 
 impl Display for StringLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", self.value)
+        write!(f, "\"{}\"", self.value.replace("\n", "\\n"))
     }
 }
 

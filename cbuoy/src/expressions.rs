@@ -356,7 +356,7 @@ impl Expression for AddressOfExpression {
 
 impl Display for AddressOfExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "*{}", self.base)
+        write!(f, "&{}", self.base)
     }
 }
 
@@ -1029,7 +1029,7 @@ struct ArrayIndexExpression {
 
 impl Display for ArrayIndexExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({})[{}]", self.address_expr, self.index_expr)
+        write!(f, "(({})[{}])", self.address_expr, self.index_expr)
     }
 }
 
@@ -1054,9 +1054,20 @@ impl Expression for ArrayIndexExpression {
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self
-            .address_expr
-            .load_address_to_register(reg, required_stack)?;
+        let mut asm = match self.address_expr.get_type()? {
+            Type::Array(_, _) => self
+                .address_expr
+                .load_address_to_register(reg, required_stack)?,
+            Type::Pointer(_) => self
+                .address_expr
+                .load_value_to_register(reg, required_stack)?,
+            v => {
+                return Err(self.token.clone().into_err(format!(
+                    "unable to convert from `{}` into a valid array type",
+                    v
+                )));
+            }
+        };
 
         let pt = self.index_expr.get_primitive_type()?;
         if !pt.integral() {
@@ -1068,31 +1079,50 @@ impl Expression for ArrayIndexExpression {
         }
 
         let index_reg = reg.increment_token(&self.token)?;
+        let type_size = self.get_type()?.byte_size() as u32;
 
-        asm.append(match self.index_expr.simplify() {
-            Some(lit) => lit.load_value_to_register(index_reg, required_stack)?,
-            None => self
-                .index_expr
-                .load_value_to_register(index_reg, required_stack)?,
-        });
+        let index_expr = BinaryArithmeticExpression::new(
+            self.index_expr.get_token().clone(),
+            BinaryArithmeticOperation::Product,
+            self.index_expr.clone(),
+            Rc::new(Literal::new(
+                self.index_expr.get_token().clone(),
+                LiteralValue::U32(type_size),
+            )),
+        );
 
-        asm.extend_asm(self.token.to_asm_iter(load_to_register(
-            reg.spare,
-            self.get_type()?.byte_size() as u32,
-        )));
+        if let Some(lit) = index_expr.simplify() {
+            asm.append(lit.load_value_to_register(index_reg, required_stack)?);
+        } else {
+            asm.append(
+                self.index_expr
+                    .load_value_to_register(index_reg, required_stack)?,
+            );
 
-        asm.extend_asm(self.token.to_asm_iter([
-            AsmToken::OperationLiteral(Box::new(OpMul::new(
-                ArgumentType::new(index_reg.reg, DataType::I32),
-                index_reg.reg.into(),
-                reg.spare.into(),
-            ))),
-            AsmToken::OperationLiteral(Box::new(OpAdd::new(
-                ArgumentType::new(reg.reg, DataType::I32),
-                reg.reg.into(),
-                index_reg.reg.into(),
-            ))),
-        ]));
+            if type_size != 1 {
+                asm.extend_asm(self.token.to_asm_iter(load_to_register(
+                    reg.spare,
+                    self.get_type()?.byte_size() as u32,
+                )));
+                asm.push_asm(
+                    self.token
+                        .to_asm(AsmToken::OperationLiteral(Box::new(OpMul::new(
+                            ArgumentType::new(index_reg.reg, DataType::I32),
+                            index_reg.reg.into(),
+                            reg.spare.into(),
+                        )))),
+                );
+            }
+        }
+
+        asm.push_asm(
+            self.token
+                .to_asm(AsmToken::OperationLiteral(Box::new(OpAdd::new(
+                    ArgumentType::new(reg.reg, DataType::I32),
+                    reg.reg.into(),
+                    index_reg.reg.into(),
+                )))),
+        );
 
         Ok(asm)
     }
@@ -1334,7 +1364,7 @@ static BINARY_STR: LazyLock<HashMap<String, BinaryOperation>> = LazyLock::new(||
 
 fn parse_expression_without_binary_expressions(
     tokens: &mut TokenIter,
-    state: &mut CompilingState,
+    state: &CompilingState,
 ) -> Result<Rc<dyn Expression>, TokenError> {
     let first = tokens.next()?;
 
@@ -1377,7 +1407,7 @@ fn parse_expression_without_binary_expressions(
     } else if get_identifier(&first).is_ok() {
         state.get_variable(&first)?.clone()
     } else if first.get_value().starts_with('"') {
-        state.add_string_literal(&first)?
+        state.get_string_literal(&first)?
     } else {
         Rc::new(Literal::try_from(first.clone())?)
     };
@@ -1511,7 +1541,7 @@ fn process_binary_expressions(
 
 pub fn parse_expression(
     tokens: &mut TokenIter,
-    state: &mut CompilingState,
+    state: &CompilingState,
 ) -> Result<Rc<dyn Expression>, TokenError> {
     let mut main_expressions: Vec<BinaryExpressionMatching> =
         vec![BinaryExpressionMatching::Expression(

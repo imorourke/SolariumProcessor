@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 async-channel = "2"
-gtk = { version = "0.9", package = "gtk4", features = ["v4_6"] }
+gtk = { version = "0.10", package = "gtk4", features = ["v4_6"] }
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }

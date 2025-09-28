@@ -75,10 +75,10 @@ impl TryFrom<&str> for ArgumentRegister {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         for i in 0..RegisterManager::REGISTER_COUNT {
             let reg = Register::GeneralPurpose(i);
-            if let Some(reg) = reg.as_special() {
-                if format!("${}", reg.get_special_name()) == value {
-                    return Ok(Self { reg });
-                }
+            if let Some(reg) = reg.as_special()
+                && format!("${}", reg.get_special_name()) == value
+            {
+                return Ok(Self { reg });
             }
         }
 

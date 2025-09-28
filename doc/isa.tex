@@ -6,6 +6,15 @@
 
 \usepackage{amsmath}
 
+%\usepackage[pdftex, pdfauthor={Ian O'Rourke}, pdftitle={Jib ISA}]
+\pdfinfo{
+	/Author (Ian O'Rourke)
+	/Title (Jib Instruction Set Architecture)
+	/CreationDate (\today)
+	/Subject (Jib ISA)
+	/Keywords (Jib;CBuoy;C/Buoy;ISA;Processor;Computer)
+}
+
 \newcommand{\titlelogoimage}{
 \begin{figure}[h!]
     \centering
@@ -132,7 +141,7 @@ On a hard-reset, all registers will be reset to 0 and memory values will be rese
 
 On soft-reset, as called by the reset the program counter will be assigned the value contained in the soft-reset vector, which is stored at memory location 1. All of the other registers are reset to their default value of 0. Processor memory will be left unchanged and processor execution is then started.
 
-On any reset, interrupts will be allowed by default.
+On any reset, interrupts will be disabled by default, and must be enabled manually.
 
 \subsection{The Stack}
 \label{sec:the-stack}
@@ -159,7 +168,7 @@ The Jib supports 32 software and 32 hardware interrupts, as shown in Table \ref{
     \label{table:interrupt-vector-locations}
 \end{table}
 
-Interrupts are processed by the interrupt controller. This stores all interrupt requests and provides the CPU the next interrupt to process based on their priority. Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run, in priority-order. 
+Interrupts are processed by the interrupt controller. This stores all interrupt requests and provides the CPU the next interrupt to process based on their priority. Note that, if a vector has a value of zero, that interrupt vector is considered to be disabled and that interrupt will effectively be disabled and not able to be run.Once interrupts are re-enabled, if this queue is not empty, then that interrupt will be run, in priority-order.
 
 At the conclusion of any interrupt, the \texttt{retint} instruction should be called. This will replace the current register state with the values provided off the stack and resume program execution from the location right after the interrupt was called. It will also clear the It should be noted that, if any values were pushed onto the stack during the interrupt handler, they should be popped off the stack prior to the \texttt{retint} call to avoid corrupting the program state. The \texttt{retint} instruction will return from the interrupt handler and allow the CPU to mark this interrupt as completed, so that it can move on to the next interrupt handler, or stop interrupt handling and resume normal operation if there are no more interrupts to be run. By clearing the interrupt execution status at the end of the handler, this prevents duplicates of the same interrupt from being run, preventing a execution errors if a hardware device spams the associated hardware interrupt.
 
@@ -279,9 +288,15 @@ The assembler also has several commands available, detailed in Table \ref{table:
         & or as a signed word (if negative) in the current memory location \\
         \texttt{.loadloc [label]} & Loads the data index associated with the provided label into \\
         & the current memory location \\
-        \texttt{.loadtext "[TEXT]"} & Loads the text into memory, starting at the current memory location, \\
-        & placing each character into the next subsequent memory location, with \\
-        & a null-terminator as copied into memory after the text value \\
+        \texttt{.text "[TEXT]"} & Loads the text into memory, starting at the current memory location, \\
+        & placing each character into the next subsequent memory location, \\
+        & with a null-terminator as copied into memory after the text value \\
+        \texttt{.reserve [num]} & Reserves the the next \texttt{[num]} bytes of memory for data, \\
+        & filling the memory with zeros \\
+        \hline
+        \texttt{.u8/.u16/.u32 [num]} & Loads the given unsigned integer at the current location \\
+        \texttt{.i8/.i16/.ui32 [num]} & Loads the given signed integer at the current location \\
+        \texttt{.f32 [num]} & Loads the given floating point number at the current location \\
         \hline
     \end{tabular}
     \caption{Available assembler commands}
@@ -396,6 +411,7 @@ The memory mapping for the serial input and output device is provided in Table \
         \texttt{5} & u8 & Write & Pushes a word onto the output queue \\
         \texttt{6} & u8 & Write & Clears the input queue if the value written is nonzero \\
         \texttt{7} & u8 & Write & Clears the output queue if the value written is nonzero \\
+        \texttt{8} & u8 & Read/Write & If non-zero, interrupt to write to when input is received \\
         \hline
     \end{tabular}
     \caption{Serial Input and Output device provides a simple data structure to read and write data streams}
@@ -416,7 +432,7 @@ The IRQ clock provides a means to trigger a specific hardware interrupt at a reg
 		\texttt{2} & u32 & Read/Write & Gets/sets the clock interval in CPU cycles. Set to 0 to disable. \\
 		\texttt{6} & u32 & Read & Provides the current clock counter in CPU cycles. \\
 		{} & {} & {} & Will be between 0 and the above interval. \\
-		\texttt{10} & u32 & Read/Write & The hardware IRQ to trigger. \\
+		\texttt{10} & u32 & Read/Write & The hardware IRQ to trigger, if non-zero. \\
 		\hline
 	\end{tabular}
 	\caption{Serial Input and Output device provides a simple data structure to read and write data streams}
@@ -548,6 +564,7 @@ To combat this, Jib assembly code can also be mixed in with functions to increas
         Global Literal Value & \texttt{\textasciicircum\{IDENTIFIER\}\textasciicircum} & Provides the raw value of the \\ & & provided literal/constant at the global scope \\
         Local Variable Offset & \texttt{@\{IDENTIFIER\}@ } & Provides the offset (from the argument base) \\ & & for the given local variable or function parameter \\
         Member Offset & \texttt{\&\{IDENTIFIER\}\&} & Provides the offset of the provided \\ & & structure member value \\
+        \texttt{sizeof} & \texttt{\#\{IDENTIFIER\}\#} & Provides the \texttt{sizeof} for the provided \\ & & type or symbol \\
         \hline
     \end{tabular}
     \caption{Formats for parameters that are replaced in the assembly code with the resulting value for better interoperability with the overall function}
