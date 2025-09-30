@@ -86,7 +86,7 @@ fn print_uint(v: u32) void {
             v = v / 10;
             cp = cp + 1;
         }
-        while (cp != chars) {
+        while (cp != &chars[0]) {
             cp = cp - 1;
             print_digit(*cp);
         }
@@ -172,9 +172,6 @@ asmfn tsk_main() void {
 }
 
 fn main() void {
-    def test_array: [2]u32;
-    &test_array[0];
-    &test_array[1];
     def irq1_loc: *u32 = 0x104;
     *irq1_loc = tsk_yield;
     init_thread(main_tsk_a);
