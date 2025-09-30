@@ -516,6 +516,13 @@ impl BinaryArithmeticExpression {
             rhs,
         }
     }
+
+    fn get_ptr_size(t: &Type) -> Option<usize> {
+        match t {
+            Type::Pointer(base) => Some(base.byte_size()),
+            _ => None,
+        }
+    }
 }
 
 impl Expression for BinaryArithmeticExpression {
@@ -524,16 +531,25 @@ impl Expression for BinaryArithmeticExpression {
     }
 
     fn get_type(&self) -> Result<Type, TokenError> {
-        if let Ok(t) = self.lhs.get_type()
-            && t.is_pointer()
+        let ta = self.lhs.get_type()?;
+        let tb = self.rhs.get_type()?;
+
+        if let Some(sa) = Self::get_ptr_size(&ta)
+            && let Some(sb) = Self::get_ptr_size(&tb)
         {
-            Ok(t)
-        } else if let Ok(t) = self.rhs.get_type()
-            && t.is_pointer()
-        {
-            Ok(t)
-        } else if let Some(Type::Primitive(a)) = self.lhs.get_type()?.base_type() {
-            if let Some(Type::Primitive(b)) = self.rhs.get_type()?.base_type() {
+            if sa == sb {
+                Ok(Type::Primitive(DataType::I32))
+            } else {
+                Err(self.token.clone().into_err(format!(
+                    "cannot perform arithmetic with {ta} size {sa} and {tb} size {sb}"
+                )))
+            }
+        } else if ta.is_pointer() {
+            Ok(ta)
+        } else if tb.is_pointer() {
+            Ok(tb)
+        } else if let Some(Type::Primitive(a)) = ta.base_type() {
+            if let Some(Type::Primitive(b)) = tb.base_type() {
                 Ok(Type::Primitive(Type::coerce_type(a, b)))
             } else {
                 Err(self
@@ -613,23 +629,27 @@ impl Expression for BinaryArithmeticExpression {
 
             let type_a = self.lhs.get_type()?;
             let type_b = self.rhs.get_type()?;
+            let mut div_val = None;
 
             let pointer_instructions = if self.operation == BinaryArithmeticOperation::Plus
                 || self.operation == BinaryArithmeticOperation::Minus
             {
-                if type_a.is_pointer() && type_b.is_pointer() {
-                    Err(self
+                let tas = Self::get_ptr_size(&type_a);
+                let tbs = Self::get_ptr_size(&type_b);
+
+                if let Some(sa) = tas
+                    && let Some(sb) = tbs
+                {
+                    if sa != sb {
+                        Err(self
                         .get_token()
                         .clone()
-                        .into_err("cannot add one pointer to another pointer directly"))
-                } else {
-                    fn get_base_size(t: &Type) -> Option<usize> {
-                        match t {
-                            Type::Pointer(base) => Some(base.byte_size()),
-                            _ => None,
-                        }
+                        .into_err("cannot add one pointer to another pointer directly with mismatching sizes"))
+                    } else {
+                        div_val = Some(sa);
+                        Ok(Vec::new())
                     }
-
+                } else {
                     fn generate_ptr_mul_asm(
                         size: usize,
                         incr_val: Register,
@@ -668,9 +688,9 @@ impl Expression for BinaryArithmeticExpression {
                         }
                     }
 
-                    if let Some(sa) = get_base_size(&type_a) {
+                    if let Some(sa) = tas {
                         generate_ptr_mul_asm(sa, reg_b, reg_a)
-                    } else if let Some(sb) = get_base_size(&type_b) {
+                    } else if let Some(sb) = tbs {
                         generate_ptr_mul_asm(sb, reg_a, reg_b)
                     } else {
                         Ok(Vec::new())
@@ -750,6 +770,20 @@ impl Expression for BinaryArithmeticExpression {
                 self.get_token()
                     .to_asm_iter(op_instructions.into_iter().map(AsmToken::OperationLiteral)),
             );
+
+            if let Some(d) = div_val {
+                asm.extend_asm(self.token.to_asm_iter([
+                    AsmToken::OperationLiteral(Box::new(OpLdi::new(
+                        ArgumentType::new(reg.spare, DataType::U16),
+                        d as u16,
+                    ))),
+                    AsmToken::OperationLiteral(Box::new(OpDiv::new(
+                        reg_type,
+                        reg_type.reg,
+                        reg.spare.into(),
+                    ))),
+                ]));
+            }
 
             Ok(asm)
         } else {
@@ -848,20 +882,38 @@ impl FieldAccessExpression {
             }
         }
 
-        if !self.s_expr_is_pointer
-            && let Type::Struct(s) = base_type
-        {
-            Ok(s)
-        } else if self.s_expr_is_pointer
-            && let Type::Pointer(p) = base_type
-            && let Type::Struct(s) = p.as_ref()
-        {
-            Ok(s.clone())
+        fn get_struct_from_base(
+            token: &Token,
+            base_type: Type,
+        ) -> Result<Rc<StructDefinition>, TokenError> {
+            match base_type {
+                Type::Opaque(o) => {
+                    if let Type::Struct(s) = o.get_type(true)? {
+                        Ok(s)
+                    } else {
+                        Err(token.clone().into_err(format!(
+                            "left-hand expression to field access is not a structure from user type- {}",
+                            o.name
+                        )))
+                    }
+                }
+                Type::Struct(s) => Ok(s.clone()),
+                x => Err(token.clone().into_err(format!(
+                    "left-hand expression to field access is not a structure - {}",
+                    x
+                ))),
+            }
+        }
+
+        if !self.s_expr_is_pointer {
+            get_struct_from_base(&self.token, base_type)
+        } else if let Type::Pointer(p) = &base_type {
+            get_struct_from_base(&self.token, p.as_ref().clone())
         } else {
-            Err(self
-                .token
-                .clone()
-                .into_err("left-hand expression to field access is not a structure"))
+            Err(self.token.clone().into_err(format!(
+                "left-hand expression to field access is not a structure - {}",
+                base_type
+            )))
         }
     }
 

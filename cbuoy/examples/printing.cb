@@ -32,7 +32,7 @@ fn print_uint(v: u32) void {
             v = v / 10;
             cp = cp + 1;
         }
-        while (cp != &chars) {
+        while (cp != chars) {
             cp = cp - 1;
             print_digit(*cp);
         }
