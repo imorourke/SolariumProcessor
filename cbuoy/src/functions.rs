@@ -15,9 +15,9 @@ use crate::{
     },
     literals::StringLiteral,
     tokenizer::{
-        EndOfTokenStream, KEYWORD_ASMFN, KEYWORD_CONST, KEYWORD_DBG_BREAK, KEYWORD_DEF,
-        KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF, KEYWORD_RETURN, KEYWORD_WHILE, Token,
-        TokenIter, get_identifier,
+        EndOfTokenStream, KEYWORD_ASMFN, KEYWORD_BREAK, KEYWORD_CONST, KEYWORD_DBG_BREAK,
+        KEYWORD_DEF, KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF, KEYWORD_RETURN,
+        KEYWORD_WHILE, Token, TokenIter, get_identifier,
     },
     typing::{Function, Type},
     utilities::load_to_register,
@@ -103,6 +103,7 @@ impl StandardFunctionDefinition {
             tokens,
             state,
             &declaration.end_label,
+            None,
             declaration.dtype.return_type.as_ref(),
         )? {
             statements.push(s);
@@ -712,6 +713,16 @@ struct WhileStatement {
     statement: Rc<dyn Statement>,
 }
 
+impl WhileStatement {
+    fn base_label_fmt(id: usize) -> String {
+        format!("___{KEYWORD_WHILE}_statement_{}", id)
+    }
+
+    pub fn end_label_fmt(id: usize) -> String {
+        format!("{}_end", Self::base_label_fmt(id))
+    }
+}
+
 impl Statement for WhileStatement {
     fn get_exec_code(
         &self,
@@ -719,7 +730,7 @@ impl Statement for WhileStatement {
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let def = RegisterDef::default();
 
-        let label_base = format!("___{KEYWORD_WHILE}_statement_{}", self.id);
+        let label_base = Self::base_label_fmt(self.id);
 
         let mut asm = vec![
             self.token.to_asm(AsmToken::Comment(format!(
@@ -745,7 +756,7 @@ impl Statement for WhileStatement {
                 def.spare,
                 DataType::U32,
             )))),
-            AsmToken::LoadLoc(format!("{label_base}_end")),
+            AsmToken::LoadLoc(Self::end_label_fmt(self.id)),
             AsmToken::OperationLiteral(Box::new(OpTz::new(def.reg.into()))),
             AsmToken::OperationLiteral(Box::new(OpJmp::new(def.spare.into()))),
         ]));
@@ -953,10 +964,43 @@ impl Display for ReturnStatementRegVar {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BreakStatement {
+    token: Token,
+    label: String,
+}
+
+impl Statement for BreakStatement {
+    fn get_exec_code(
+        &self,
+        _temporary_stack_tracker: &mut TemporaryStackTracker,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
+        let rd = RegisterDef::default();
+        let mut asm = Vec::new();
+        asm.extend(self.token.to_asm_iter([
+            AsmToken::Comment(format!("{KEYWORD_BREAK} to {}", self.label)),
+            AsmToken::OperationLiteral(Box::new(OpLdn::new(ArgumentType::new(
+                rd.reg,
+                DataType::U32,
+            )))),
+            AsmToken::LoadLoc(self.label.clone()),
+            AsmToken::OperationLiteral(Box::new(OpJmp::new(rd.reg.into()))),
+        ]));
+        Ok(asm)
+    }
+}
+
+impl Display for BreakStatement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{KEYWORD_BREAK};")
+    }
+}
+
 fn parse_statement(
     tokens: &mut TokenIter,
     state: &mut CompilingState,
     return_jump_label: &str,
+    break_jump_label: Option<&str>,
     return_type: Option<&Type>,
 ) -> Result<Option<Rc<dyn Statement>>, TokenError> {
     if let Some(next) = tokens.peek() {
@@ -973,7 +1017,13 @@ fn parse_statement(
             let init_tok = tokens.expect("{")?;
             state.get_scopes_mut()?.add_scope();
             let mut statements = Vec::new();
-            while let Some(s) = parse_statement(tokens, state, return_jump_label, return_type)? {
+            while let Some(s) = parse_statement(
+                tokens,
+                state,
+                return_jump_label,
+                break_jump_label,
+                return_type,
+            )? {
                 statements.push(s);
             }
             tokens.expect("}")?;
@@ -989,19 +1039,30 @@ fn parse_statement(
             let test_expr = parse_expression(tokens, state)?;
             tokens.expect(")")?;
 
-            let true_statement =
-                match parse_statement(tokens, state, return_jump_label, return_type)? {
-                    Some(s) => s,
-                    None => {
-                        return Err(
-                            if_token.into_err("must have a valid statement after if expression")
-                        );
-                    }
-                };
+            let true_statement = match parse_statement(
+                tokens,
+                state,
+                return_jump_label,
+                break_jump_label,
+                return_type,
+            )? {
+                Some(s) => s,
+                None => {
+                    return Err(
+                        if_token.into_err("must have a valid statement after if expression")
+                    );
+                }
+            };
 
             let false_statement = if tokens.expect_peek(KEYWORD_ELSE) {
                 tokens.expect(KEYWORD_ELSE)?;
-                parse_statement(tokens, state, return_jump_label, return_type)?
+                parse_statement(
+                    tokens,
+                    state,
+                    return_jump_label,
+                    break_jump_label,
+                    return_type,
+                )?
             } else {
                 None
             };
@@ -1020,7 +1081,16 @@ fn parse_statement(
             let test_expr = parse_expression(tokens, state)?;
             tokens.expect(")")?;
 
-            let statement = match parse_statement(tokens, state, return_jump_label, return_type)? {
+            let while_end = format!("___{KEYWORD_WHILE}_statement_{id}_end");
+            let while_statement_end_label = Some(while_end.as_str());
+
+            let statement = match parse_statement(
+                tokens,
+                state,
+                return_jump_label,
+                while_statement_end_label,
+                return_type,
+            )? {
                 Some(s) => s,
                 None => {
                     return Err(while_token.into_err("while statement must have a valid statement"));
@@ -1033,6 +1103,18 @@ fn parse_statement(
                 test_expr,
                 statement,
             })))
+        } else if next.get_value() == KEYWORD_BREAK {
+            let tok = tokens.expect(KEYWORD_BREAK)?;
+            tokens.expect(";")?;
+
+            if let Some(lbl) = break_jump_label {
+                Ok(Some(Rc::new(BreakStatement {
+                    token: tok,
+                    label: lbl.to_string(),
+                })))
+            } else {
+                Err(tok.into_err("cannot break outside of a while loop"))
+            }
         } else if next.get_value() == KEYWORD_DBG_BREAK {
             let tok = tokens.expect(KEYWORD_DBG_BREAK)?;
             tokens.expect(";")?;

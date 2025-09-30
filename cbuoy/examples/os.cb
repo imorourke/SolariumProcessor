@@ -33,7 +33,7 @@ fn k_malloc(size: u32) *u8 {
     } else {
         def found: u8 = 0;
 
-        while (val->next != 0 && !found) {
+        while (val->next != 0) {
             if ((val->next : u32) - (val : u32) - val->size - sizeof(mem_val_t) > size + sizeof(mem_val_t)) {
                 def new_val: *mem_val_t = val + val->size + sizeof(mem_val_t);
                 new_val->size = size;
@@ -44,7 +44,8 @@ fn k_malloc(size: u32) *u8 {
                     new_val->next->prev = new_val;
                 }
                 val = new_val;
-                found = 1; // TODO - Replace with break statement?
+                found = 1;
+                break;
             }
         }
 
