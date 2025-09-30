@@ -1519,11 +1519,19 @@ fn process_binary_expressions(
                     a,
                     b,
                 ))),
-                BinaryOperation::Assignment => Ok(Rc::new(AssignmentExpression {
-                    token: token.clone(),
-                    addr_expr: a,
-                    val_expr: b,
-                })),
+                BinaryOperation::Assignment => {
+                    if !a.get_type()?.is_const() {
+                        Ok(Rc::new(AssignmentExpression {
+                            token: token.clone(),
+                            addr_expr: a,
+                            val_expr: b,
+                        }))
+                    } else {
+                        Err(token
+                            .clone()
+                            .into_err("left-hand expression is a constant value"))
+                    }
+                }
             }
         } else {
             Err(TokenError {

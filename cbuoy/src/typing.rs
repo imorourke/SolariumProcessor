@@ -8,7 +8,9 @@ use jib::cpu::DataType;
 
 use crate::compiler::{CompilingState, UserTypeOptions, UserTypeReference};
 use crate::expressions::parse_expression;
-use crate::tokenizer::{Token, TokenError, TokenIter, get_identifier, is_identifier};
+use crate::tokenizer::{
+    KEYWORD_CONST, KEYWORD_FN, Token, TokenError, TokenIter, get_identifier, is_identifier,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Type {
@@ -18,6 +20,7 @@ pub enum Type {
     Struct(Rc<StructDefinition>),
     Function(Rc<Function>),
     Opaque(UserTypeReference),
+    Const(Box<Self>),
 }
 
 impl Type {
@@ -41,7 +44,9 @@ impl Type {
             } else {
                 Err(t.into_err("array must have a constant value"))
             }
-        } else if t.get_value() == "fn" {
+        } else if t.get_value() == KEYWORD_CONST {
+            Ok(Self::Const(Box::new(Type::read_type(tokens, state)?)))
+        } else if t.get_value() == KEYWORD_FN {
             Ok(Self::Function(Rc::new(Function::read_tokens(
                 tokens, state, false,
             )?)))
@@ -61,6 +66,7 @@ impl Type {
             Self::Array(size, t) => size * t.byte_size(),
             Self::Struct(s) => s.fields.values().map(|v| v.dtype.byte_size()).sum(),
             Self::Function(_) => DataType::U32.byte_size(),
+            Self::Const(t) => t.byte_size(),
             Self::Opaque(_) => 0,
         }
     }
@@ -72,6 +78,7 @@ impl Type {
             Self::Array(_, t) => Some(t.as_ref().clone()),
             Self::Struct(_) => None,
             Self::Function(_) => None,
+            Self::Const(t) => t.base_type(),
             Self::Opaque(r) => r.get_type(true).ok(),
         }
     }
@@ -93,6 +100,10 @@ impl Type {
     pub fn coerce_type(a: DataType, b: DataType) -> DataType {
         a.max(b)
     }
+
+    pub fn is_const(&self) -> bool {
+        matches!(self, Self::Const(_))
+    }
 }
 
 impl Display for Type {
@@ -100,6 +111,7 @@ impl Display for Type {
         match self {
             Self::Primitive(p) => write!(f, "{p}"),
             Self::Array(size, t) => write!(f, "[{size}]{t}"),
+            Self::Const(t) => write!(f, "const {t}"),
             Self::Pointer(t) => write!(f, "*{t}"),
             Self::Struct(s) => write!(f, "{}", s.name),
             Self::Function(d) => write!(
