@@ -36,7 +36,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
             vals.insert(o.to_string());
         }
 
-        for o in ["(", ")", ",", ";", ":", "{", "}", "[", "]", "."] {
+        for o in ["(", ")", ",", ";", ":", "{", "}", "[", "]", ".", "->"] {
             vals.insert(o.to_string());
         }
 
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn operators() {
         let expected_operators = [
-            "=", "==", "!=", "+", "-", "/", "&", "&&", "|", "||", ">", "<", ">=", "<=",
+            "=", "==", "!=", "+", "-", "/", "&", "&&", "|", "||", ">", "<", ">=", "<=", "->",
         ];
         let tokens = tokenize(&expected_operators.join("\n"));
         assert!(tokens.is_ok());

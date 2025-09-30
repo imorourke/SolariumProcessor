@@ -827,26 +827,41 @@ impl Display for AsExpression {
 }
 
 #[derive(Debug, Clone)]
-struct DotExpression {
+struct FieldAccessExpression {
     token: Token,
     field: Token,
     s_expression: Rc<dyn Expression>,
+    s_expr_is_pointer: bool,
 }
 
-impl DotExpression {
+impl FieldAccessExpression {
     fn get_struct(&self) -> Result<Rc<StructDefinition>, TokenError> {
         let mut base_type = self.s_expression.get_type()?;
-        while let Some(new_type) = base_type.base_type() {
-            base_type = new_type;
+        while matches!(base_type, Type::Opaque(_) | Type::Const(_)) {
+            if let Some(bt) = base_type.base_type() {
+                base_type = bt;
+            } else {
+                return Err(self
+                    .token
+                    .clone()
+                    .into_err(format!("unable to get base type for {}", self.s_expression)));
+            }
         }
 
-        if let Type::Struct(s) = base_type {
+        if !self.s_expr_is_pointer
+            && let Type::Struct(s) = base_type
+        {
             Ok(s)
+        } else if self.s_expr_is_pointer
+            && let Type::Pointer(p) = base_type
+            && let Type::Struct(s) = p.as_ref()
+        {
+            Ok(s.clone())
         } else {
             Err(self
                 .token
                 .clone()
-                .into_err("left-hand expression to dot is not a structure"))
+                .into_err("left-hand expression to field access is not a structure"))
         }
     }
 
@@ -863,7 +878,7 @@ impl DotExpression {
     }
 }
 
-impl Expression for DotExpression {
+impl Expression for FieldAccessExpression {
     fn get_token(&self) -> &Token {
         &self.token
     }
@@ -877,9 +892,14 @@ impl Expression for DotExpression {
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self
-            .s_expression
-            .load_address_to_register(reg, required_stack)?;
+        let mut asm = if self.s_expr_is_pointer {
+            self.s_expression
+                .load_value_to_register(reg, required_stack)?
+        } else {
+            self.s_expression
+                .load_address_to_register(reg, required_stack)?
+        };
+
         asm.extend_asm(
             self.token
                 .to_asm_iter(load_to_register(reg.spare, self.get_field()?.offset as u32)),
@@ -915,9 +935,15 @@ impl Expression for DotExpression {
     }
 }
 
-impl Display for DotExpression {
+impl Display for FieldAccessExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.s_expression, self.field.get_value())
+        write!(
+            f,
+            "{}{}{}",
+            self.s_expression,
+            if self.s_expr_is_pointer { "->" } else { "." },
+            self.field.get_value()
+        )
     }
 }
 
@@ -1412,17 +1438,31 @@ fn parse_expression_without_binary_expressions(
         Rc::new(Literal::try_from(first.clone())?)
     };
 
+    const TOKEN_DOT: &str = ".";
+    const TOKEN_ARROW: &str = "->";
+
     while let Some(next) = tokens.peek() {
         if BINARY_STR.contains_key(next.get_value()) {
             break;
-        } else if next.get_value() == "." {
-            let dot_token = tokens.expect(".")?;
+        } else if next.get_value() == TOKEN_DOT {
+            let dot_token = tokens.expect(TOKEN_DOT)?;
             let ident_token = tokens.next()?;
 
-            expr = Rc::new(DotExpression {
+            expr = Rc::new(FieldAccessExpression {
                 field: ident_token,
                 token: dot_token,
                 s_expression: expr,
+                s_expr_is_pointer: false,
+            })
+        } else if next.get_value() == TOKEN_ARROW {
+            let dot_token = tokens.expect(TOKEN_ARROW)?;
+            let ident_token = tokens.next()?;
+
+            expr = Rc::new(FieldAccessExpression {
+                field: ident_token,
+                token: dot_token,
+                s_expression: expr,
+                s_expr_is_pointer: true,
             })
         } else if next.get_value() == ":" {
             let token = tokens.expect(":")?;

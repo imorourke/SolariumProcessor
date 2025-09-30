@@ -103,16 +103,16 @@ fn print_stat(name: *u8, v: u32) void {
 fn init_thread(func: fn() void) void {
     if (THREAD_NUM < STACK_NUM) {
         def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
-        def current_stack: *u32 = &((*current).stack);
+        def current_stack: *u32 = &(current->stack);
         print_stat("Base Struct", current);
         print_stat("Base Stack", current_stack);
         current_stack[0] = func;
         current_stack[1] = 1; // Enable Interrupts on the new stack
         print_stat("Function Location", func : u32);
         current_stack[2] = (current_stack + 32) : u32;
-        (*current).last_ptr = current_stack[2];
-        print_stat("Stack Location", (*current).last_ptr);
-        print_stat("Stack Size", (((*current).last_ptr) : u32) - (current_stack : u32));
+        current->last_ptr = current_stack[2];
+        print_stat("Stack Location", current->last_ptr);
+        print_stat("Stack Size", ((current->last_ptr) : u32) - (current_stack : u32));
         THREAD_NUM = THREAD_NUM + 1;
         print_stat("Current Thread Count", THREAD_NUM);
         print("\n");

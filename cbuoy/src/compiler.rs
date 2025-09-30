@@ -567,22 +567,19 @@ impl CompilingState {
     }
 
     pub fn add_function(&mut self, func: Rc<dyn FunctionDefinition>) -> Result<(), TokenError> {
-        match self
+        if let Entry::Occupied(e) = self
             .global_scope
             .entry(func.get_token().get_value().to_string())
         {
-            Entry::Occupied(e) => {
-                if let GlobalType::FunctionDeclaration(_) = e.get() {
-                    e.remove_entry();
-                } else {
-                    return Err(func.get_token().clone().into_err(format!(
-                        "token already exists as {} - cannot add as a function",
-                        e.get()
-                    )));
-                };
-            }
-            _ => (),
-        };
+            if let GlobalType::FunctionDeclaration(_) = e.get() {
+                e.remove_entry();
+            } else {
+                return Err(func.get_token().clone().into_err(format!(
+                    "token already exists as {} - cannot add as a function",
+                    e.get()
+                )));
+            };
+        }
 
         self.add_to_global_scope(GlobalType::Function(func))
     }
