@@ -7,7 +7,7 @@ use std::{
 
 use jib::cpu::{DataType, Register};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdi, OpLdn, OpLdno,
+    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdn, OpLdno, OpRet,
 };
 
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
     literals::{Literal, StringLiteral},
     tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize},
     typing::{FunctionParameter, Type},
+    utilities::load_to_register,
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
 
@@ -333,9 +334,24 @@ impl PartialEq for UserTypeReference {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ProgramType {
+    Application,
+    Kernel { stack_loc: u32, start_offset: u32 },
+}
+
+impl Default for ProgramType {
+    fn default() -> Self {
+        Self::Kernel {
+            stack_loc: 0x1000,
+            start_offset: 0x2000,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct CodeGenerationOptions {
-    use_relative_program_base: bool,
+    pub prog_type: ProgramType,
 }
 
 impl CodeGenerationOptions {
@@ -345,7 +361,7 @@ impl CodeGenerationOptions {
 
     pub fn load_next_label_inst(&self, r: Register) -> AsmToken {
         let arg = ArgumentType::new(r, DataType::U32);
-        AsmToken::OperationLiteral(if self.use_relative_program_base {
+        AsmToken::OperationLiteral(if matches!(self.prog_type, ProgramType::Application) {
             Box::new(OpLdno::new(arg))
         } else {
             Box::new(OpLdn::new(arg))
@@ -353,34 +369,25 @@ impl CodeGenerationOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct CompilingState {
-    init_loc: u32,
     statements: Vec<Rc<dyn GlobalStatement>>,
     global_scope: HashMap<String, GlobalType>,
     user_types: Rc<RefCell<UserTypes>>,
     string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
     current_id: usize,
-    full_program: bool,
     scope_manager: Option<ScopeManager>,
-}
-
-impl Default for CompilingState {
-    fn default() -> Self {
-        Self {
-            init_loc: 0x2000,
-            current_id: 0,
-            full_program: true,
-            scope_manager: None,
-            global_scope: HashMap::default(),
-            user_types: Rc::default(),
-            string_literals: RefCell::default(),
-            statements: Vec::default(),
-        }
-    }
+    options: CodeGenerationOptions,
 }
 
 impl CompilingState {
+    pub fn new(options: CodeGenerationOptions) -> Self {
+        Self {
+            options,
+            ..Default::default()
+        }
+    }
+
     fn blank_token_loc(tok: AsmToken) -> AsmTokenLoc {
         AsmTokenLoc {
             tok,
@@ -402,14 +409,17 @@ impl CompilingState {
             ]);
         }
 
-        let options = CodeGenerationOptions::default();
         let init_label = "program_init".to_string();
 
-        let mut asm = if self.full_program {
+        let mut asm = if let ProgramType::Kernel {
+            stack_loc: _,
+            start_offset,
+        } = &self.options.prog_type
+        {
             vec![
                 Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
                 Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
-                Self::blank_token_loc(AsmToken::ChangeAddress(self.init_loc)),
+                Self::blank_token_loc(AsmToken::ChangeAddress(*start_offset)),
             ]
         } else {
             Vec::new()
@@ -446,15 +456,17 @@ impl CompilingState {
         asm.push(Self::blank_token_loc(AsmToken::CreateLabel(
             init_label.clone(),
         )));
-        asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
-            OpLdi::new(
-                ArgumentType::new(Register::StackPointer, DataType::U16),
-                0x1000,
-            ),
-        ))));
+
+        if let ProgramType::Kernel { stack_loc, .. } = &self.options.prog_type {
+            asm.extend(
+                load_to_register(Register::StackPointer, *stack_loc)
+                    .into_iter()
+                    .map(Self::blank_token_loc),
+            );
+        }
 
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_init_code(&options)?);
+            asm.extend_from_slice(&s.get_init_code(&self.options)?);
         }
 
         if let Some(GlobalType::Function(f)) = self.global_scope.get("main") {
@@ -462,7 +474,7 @@ impl CompilingState {
                 OpCopy::new(Register::ArgumentBase.into(), Register::StackPointer.into()),
             ))));
             asm.extend(
-                options
+                self.options
                     .load_label(RegisterDef::SPARE, f.get_entry_label().to_string())
                     .into_iter()
                     .map(Self::blank_token_loc),
@@ -472,26 +484,36 @@ impl CompilingState {
             ))));
         }
 
-        asm.extend_from_slice(
-            &[
-                AsmToken::Comment("Program Halt".into()),
-                AsmToken::OperationLiteral(Box::new(OpHalt)),
-            ]
-            .map(Self::blank_token_loc),
-        );
+        if matches!(self.options.prog_type, ProgramType::Application) {
+            asm.extend(
+                [
+                    AsmToken::Comment("Program End".into()),
+                    AsmToken::OperationLiteral(Box::new(OpRet)),
+                ]
+                .map(Self::blank_token_loc),
+            );
+        } else {
+            asm.extend(
+                [
+                    AsmToken::Comment("Program Halt".into()),
+                    AsmToken::OperationLiteral(Box::new(OpHalt)),
+                ]
+                .map(Self::blank_token_loc),
+            );
+        }
 
         add_name(&mut asm, "Static");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_static_code(&options)?);
+            asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
         for s in self.string_literals.borrow().values() {
-            asm.extend_from_slice(&s.get_static_code(&options)?);
+            asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
         add_name(&mut asm, "Functions");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_func_code(&options)?);
+            asm.extend_from_slice(&s.get_func_code(&self.options)?);
         }
 
         Ok(asm)
