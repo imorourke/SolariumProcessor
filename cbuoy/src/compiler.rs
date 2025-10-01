@@ -7,7 +7,7 @@ use std::{
 
 use jib::cpu::{DataType, Register};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdi, OpLdn,
+    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdi, OpLdn, OpLdno,
 };
 
 use crate::{
@@ -23,14 +23,24 @@ use crate::{
 pub trait Statement: Debug + Display {
     fn get_exec_code(
         &self,
+        options: &CodeGenerationOptions,
         temporary_stack_tracker: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError>;
 }
 
 pub trait GlobalStatement: Debug {
-    fn get_init_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
-    fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
-    fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_init_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_static_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_func_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
 }
 
 #[derive(Debug, Clone)]
@@ -323,6 +333,26 @@ impl PartialEq for UserTypeReference {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct CodeGenerationOptions {
+    use_relative_program_base: bool,
+}
+
+impl CodeGenerationOptions {
+    pub fn load_label(&self, r: Register, s: String) -> [AsmToken; 2] {
+        [self.load_next_label_inst(r), AsmToken::LoadLoc(s)]
+    }
+
+    pub fn load_next_label_inst(&self, r: Register) -> AsmToken {
+        let arg = ArgumentType::new(r, DataType::U32);
+        AsmToken::OperationLiteral(if self.use_relative_program_base {
+            Box::new(OpLdno::new(arg))
+        } else {
+            Box::new(OpLdn::new(arg))
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CompilingState {
     init_loc: u32,
@@ -372,6 +402,7 @@ impl CompilingState {
             ]);
         }
 
+        let options = CodeGenerationOptions::default();
         let init_label = "program_init".to_string();
 
         let mut asm = if self.full_program {
@@ -423,19 +454,19 @@ impl CompilingState {
         ))));
 
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_init_code()?);
+            asm.extend_from_slice(&s.get_init_code(&options)?);
         }
 
         if let Some(GlobalType::Function(f)) = self.global_scope.get("main") {
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCopy::new(Register::ArgumentBase.into(), Register::StackPointer.into()),
             ))));
-            asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
-                OpLdn::new(ArgumentType::new(RegisterDef::SPARE, DataType::U32)),
-            ))));
-            asm.push(Self::blank_token_loc(AsmToken::LoadLoc(
-                f.get_entry_label().to_string(),
-            )));
+            asm.extend(
+                options
+                    .load_label(RegisterDef::SPARE, f.get_entry_label().to_string())
+                    .into_iter()
+                    .map(Self::blank_token_loc),
+            );
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCall::new(RegisterDef::SPARE.into()),
             ))));
@@ -451,16 +482,16 @@ impl CompilingState {
 
         add_name(&mut asm, "Static");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_static_code()?);
+            asm.extend_from_slice(&s.get_static_code(&options)?);
         }
 
         for s in self.string_literals.borrow().values() {
-            asm.extend_from_slice(&s.get_static_code()?);
+            asm.extend_from_slice(&s.get_static_code(&options)?);
         }
 
         add_name(&mut asm, "Functions");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_func_code()?);
+            asm.extend_from_slice(&s.get_func_code(&options)?);
         }
 
         Ok(asm)

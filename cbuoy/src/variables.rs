@@ -8,7 +8,7 @@ use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc, OpAdd, OpConv, OpCopy, OpLd, 
 
 use crate::{
     TokenError,
-    compiler::{CompilingState, GlobalStatement, Statement},
+    compiler::{CodeGenerationOptions, CompilingState, GlobalStatement, Statement},
     expressions::{
         Expression, ExpressionData, RegisterDef, TemporaryStackTracker, parse_expression,
     },
@@ -75,21 +75,19 @@ impl Expression for GlobalVariable {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         if let Some(p) = self.dtype.primitive_type() {
-            let vals = [
-                AsmToken::OperationLiteral(Box::new(jib_asm::OpLdn::new(ArgumentType::new(
-                    reg.reg,
-                    jib::cpu::DataType::U32,
-                )))),
-                AsmToken::LoadLoc(self.access_label().into()),
-                AsmToken::OperationLiteral(Box::new(jib_asm::OpLd::new(
-                    ArgumentType::new(reg.reg, p),
-                    reg.reg.into(),
-                ))),
-            ];
+            let mut vals = options
+                .load_label(reg.reg, self.access_label().into())
+                .to_vec();
+            vals.push(AsmToken::OperationLiteral(Box::new(jib_asm::OpLd::new(
+                ArgumentType::new(reg.reg, p),
+                reg.reg.into(),
+            ))));
+
             Ok(ExpressionData::new(self.to_token_loc(vals)))
         } else {
             Err(self.name.clone().into_err(format!(
@@ -101,16 +99,13 @@ impl Expression for GlobalVariable {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        Ok(ExpressionData::new(self.to_token_loc([
-            AsmToken::OperationLiteral(Box::new(jib_asm::OpLdn::new(ArgumentType::new(
-                reg.reg,
-                jib::cpu::DataType::U32,
-            )))),
-            AsmToken::LoadLoc(self.access_label().into()),
-        ])))
+        Ok(ExpressionData::new(self.to_token_loc(
+            options.load_label(reg.reg, self.access_label().into()),
+        )))
     }
 }
 
@@ -148,7 +143,10 @@ impl GlobalVariableStatement {
 }
 
 impl GlobalStatement for GlobalVariableStatement {
-    fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_static_code(
+        &self,
+        _options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let name = self.global_var.get_token();
         let var = &self.global_var;
         let mut asm_static = Vec::new();
@@ -191,7 +189,10 @@ impl GlobalStatement for GlobalVariableStatement {
         Ok(asm_static)
     }
 
-    fn get_init_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_init_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut asm = ExpressionData::default();
 
         if self.simplified_literal().is_none()
@@ -213,8 +214,12 @@ impl GlobalStatement for GlobalVariableStatement {
                 let mut stack_tracker = TemporaryStackTracker::default();
 
                 let stack_asm: ExpressionData = ExpressionData::merge([
-                    var.load_address_to_register(reg_state_var, &mut stack_tracker)?,
-                    init_expr.load_value_to_register(reg_state_init, &mut stack_tracker)?,
+                    var.load_address_to_register(options, reg_state_var, &mut stack_tracker)?,
+                    init_expr.load_value_to_register(
+                        options,
+                        reg_state_init,
+                        &mut stack_tracker,
+                    )?,
                 ]);
 
                 if stack_tracker.max_size > 0 {
@@ -273,7 +278,10 @@ impl GlobalStatement for GlobalVariableStatement {
         Ok(asm.into_asm())
     }
 
-    fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_func_code(
+        &self,
+        _options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(Vec::new())
     }
 }
@@ -337,6 +345,7 @@ impl Expression for LocalVariable {
 
     fn load_address_to_register(
         &self,
+        _options: &CodeGenerationOptions,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
@@ -361,11 +370,12 @@ impl Expression for LocalVariable {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         if let Some(dt) = self.dtype.primitive_type() {
-            let mut asm = self.load_address_to_register(reg, required_stack)?;
+            let mut asm = self.load_address_to_register(options, reg, required_stack)?;
             asm.push_asm(
                 self.token
                     .to_asm(AsmToken::OperationLiteral(Box::new(OpLd::new(
@@ -397,6 +407,7 @@ impl LocalVariableStatement {
 impl Statement for LocalVariableStatement {
     fn get_exec_code(
         &self,
+        options: &CodeGenerationOptions,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut asm = ExpressionData::default();
@@ -426,12 +437,12 @@ impl Statement for LocalVariableStatement {
                 let load_val = def.increment_token(&var.token)?;
 
                 let addr_reg = if var.offset > 0 {
-                    asm.append(var.load_address_to_register(def, required_stack)?);
+                    asm.append(var.load_address_to_register(options, def, required_stack)?);
                     def.reg
                 } else {
                     var.base
                 };
-                asm.append(e.load_value_to_register(load_val, required_stack)?);
+                asm.append(e.load_value_to_register(options, load_val, required_stack)?);
 
                 if var_type != expr_type {
                     asm.push_asm(var.token.to_asm(AsmToken::OperationLiteral(Box::new(
@@ -455,13 +466,13 @@ impl Statement for LocalVariableStatement {
                     let load_val = def.increment_token(&var.token)?;
 
                     let local_reg = if var.offset > 0 {
-                        asm.append(var.load_address_to_register(def, required_stack)?);
+                        asm.append(var.load_address_to_register(options, def, required_stack)?);
                         def.reg
                     } else {
                         var.base
                     };
 
-                    asm.append(e.load_address_to_register(load_val, required_stack)?);
+                    asm.append(e.load_address_to_register(options, load_val, required_stack)?);
 
                     let mem = MemcpyStatement::new(
                         var.token.clone(),
@@ -470,7 +481,7 @@ impl Statement for LocalVariableStatement {
                         var.dtype.byte_size(),
                     );
 
-                    asm.extend_asm(mem.get_exec_code(required_stack)?);
+                    asm.extend_asm(mem.get_exec_code(options, required_stack)?);
                 } else {
                     return Err(var.token.clone().into_err(format!(
                         "mismatch in data type - found {} != {}",

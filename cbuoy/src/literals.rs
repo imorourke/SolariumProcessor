@@ -6,12 +6,12 @@ use std::{
 };
 
 use jib::cpu::{DataType, OperationError, OperatorManager, convert_types};
-use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc, OpLdn};
+use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc};
 use regex::{Regex, RegexBuilder};
 
 use crate::{
     TokenError,
-    compiler::GlobalStatement,
+    compiler::{CodeGenerationOptions, GlobalStatement},
     expressions::{
         BinaryArithmeticOperation, Expression, ExpressionData, RegisterDef, TemporaryStackTracker,
         UnaryOperation,
@@ -214,6 +214,7 @@ impl Expression for Literal {
 
     fn load_value_to_register(
         &self,
+        _options: &CodeGenerationOptions,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
@@ -411,7 +412,10 @@ impl StringLiteral {
 }
 
 impl GlobalStatement for StringLiteral {
-    fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_static_code(
+        &self,
+        _options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(self
             .token
             .to_asm_iter([
@@ -423,11 +427,17 @@ impl GlobalStatement for StringLiteral {
             .collect())
     }
 
-    fn get_init_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_init_code(
+        &self,
+        _options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(Vec::new())
     }
 
-    fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    fn get_func_code(
+        &self,
+        _options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         Ok(Vec::new())
     }
 }
@@ -445,16 +455,13 @@ impl Expression for StringLiteral {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        Ok(ExpressionData::new(self.token.to_asm_iter([
-            AsmToken::OperationLiteral(Box::new(OpLdn::new(ArgumentType::new(
-                reg.reg,
-                DataType::U32,
-            )))),
-            AsmToken::LoadLoc(self.get_label()),
-        ])))
+        Ok(ExpressionData::new(self.token.to_asm_iter(
+            options.load_label(reg.reg, self.get_label()),
+        )))
     }
 
     fn get_type(&self) -> Result<Type, TokenError> {
