@@ -108,10 +108,14 @@ pub struct LocationInfo {
     pub line: usize,
     pub column: usize,
     pub text: Option<Rc<str>>,
+    pub file: Option<Rc<str>>,
 }
 
 impl fmt::Display for LocationInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(i) = &self.file {
+            write!(f, "{i}")?;
+        }
         write!(f, "[{}]", self.line)?;
         if let Some(txt) = &self.text {
             write!(f, " {}", txt)
@@ -815,6 +819,7 @@ pub fn assemble_lines<'a, T: Iterator<Item = &'a str>>(
             line: i + 1,
             column: 0,
             text: Some(l.to_string().into()),
+            file: None, // TODO - Read in file if present?
         };
         if let Err(e) = state.parse_line(l, loc.clone()) {
             return Err(AssemblerErrorLoc { err: e, loc });

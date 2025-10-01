@@ -433,7 +433,7 @@ impl AsmFunctionDefinition {
                 for (src, replacement) in replacement_labels {
                     tok_str = tok_str.replace(&src, &replacement);
                 }
-                let t = Token::new(&tok_str, *t.get_loc());
+                let t = Token::new(&tok_str, t.get_loc().clone());
 
                 tokens.expect(";")?;
                 statements.push(t);

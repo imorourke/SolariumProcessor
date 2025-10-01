@@ -1,0 +1,99 @@
+#ifndef K_MALLOC
+#define K_MALLOC
+
+#include serialio.cb
+
+struct mem_val_t {
+    size: u32;
+    next: *mem_val_t;
+    prev: *mem_val_t;
+}
+
+const K_MEM_START: *u8 = 0x9000;
+const K_MEM_TOP: *u8 = 0xA000;
+global K_MEM_ROOT: *mem_val_t = 0;
+
+fn k_malloc(size: u32) *u8 {
+    def val: *mem_val_t = K_MEM_ROOT;
+    if (val == 0) {
+        val = K_MEM_START;
+        val->size = size;
+        val->next = 0;
+        val->prev = 0;
+        K_MEM_ROOT = val;
+    } else if ((K_MEM_START : u32) + size + sizeof(mem_val_t) < (K_MEM_ROOT : u32)) {
+        val = K_MEM_START;
+        val->prev = 0;
+        val->next = K_MEM_ROOT;
+        K_MEM_ROOT->prev = val;
+        K_MEM_ROOT = val;
+        val->size = size;
+    } else {
+        def found: u8 = 0;
+
+        while (val->next != 0) {
+            if (((val : u32) + val->size + sizeof(mem_val_t) * 2 + size) < (val->next : u32)) {
+                def new_val: *mem_val_t = (val: u32) + val->size + sizeof(mem_val_t);
+                new_val->size = size;
+                new_val->next = val->next;
+                val->next = new_val;
+                new_val->prev = val;
+                if (new_val->next != 0) {
+                    new_val->next->prev = new_val;
+                }
+                val = new_val;
+                found = 1;
+                break;
+            }
+            val = val->next;
+        }
+
+        if (!found) {
+            def new_val: *mem_val_t = (val : u32) + val->size + sizeof(mem_val_t);
+            new_val->next = 0;
+            new_val->prev = val;
+            new_val->size = size;
+            val->next = new_val;
+            val = new_val;
+        }
+    }
+
+    return (val : *u8) + sizeof(mem_val_t);
+}
+
+fn k_free(ptr: *u8) void {
+    def block: *mem_val_t = (ptr - sizeof(mem_val_t)) : *mem_val_t;
+    if (block->prev != 0) {
+      if (block == K_MEM_ROOT) {
+          K_MEM_ROOT = block->prev;
+      }
+      block->prev->next = block->next;
+    }
+    if (block->next != 0) {
+        if (block == K_MEM_ROOT) {
+            K_MEM_ROOT = block->next;
+        }
+        block->next->prev = block->prev;
+    }
+    if (block == K_MEM_ROOT) {
+        K_MEM_ROOT = 0;
+    }
+}
+
+fn k_heap_print() void {
+    if (K_MEM_ROOT == 0) {
+        print("No Heap Allocations\n");
+    } else {
+        def current: *mem_val_t = K_MEM_ROOT;
+        while (current != 0) {
+            print("@");
+            print_uint(current : u32);
+            print(", ");
+            print_uint(current->size);
+            print("\n");
+            current = current->next;
+        }
+    }
+}
+
+#endif // K_MALLOC

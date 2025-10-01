@@ -3,15 +3,18 @@ use crate::{
     functions::{AsmFunctionDefinition, StandardFunctionDefinition, StandardFunctionType},
     tokenizer::{
         KEYWORD_ASMFN, KEYWORD_CONST, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_GLOBAL, KEYWORD_STRUCT,
-        KEYWORD_USING, TokenError, TokenIter, tokenize,
+        KEYWORD_USING, Token, TokenError, TokenIter, tokenize_str,
     },
     typing::{StructDefinition, Type},
     variables::VariableDefinition,
 };
 
-pub fn parse(s: &str) -> Result<CompilingState, TokenError> {
+pub fn parse_str(s: &str) -> Result<CompilingState, TokenError> {
+    parse(tokenize_str(s)?)
+}
+
+pub fn parse(tokens: Vec<Token>) -> Result<CompilingState, TokenError> {
     let mut state = CompilingState::default();
-    let tokens = tokenize(s)?;
     let mut token_iter = TokenIter::from(&tokens);
 
     while let Some(next) = token_iter.peek().map(|v| v.get_value().to_string()) {
@@ -85,7 +88,14 @@ mod tests {
         ];
 
         for (s, expected) in tokens {
-            let t = Token::new(s, TokenLocation { line: 0, column: 0 });
+            let t = Token::new(
+                s,
+                TokenLocation {
+                    line: 0,
+                    column: 0,
+                    file: None,
+                },
+            );
             let lit: Result<Literal, _> = t.try_into();
 
             println!("{:?} <=> {:?}", lit, expected);

@@ -11,7 +11,6 @@ global func_test: fn()void;
 global TEST_STR: *u8 = "Hello, world!";
 global ptr_test: u32 = 0;
 global ex_ptr: *u32 = 0x3000;
-global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
 
 struct TEST {
     a: u16;
@@ -30,49 +29,7 @@ fn add_numbers(dest: *u16, a: u16, b: u16) u16 {
     *dest = 4 * a + b * 2;
 }
 
-asmfn print(c: *u8) void {
-    "ldn 8:u32";
-    ".loadloc %{SERIAL_OUT_LOC}%";
-    "ld 8:u32 8";
-    ".align";
-    "ldi 9:u16 1";
-    "ld 10:u32 $arg";
-    "ldi 11:u16 @{c}@";
-    "add 10:u32 10 11";
-    "ld 11:u8 10";
-    "tz 11";
-    "jmpri 16";
-    "sav 8:u8 11";
-    "add 10:u32 10 9";
-    "jmpri -20";
-    "ret";
-}
-
-fn print_digit(v: u8) void {
-    if (v < 10) {
-        *SERIAL_OUT_LOC = '0' + v;
-    } else {
-        *SERIAL_OUT_LOC = '!';
-    }
-}
-
-fn print_uint(v: u32) void {
-    def chars: [12]u8;
-    def cp: *u8 = &chars;
-    if (v == 0) {
-        print_digit(0);
-    } else {
-        while (v != 0) {
-            *cp = v % 10;
-            v = v / 10;
-            cp = cp + 1;
-        }
-        while (cp != &chars[0]) {
-            cp = cp - 1;
-            print_digit(*cp);
-        }
-    }
-}
+#include components/serialio.cb
 
 asmfn strlenasm(c: *u8) u32 {
     "ldi 8:u16 1";

@@ -155,7 +155,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!("../../cbuoy/examples/threading.cb"),
+            include_str!(concat!(env!("OUT_DIR"), "/default.cb")),
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),
@@ -229,7 +229,7 @@ fn build_code_column(
                     let cb =
                         text_buffer.text(&text_buffer.start_iter(), &text_buffer.end_iter(), false);
 
-                    match cbuoy::parse(cb.as_str()).and_then(|x| x.get_assembler()) {
+                    match cbuoy::parse_str(cb.as_str()).and_then(|x| x.get_assembler()) {
                         Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
                             Ok(asm_out) => {
                                 let asm = asm_out.assembly_lines.join("\n");

@@ -1,0 +1,14 @@
+#ifndef K_CPU_DEV
+#define K_CPU_DEV
+
+asmfn k_cpu_intoff() void {
+    "intoff";
+    "ret";
+}
+
+asmfn k_cpu_inton() void {
+    "inton";
+    "ret";
+}
+
+#endif // K_CPU_DEV

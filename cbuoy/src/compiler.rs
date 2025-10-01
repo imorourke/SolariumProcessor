@@ -15,7 +15,7 @@ use crate::{
     expressions::{Expression, RegisterDef, TemporaryStackTracker},
     functions::{FunctionDeclaration, FunctionDefinition},
     literals::{Literal, StringLiteral},
-    tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize},
+    tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize_str},
     typing::{FunctionParameter, Type},
     utilities::load_to_register,
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
@@ -767,7 +767,7 @@ impl CompilingState {
             }
         }
 
-        if let Ok(iter) = tokenize(name) {
+        if let Ok(iter) = tokenize_str(name) {
             let mut tokens = TokenIter::from(&iter);
             Type::read_type(&mut tokens, self).ok()
         } else {

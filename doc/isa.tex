@@ -278,8 +278,6 @@ There are several different types of instruction formats, which make use of the 
 	\label{table:instruction-format-types}
 \end{table}
 
-\pagebreak
-
 The assembler also has several commands available, detailed in Table \ref{table:assembler-commands}. Note that, for the \texttt{.loadtext} command, the text will be loaded in via the character map provided in Section \ref{sec:character-map}.
 
 \begin{table}[h!]
@@ -332,8 +330,6 @@ Reference names are available to link to the special register values, as listed 
 \subsection{Calling Convention}
 
 The calling convention allocates the required arguments in a contiguous block of memory, one after another. The address of the start is placed in the argument base register, and then the function may be called. For return variables, primitives should be placed directly in the output register. If a larger value is desired to be output than may be placed directly in the return register, then the desired output address should be created by the caller and assigned to the return register prior the function call. The function may then be called, where it will write to the provided address in the return register. In this case, the return register should not be directly written to, but instead used as a if it were a pointer argument. This convention should be followed for both assembly functions as well as higher-level language functions, if possible, for compatibility between the two.
-
-\pagebreak
 
 \section{Character Mapping}
 \label{sec:character-map}
@@ -564,9 +560,15 @@ To combat this, Jib assembly code can also be mixed in with functions to increas
 
 For example, the above listing could have the print function replaced by the print function in List \ref{listing:example-cbuoy-print-asm} and be considerably more efficient.
 
-\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/examples/printing_asm.cb}
+\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/examples/components/serialio.cb}
 
 The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 1320 CPU cycles. After replacing the print function with the one in Listing \ref{listing:example-cbuoy-print-asm}, the same program completes to a halt in 1010 CPU cycles. Used appropriately, similar optimizations can be made throughout program code to target and improve execution time for different functions as-needed. This also the programmer to slowly learn assembly language by starting with a higher-level programming language as an entry-point, and then working to the lower-level functionality gradually over time as they get familiar with the system. Assembly language is required for several key pieces of functionality, including setting up things to manage the stack directly - such as creating threads - and for interfacing more efficiently with hardware input/output devices.
+
+\subsection{Threading}
+
+Through direct modification of the stack, we can create a set of utilities to swap between different threads at runtime. Listing \ref{listing:cbuoy-threading-utils} provides several functions. \texttt{k\_tsk\_init} provides means to register a new thread. \texttt{k\_tsk\_main} is a function that is called to transition from the main thread into the inner executing threads. \texttt{k\_tsk\_yield} is both an interrupt handler (for a periodic device like a timer) and also a function that may be called by threaded functions to yield their execution to the next thread. This is simple round-robin threading, so there is no scheduler implemented in this example.
+
+\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and swich between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/examples/components/ktsk.cb}
 
 \pagebreak
 

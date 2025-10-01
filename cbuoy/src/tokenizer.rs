@@ -1,26 +1,38 @@
-use std::{collections::HashSet, fmt, iter::Peekable, rc::Rc, slice::Iter, sync::LazyLock};
+use std::{
+    collections::HashSet, fmt, iter::Peekable, path::Path, rc::Rc, slice::Iter, sync::LazyLock,
+};
 
 use jib::cpu::DataType;
 use jib_asm::{AsmToken, AsmTokenLoc};
 use regex::Regex;
 
-use crate::expressions::{BinaryOperation, UnaryOperation};
+use crate::{
+    expressions::{BinaryOperation, UnaryOperation},
+    preprocessor::{PreprocessorError, PreprocessorLocation},
+    read_and_preprocess,
+};
 
-fn strip_comments(s: &str) -> String {
-    let mut lines = Vec::new();
-
-    for l in s.lines() {
-        lines.push(if let Some(i) = l.find("//") {
-            &l[0..i]
-        } else {
-            l
-        });
+fn strip_comments(s: &str) -> &str {
+    if let Some(i) = s.find("//") {
+        &s[0..i]
+    } else {
+        s
     }
-
-    lines.join("\n")
 }
 
-pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
+pub fn tokenize_str(s: &str) -> Result<Vec<Token>, TokenError> {
+    tokenize(s.lines().map(|x| (x.to_string(), None)))
+}
+
+pub fn tokenize_file(file: &Path) -> Result<Vec<Token>, TokenError> {
+    let preproc = read_and_preprocess(file)?;
+    tokenize(preproc.into_iter().map(|l| (l.text, Some(l.loc))))
+}
+
+pub fn tokenize<T: IntoIterator<Item = (String, Option<PreprocessorLocation>)>>(
+    lines: T,
+) -> Result<Vec<Token>, TokenError> {
+    // TODO - impl iterator?
     // Define the maximum count for operators
     const MAX_OPERATOR_CHAR_COUNT: usize = 2;
 
@@ -56,9 +68,6 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
         vals
     });
 
-    // Remove comments
-    let s = strip_comments(s);
-
     // Loop through and process tokens
     let mut tokens = Vec::new();
 
@@ -90,12 +99,16 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
         }
     }
 
-    for (line_num, l) in s.lines().enumerate() {
+    for (line_num, (line_str, loc)) in lines.into_iter().enumerate() {
         let mut current_state = None;
 
+        // Remove comments
+        let l = strip_comments(&line_str);
+
         let get_loc = |start: usize| TokenLocation {
-            line: line_num,
+            line: loc.as_ref().map(|x| x.line).unwrap_or(line_num),
             column: start,
+            file: loc.as_ref().map(|x| x.file.clone()),
         };
 
         fn convert_escape_characters(s: Token, string_char: char) -> Result<Token, TokenError> {
@@ -126,7 +139,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
 
             Ok(Token::new(
                 &result.into_iter().collect::<String>(),
-                *s.get_loc(),
+                s.get_loc().clone(),
             ))
         }
 
@@ -194,13 +207,7 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
             let current = &l[start..];
 
             return Err(TokenError {
-                token: Some(Token::new(
-                    current,
-                    TokenLocation {
-                        line: line_num,
-                        column: start,
-                    },
-                )),
+                token: Some(Token::new(current, get_loc(start))),
                 msg: format!("\"{current}\" not a valid token"),
             });
         }
@@ -210,10 +217,11 @@ pub fn tokenize(s: &str) -> Result<Vec<Token>, TokenError> {
     Ok(tokens)
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TokenLocation {
     pub line: usize,
     pub column: usize,
+    pub file: Option<Rc<str>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -252,6 +260,7 @@ impl Token {
                 line: self.get_loc().line,
                 column: self.get_loc().column,
                 text: Some(self.value.clone()),
+                file: self.get_loc().file.clone(),
             },
         }
     }
@@ -433,6 +442,15 @@ impl From<EndOfTokenStream> for TokenError {
     }
 }
 
+impl From<PreprocessorError> for TokenError {
+    fn from(value: PreprocessorError) -> Self {
+        Self {
+            token: None,
+            msg: format!("{value}"),
+        }
+    }
+}
+
 impl From<IdentifierError> for TokenError {
     fn from(value: IdentifierError) -> Self {
         let msg = format!("\"{}\" is not a valid identifier", value.token.get_value());
@@ -445,16 +463,16 @@ impl From<IdentifierError> for TokenError {
 
 #[cfg(test)]
 mod tests {
-    use crate::tokenizer::is_identifier;
+    use crate::tokenizer::{is_identifier, tokenize_str};
 
-    use super::{Token, TokenLocation, tokenize};
+    use super::{Token, TokenLocation};
 
     #[test]
     fn operators() {
         let expected_operators = [
             "=", "==", "!=", "+", "-", "/", "&", "&&", "|", "||", ">", "<", ">=", "<=", "->",
         ];
-        let tokens = tokenize(&expected_operators.join("\n"));
+        let tokens = tokenize_str(&expected_operators.join("\n"));
         assert!(tokens.is_ok());
         let tokens = tokens.unwrap();
         assert_eq!(tokens.len(), expected_operators.len());
@@ -471,7 +489,7 @@ mod tests {
         let input_string = "global a: u16 = 255 + 5;";
         let expected_token_values = ["global", "a", ":", "u16", "=", "255", "+", "5", ";"];
 
-        let tokens = tokenize(input_string);
+        let tokens = tokenize_str(input_string);
         assert!(tokens.is_ok());
         let tokens = tokens.unwrap();
         assert_eq!(tokens.len(), expected_token_values.len());
@@ -488,7 +506,7 @@ mod tests {
             "global", "c", ":", "u32", "=", "(", "-", "1", ")", ":", "u32", ";",
         ];
 
-        let tokens = tokenize(input_string);
+        let tokens = tokenize_str(input_string);
         assert!(tokens.is_ok());
         let tokens = tokens.unwrap();
         assert_eq!(tokens.len(), expected_token_values.len());
@@ -502,19 +520,96 @@ mod tests {
     fn duplicate_operators() {
         let input_text = "===\n&&&&\n|&&||=|&&&";
         let expected_tokens = [
-            Token::new("==".into(), TokenLocation { line: 0, column: 0 }),
-            Token::new("=".into(), TokenLocation { line: 0, column: 2 }),
-            Token::new("&&".into(), TokenLocation { line: 1, column: 0 }),
-            Token::new("&&".into(), TokenLocation { line: 1, column: 2 }),
-            Token::new("|".into(), TokenLocation { line: 2, column: 0 }),
-            Token::new("&&".into(), TokenLocation { line: 2, column: 1 }),
-            Token::new("||".into(), TokenLocation { line: 2, column: 3 }),
-            Token::new("=".into(), TokenLocation { line: 2, column: 5 }),
-            Token::new("|".into(), TokenLocation { line: 2, column: 6 }),
-            Token::new("&&".into(), TokenLocation { line: 2, column: 7 }),
-            Token::new("&".into(), TokenLocation { line: 2, column: 9 }),
+            Token::new(
+                "==".into(),
+                TokenLocation {
+                    line: 0,
+                    column: 0,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "=".into(),
+                TokenLocation {
+                    line: 0,
+                    column: 2,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "&&".into(),
+                TokenLocation {
+                    line: 1,
+                    column: 0,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "&&".into(),
+                TokenLocation {
+                    line: 1,
+                    column: 2,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "|".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 0,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "&&".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 1,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "||".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 3,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "=".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 5,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "|".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 6,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "&&".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 7,
+                    file: None,
+                },
+            ),
+            Token::new(
+                "&".into(),
+                TokenLocation {
+                    line: 2,
+                    column: 9,
+                    file: None,
+                },
+            ),
         ];
-        let tokens = tokenize(&input_text);
+        let tokens = tokenize_str(&input_text);
 
         assert!(tokens.is_ok());
         let tokens = tokens.unwrap();

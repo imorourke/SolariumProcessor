@@ -1,0 +1,82 @@
+#ifndef K_TSK
+#define K_TSK
+
+#include serialio.cb
+
+const K_TSK_STACK_SIZE: u32 = 1024;
+const K_TSK_STACK_NUM: u32 = 4;
+global K_TSK_THREAD_NUM: u32 = 0;
+global K_TSK_THREAD_CURR: u32 = 0;
+
+struct k_tsk_thread_stack_t {
+    last_ptr: u32;
+    stack: [K_TSK_STACK_SIZE]u8;
+}
+
+global K_TSK_THREAD_STACK: [K_TSK_STACK_NUM]k_tsk_thread_stack_t;
+
+asmfn k_tsk_main() void {
+    "ldn 8:u32";
+    ".loadloc %{K_TSK_THREAD_NUM}%";
+    "ld 8:u32 8";
+    "tz 8";
+    "ret";
+    "ldn 9:u32";
+    ".loadloc %{K_TSK_THREAD_STACK}%";
+    "ld 9:u32 9";
+    "copy $sp 9";
+    "ret";
+}
+
+asmfn k_tsk_yield() void {
+    "intoff";
+    "; Increment K_TSK_THREAD_NUM to next thread";
+    "ldn 8:u32";
+    ".loadloc %{K_TSK_THREAD_NUM}%";
+    "ld 8:u32 8";
+    "ldn 9:u32";
+    ".loadloc %{K_TSK_THREAD_CURR}%";
+    "ld 10:u32 9";
+    "copy 16 10";
+    "ldi 11:u16 1";
+    "add 10:u32 10 11";
+    "rem 10:u32 10 8";
+    "sav 9:u32 10";
+    "; Swap stack pointer";
+    "; 10 = new pointer";
+    "; 16 = old pointer";
+    "ldi 8:u16 #{k_tsk_thread_stack_t}#";
+    "mul 10:u32 10 8";
+    "mul 16:u32 16 8";
+    "ldn 9:u32";
+    ".loadloc %{K_TSK_THREAD_STACK}%";
+    "add 10:u32 10 9";
+    "add 16:u32 16 9";
+    "sav 16:u32 $sp";
+    "ld $sp:u32 10";
+    "inton";
+    "retint";
+}
+
+fn k_tsk_init(func: fn() void) void {
+    if (K_TSK_THREAD_NUM < K_TSK_STACK_NUM) {
+        def current: *k_tsk_thread_stack_t = &K_TSK_THREAD_STACK[K_TSK_THREAD_NUM];
+        def current_stack: *u32 = &((*current).stack);
+        print_stat("Base Struct", current);
+        print_stat("Base Stack", current_stack);
+        current_stack[0] = func;
+        current_stack[1] = 1; // Enable Interrupts on the new stack
+        print_stat("Function Location", func : u32);
+        current_stack[2] = (current_stack + 32) : u32;
+        current->last_ptr = current_stack[2];
+        print_stat("Stack Location", (*current).last_ptr);
+        print_stat("Stack Size", (((*current).last_ptr) : u32) - (current_stack : u32));
+        K_TSK_THREAD_NUM = K_TSK_THREAD_NUM + 1;
+        print_stat("Current Thread Count", K_TSK_THREAD_NUM);
+        print("\n");
+    } else {
+        print("Exceed allowed thread count\n");
+    }
+}
+
+#endif // K_TSK
