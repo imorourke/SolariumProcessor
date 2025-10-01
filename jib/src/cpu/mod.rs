@@ -334,21 +334,25 @@ impl Processor {
         base: Self::OP_BASE_MEM,
         code: 4,
     };
-    pub const OP_SAVE: Opcode = Opcode {
+    pub const OP_LOAD_NEXT_OFFSET: Opcode = Opcode {
         base: Self::OP_BASE_MEM,
         code: 5,
     };
-    pub const OP_SAVE_REL: Opcode = Opcode {
+    pub const OP_SAVE: Opcode = Opcode {
         base: Self::OP_BASE_MEM,
         code: 6,
     };
-    pub const OP_COPY: Opcode = Opcode {
+    pub const OP_SAVE_REL: Opcode = Opcode {
         base: Self::OP_BASE_MEM,
         code: 7,
     };
-    pub const OP_CONV: Opcode = Opcode {
+    pub const OP_COPY: Opcode = Opcode {
         base: Self::OP_BASE_MEM,
         code: 8,
+    };
+    pub const OP_CONV: Opcode = Opcode {
+        base: Self::OP_BASE_MEM,
+        code: 9,
     };
 
     const OP_BASE_TEST: u8 = 2;
@@ -793,7 +797,11 @@ impl Processor {
                     _ => return Err(ProcessorError::UnsupportedDataType(inst, dt)),
                 }
             }
-            Self::OP_LOAD | Self::OP_LOAD_REL | Self::OP_LOAD_IMM_REL | Self::OP_LOAD_NEXT => {
+            Self::OP_LOAD
+            | Self::OP_LOAD_REL
+            | Self::OP_LOAD_IMM_REL
+            | Self::OP_LOAD_NEXT
+            | Self::OP_LOAD_NEXT_OFFSET => {
                 let dt = inst.arg0_data_type()?;
                 let addr = match opcode {
                     Self::OP_LOAD => self.registers.get(inst.arg1_register())?,
@@ -808,6 +816,10 @@ impl Processor {
                     Self::OP_LOAD_NEXT => {
                         inst_jump = Some(2);
                         pc + 4
+                    }
+                    Self::OP_LOAD_NEXT_OFFSET => {
+                        inst_jump = Some(2);
+                        pc + 4 + self.registers.get(Register::LoadOffset)?
                     }
                     _ => return Err(ProcessorError::UnknownInstruction(inst)),
                 };

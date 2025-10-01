@@ -42,20 +42,25 @@ There are 32 total registers present on the Jib. These are defined generally as 
 
 \begin{table}[h!]
     \centering
-    \begin{tabular}{c|c}
+    \begin{tabular}{c|cc}
         \hline
-        Register & Usage \\
+        Register & Type & Usage \\
         \hline
-        R0 & Program Counter \\
-        R1 & Processor Status Flags \\
-        R2 & Stack Pointer \\
-        R3 & Excess / Overflow \\
-        R4 & Return Register \\
-        R5 & Argument Base Register \\
-        R6-R31 & General Purpose Register \\
+        R0 & Reserved & Program Counter \\
+        R1 & Reserved & Processor Status Flags \\
+        R2 & Reserved& Stack Pointer \\
+        R3 & Reserved & Load Offset \\
+        R4 & Reserved & Return Register \\
+        R5 & Reserved & Argument Base Register \\
+        \hline
+        R6 & GP (C/Buoy) & Function Local Variables \\
+        R7 & GP (C/Buoy) & Function Temporary Variables \\
+        R8 & GP (C/Buoy) & Spare Register \\
+        \hline
+        R9-R31 & GP & General Purpose Register \\
         \hline
     \end{tabular}
-    \caption{Registers R0 through R5 are reserved for system-level parameters. All remaining registers are general-purpose.}
+    \caption{Registers R0 through R5 are reserved for system-level parameters. R6 through R8 are reserved for C/Buoy functionality, by convention. All remaining registers are general-purpose.}
     \label{table:register-setup}
 \end{table}
 
@@ -188,29 +193,30 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			{} & ID & SubID & {} & {} \\
 			\hline
 			A & 0 & 0 & \texttt{noop} & No Operation \\
-			A & 0 & 1 & \texttt{reset} & \texttt{PC = Reset Vector}, \texttt{R[0-15] = 0} \\
+			A & 0 & 1 & \texttt{reset} & \texttt{\$PC = Reset Vector}, \texttt{R[0-15] = 0} \\
 			B & 0 & 2 & \texttt{int <imm>} & Trigger software interrupt number \texttt{imm} \\
 			C & 0 & 3 & \texttt{intr [a]} & Trigger software interrupt number \texttt{R[a]} \\
-			A & 0 & 4 & \texttt{retint} & $\forall_{i \in [31 \rightarrow 0]}$ \texttt{R[i] = mem[--SP]}, \texttt{++PC} \\
-			C & 0 & 5 & \texttt{call [a]} &  $\forall_{i \in [0 \rightarrow 31]}$ \texttt{mem[SP++] = R[i]}; \texttt{PC = R[a]} \\
-			A & 0 & 6 & \texttt{ret} & $\forall_{i \in [31 \rightarrow 0], i \not= \$ret}$ \texttt{R[i] = mem[--SP]}, \texttt{++PC} \\
-			C & 0 & 7 & \texttt{push [a]} & \texttt{mem[SP += 4] = R[a]} \\
-			A & 0 & 8 & \texttt{pop} & \texttt{SP -= 4} \\
-			C & 0 & 9 & \texttt{popr [a]} & \texttt{R[a] = mem[SP -= 4]} \\
-			C & 0 & 10 & \texttt{jmp [a]} & \texttt{PC = R[a]} \\
-			C & 0 & 11 & \texttt{jmpr [a]} & \texttt{PC += R[a]} \\
-			B & 0 & 12 & \texttt{jmpri <imm>} & \texttt{PC += Imm} (Signed) \\
+			A & 0 & 4 & \texttt{retint} & $\forall_{i \in [31 \rightarrow 0]}$ \texttt{R[i] = mem[--\$SP]}, \texttt{++\$PC} \\
+			C & 0 & 5 & \texttt{call [a]} &  $\forall_{i \in [0 \rightarrow 31]}$ \texttt{mem[\$SP++] = R[i]}; \texttt{\$PC = R[a]} \\
+			A & 0 & 6 & \texttt{ret} & $\forall_{i \in [31 \rightarrow 0], i \not= \$ret}$ \texttt{R[i] = mem[--\$SP]}, \texttt{++\$PC} \\
+			C & 0 & 7 & \texttt{push [a]} & \texttt{mem[\$SP += 4] = R[a]} \\
+			A & 0 & 8 & \texttt{pop} & \texttt{\$SP -= 4} \\
+			C & 0 & 9 & \texttt{popr [a]} & \texttt{R[a] = mem[\$SP -= 4]} \\
+			C & 0 & 10 & \texttt{jmp [a]} & \texttt{\$PC = R[a]} \\
+			C & 0 & 11 & \texttt{jmpr [a]} & \texttt{\$PC += R[a]} \\
+			B & 0 & 12 & \texttt{jmpri <imm>} & \texttt{\$PC += Imm} (Signed) \\
 			A & 0 & 15 & \texttt{halt} & Stop Program Execution \\
 
 			G & 1 & 0 & \texttt{ld [a] [b]} & \texttt{R[a] = mem[R[b]]} \\
-			G & 1 & 1 & \texttt{ldr [a] [b]} & \texttt{R[a] = mem[PC + R[b]]} \\
+			G & 1 & 1 & \texttt{ldr [a] [b]} & \texttt{R[a] = mem[\$PC + R[b]]} \\
 			E & 1 & 2 & \texttt{ldi [dst] <imm>} & \texttt{R[dst] = Im} \\
-			E & 1 & 3 & \texttt{ldri [dst] <imm>} & \texttt{R[dst] = mem[PC + Im]} \\
-			D & 1 & 4 & \texttt{ldn [a]} & \texttt{R[a] = mem[PC + 1]}, \texttt{PC += 2} \\
-			G & 1 & 5 & \texttt{sav [a] [b]} & \texttt{mem[R[a]] = R[b]} \\
-			G & 1 & 6 & \texttt{savr [a] [b]} & \texttt{mem[PC + R[a]] = R[b]} \\
-			F & 1 & 7 & \texttt{copy [a] [b]} & \texttt{R[a] = R[b]} \\
-			H & 1 & 8 & \texttt{conv [a] [b]} & \texttt{R[a] = R[b]} \\
+			E & 1 & 3 & \texttt{ldri [dst] <imm>} & \texttt{R[dst] = mem[\$PC + Im]} \\
+			D & 1 & 4 & \texttt{ldn [a]} & \texttt{R[a] = mem[\$PC + 4]}, \texttt{\$PC += 8} \\
+			D & 1 & 5 & \texttt{ldno [a]} & \texttt{R[a] = mem[\$LDO + PC + 4]}, \texttt{\$PC += 8} \\
+			G & 1 & 6 & \texttt{sav [a] [b]} & \texttt{mem[R[a]] = R[b]} \\
+			G & 1 & 7 & \texttt{savr [a] [b]} & \texttt{mem[\$PC + R[a]] = R[b]} \\
+			F & 1 & 8 & \texttt{copy [a] [b]} & \texttt{R[a] = R[b]} \\
+			H & 1 & 9 & \texttt{conv [a] [b]} & \texttt{R[a] = R[b]} \\
 
 			I & 2 & 0 & \texttt{teq [dst] [a] [b]} & If \texttt{R[a] == R[b]} \texttt{R[dst] = 1}, Else \texttt{R[dst] = 0} \\
 			I & 2 & 1 & \texttt{tneq [dst] [a] [b]} & If \texttt{R[a] != R[b]} \texttt{R[dst] = 1}, Else \texttt{R[dst] = 0} \\
@@ -224,8 +230,8 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			C & 3 & 2 & \texttt{tz [a]} & If \texttt{R[a] == 0} \texttt{PC += 1}, Else \texttt{PC += 2} \\
 			C & 3 & 3 & \texttt{tnz [a]} & If \texttt{R[a] != 0} \texttt{PC += 1}, Else \texttt{PC += 2} \\
 
-			A & 4 & 0 & \texttt{inton} & Turn Interrupts On \\
-			A & 4 & 1 & \texttt{intoff} & Turn Interrupts Off \\
+			A & 4 & 0 & \texttt{inton} & Turn Interrupts On, set \texttt{\$STAT} \\
+			A & 4 & 1 & \texttt{intoff} & Turn Interrupts Off, set \texttt{\$STAT} \\
 
             A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware; otherwise, acts as a \texttt{noop}) \\
 
@@ -314,7 +320,7 @@ Reference names are available to link to the special register values, as listed 
         \texttt{\$pc} & 0 & Program Counter \\
         \texttt{\$stat} & 1 & Status Flags \\
         \texttt{\$sp} & 2 & Stack Pointer \\
-        \texttt{\$ovf} & 3 & Overflow \\
+        \texttt{\$ldo} & 3 & Load Offset \\
         \texttt{\$ret} & 4 & Return \\
         \texttt{\$arg} & 5 & Argument Base \\
         \hline
@@ -525,22 +531,7 @@ Note that, in this case, both functions and variables share the same namespace. 
 
 \pagebreak
 
-This makes use of a few extra conventions. At the start of each function, stack space is reserved both for any local variables, as well as any temporary variables, that are required. A few extra registers are defined in the Table \ref{table:cbuoy-register-references} below.
-
-\begin{table}[h!]
-    \centering
-    \begin{tabular}{l|cl}
-        \hline
-        Register & Description \\
-        \hline
-        6 & Function Local Variables  \\
-        7 & Function Temporary Variables \\
-        8 & Spare Register \\
-        \hline
-    \end{tabular}
-    \caption{Additional registers defined/allocated for use by C/Buoy}
-    \label{table:cbuoy-register-references}
-\end{table}
+This makes use of a few extra conventions. At the start of each function, stack space is reserved both for any local variables, as well as any temporary variables, that are required. A few extra registers are defined in the Table \ref{table:register-setup}.
 
 When returning a parameter, if the parameter is a primitive, it is returned by value in the return register directly. However, if it is a structure, the address of the temporary to write into is written into the return register before the function call. This is typically a temporary allocated on the stack, as mentioned above.
 
