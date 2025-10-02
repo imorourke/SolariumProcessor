@@ -395,3 +395,65 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 
     let _ = tx.send(ThreadToUi::ThreadExit);
 }
+
+#[cfg(test)]
+mod test {
+    use jib::cpu::Processor;
+
+    use crate::cpu_thread::ThreadState;
+
+    #[test]
+    fn test_malloc() {
+        const MALLOC_EXPECTED: &str = "A\n\
+            @36864, 10\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            B\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            C\n\
+            @36864, 5\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            D\n\
+            No Heap Allocations\n\
+            E\n\
+            @36864, 33\n\
+            F\n\
+            No Heap Allocations\n\
+            Heap Test Pass\n\
+        ";
+
+        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_kmalloc.cb"));
+        let tokens = cbuoy::parse_str(cb)
+            .and_then(|x| x.get_assembler())
+            .unwrap();
+        let asm = jib_asm::assemble_tokens(tokens).unwrap();
+
+        let mut cpu = ThreadState::new().unwrap();
+        cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
+
+        let mut serial_output = Vec::new();
+        let mut iter_count = 0;
+
+        while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
+            match cpu.step_cpu(false) {
+                Err(_) => panic!("unable to step cpu"),
+                _ => (),
+            };
+            while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
+                serial_output.push(c);
+            }
+            iter_count += 1;
+            assert!(iter_count < 20000);
+        }
+
+        println!("Step Count: {}", cpu.step_count);
+        println!("{}", str::from_utf8(&serial_output).unwrap());
+
+        assert_eq!(str::from_utf8(&serial_output).unwrap(), MALLOC_EXPECTED);
+    }
+}

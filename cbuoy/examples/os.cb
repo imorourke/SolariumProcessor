@@ -1,6 +1,7 @@
 #include components/kmalloc.cb
 #include components/serialio.cb
 #include components/ktsk.cb
+#include components/kcpu.cb
 
 const FD_SIZE_TABLE: u32 = 1024;
 const FD_THREAD: u32 = 1;
@@ -27,70 +28,26 @@ fn main_tsk_b() void {
     }
 }
 
-asmfn tsk_intoff() void {
-    "intoff";
-    "ret";
-}
-
-asmfn tsk_inton() void {
-    "inton";
-    "ret";
-}
-
 fn main_tsk_c() void {
     while (1) {
         if (*SERIAL_IN_SIZE != 0) {
-            tsk_intoff();
+            k_cpu_intoff();
             while (*SERIAL_IN_SIZE != 0) {
                 *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
             }
-            tsk_inton();
+            k_cpu_inton();
         }
         k_tsk_yield();
     }
 }
 
 fn main() void {
-    def a: *u8 = k_malloc(10);
-    def b: *u8 = k_malloc(12);
-    def c: *u8 = k_malloc(30);
-    def d: *u8 = k_malloc(45);
-
-    print("A\n");
-    k_heap_print();
-
-    k_free(a);
-    print("B\n");
-    k_heap_print();
-
-    a = k_malloc(5);
-    print("C\n");
-    k_heap_print();
-
-    k_free(a);
-    k_free(b);
-    k_free(c);
-    k_free(d);
-
-    print("D\n");
-    k_heap_print();
-
-    a = k_malloc(33);
-
-    print("E\n");
-    k_heap_print();
-
-    k_free(a);
-    print("F\n");
-    k_heap_print();
-
-    print("Heap Test Pass\n");
-
     def irq1_loc: *u32 = 0x104;
     *irq1_loc = k_tsk_yield;
     k_tsk_init(main_tsk_a);
     k_tsk_init(main_tsk_b);
     k_tsk_init(main_tsk_c);
+
     *CLOCK_LOC = 1000;
     *CLOCK_INT = 1;
 

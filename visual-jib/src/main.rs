@@ -3,7 +3,7 @@ mod main_window;
 mod messages;
 
 use gtk::prelude::*;
-use gtk::{glib, Application};
+use gtk::{Application, glib};
 
 const APP_ID: &str = "com.orourke.Solarium.VSProc";
 
