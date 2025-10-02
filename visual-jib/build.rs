@@ -8,7 +8,7 @@ fn main() {
     let dest_path = Path::new(&out_dir).join("default.cb");
     let input_file = "../cbuoy/examples/os.cb";
 
-    let output = cbuoy::read_and_preprocess(&Path::new(input_file)).unwrap();
+    let output = cbuoy::read_and_preprocess(Path::new(input_file)).unwrap();
 
     let mut files = HashSet::new();
     for l in output.iter() {
