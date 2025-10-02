@@ -525,11 +525,22 @@ Note that, in this case, both functions and variables share the same namespace. 
 \end{tabular}
 \end{table}
 
-\pagebreak
-
 This makes use of a few extra conventions. At the start of each function, stack space is reserved both for any local variables, as well as any temporary variables, that are required. A few extra registers are defined in the Table \ref{table:register-setup}.
 
 When returning a parameter, if the parameter is a primitive, it is returned by value in the return register directly. However, if it is a structure, the address of the temporary to write into is written into the return register before the function call. This is typically a temporary allocated on the stack, as mentioned above.
+
+A simple preprocessor allows for mixing multiple files into one source unit. This follows a similar syntax to the C preprocessor, albeit much simpler.
+
+\begin{itemize}
+	\item \texttt{\#include <file>} includes the provided file into the current source.
+	\item \texttt{\#ifdef <name>} and \texttt{\#ifndef <name>} only includes the subsequent lines if the name is defined or not defined. Must have a matching \texttt{\#endif}.
+	\item \texttt{\#else} is coupled with an \texttt{\#if*} statement to include if the original statement is false. Only one may be provided per \texttt{\#if*} statement.
+	\item \texttt{\#endif} ends an if statement.
+	\item \texttt{\#define <name>} marks the provided name as defined.
+	\item \texttt{\#undef <name>} marks the provided name as undefined.
+\end{itemize}
+
+\subsection{A Simple Example}
 
 This provides an example program in Listing \ref{listing:example-cbuoy} below, which provides an example of printing text to a serial device, both using a string literal, but also converting numeric values into their text equivalents.
 
@@ -537,9 +548,9 @@ This provides an example program in Listing \ref{listing:example-cbuoy} below, w
 
 C/Buoy allows working with structs, primitives, functions, and more. This allows for an easier programming experience, at the cost of occasionally some additional generated machine code, resulting in slightly larger execution times, than could necessarily be done by hand in Jib assembly.
 
-To combat this, Jib assembly code can also be mixed in with functions to increase the speed of certain functions. As the compiler is currently not an optimizing compiler, this provides the opportunity to convert commonly-used smaller functions into compact assembly code to increase the speed of execution. Identifiers from the overall C/Buoy program can be mixed into the assembly code by using replacement characters, as denoted in Table \ref{table:cbuoy-assembly-mixin}.
+\subsection{Assembly Integration}
 
-\pagebreak
+To allow for additional optimization, Jib assembly code can also be mixed in with functions to increase the speed of certain functions. As the compiler is currently not an optimizing compiler, this provides the opportunity to convert commonly-used smaller functions into compact assembly code to increase the speed of execution. Identifiers from the overall C/Buoy program can be mixed into the assembly code by using replacement characters, as denoted in Table \ref{table:cbuoy-assembly-mixin}.
 
 \begin{table}[h!]
     \centering
