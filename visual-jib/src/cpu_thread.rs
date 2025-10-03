@@ -3,6 +3,8 @@ use jib::cpu::{Processor, ProcessorError};
 use jib::device::{InterruptClockDevice, SerialInputOutputDevice};
 use jib::memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment};
 use jib_asm::InstructionList;
+#[cfg(feature = "write_history")]
+use std::io::Write;
 use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 use std::cell::RefCell;
@@ -71,6 +73,8 @@ struct ThreadState {
     inst_map: InstructionList,
     breakpoint: Option<u32>,
     step_count: u128,
+    #[cfg(feature = "write_history")]
+    history_file: std::fs::File,
 }
 
 impl ThreadState {
@@ -89,6 +93,8 @@ impl ThreadState {
             inst_map: InstructionList::default(),
             breakpoint: None,
             step_count: 0,
+            #[cfg(feature = "write_history")]
+            history_file: std::fs::File::create("history.csv").unwrap(),
         };
 
         s.reset()?;
@@ -135,6 +141,9 @@ impl ThreadState {
         self.step_count += 1;
         let res = self.cpu.step();
 
+        #[cfg(feature = "write_history")]
+        self.write_cpu_state();
+
         if let Err(e) = res {
             let msg = format!(
                 "{}\n{}",
@@ -146,6 +155,9 @@ impl ThreadState {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
+
+            #[cfg(feature = "write_history")]
+            writeln!(self.history_file, "{msg}").unwrap();
 
             Err(ThreadToUi::LogMessage(msg))
         } else {
@@ -212,7 +224,36 @@ impl ThreadState {
             self.cpu.memory_set(i as u32, *val)?;
         }
 
+        #[cfg(feature = "write_history")]
+        {
+            write!(self.history_file, "#Step,Instruction").unwrap();
+            for (i, _) in self.cpu.get_register_state().registers.iter().enumerate() {
+                write!(self.history_file, ",R{:02}", i).unwrap();
+            }
+            writeln!(self.history_file).unwrap();
+            self.write_cpu_state();
+        }
+
         Ok(())
+    }
+
+    #[cfg(feature = "write_history")]
+    fn write_cpu_state(&mut self) {
+        let inst_details = if let Ok(inst) = self.cpu.get_current_inst()
+            && let Some(disp_val) = self.inst_map.get_display_inst(inst)
+        {
+            disp_val
+        } else {
+            format!("{}", self.cpu.get_current_op().unwrap())
+        };
+
+        write!(self.history_file, "{},{}", self.step_count, inst_details).unwrap();
+
+        for r in self.cpu.get_register_state().registers {
+            write!(self.history_file, ",{r:#010x}").unwrap()
+        }
+
+        writeln!(self.history_file).unwrap()
     }
 
     fn handle_msg(&mut self, msg: UiToThread) -> Option<ThreadToUi> {
@@ -297,7 +338,6 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     let mut state = ThreadState::new().unwrap();
 
     const THREAD_LOOP_MS: u64 = 50;
-    //const THREAD_LOOP_HZ: u64 = 1000 / THREAD_LOOP_MS;
 
     'mainloop: while state.run_thread {
         if state.running {
