@@ -143,6 +143,11 @@ fn main() -> std::process::ExitCode {
                 for l in &asm_out.assembly_lines {
                     writeln!(f, "{l}").unwrap();
                 }
+                if args.include_locations {
+                    for l in &asm_out.assembly_debug {
+                        writeln!(f, "{l}").unwrap();
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("{e}");

@@ -153,18 +153,20 @@ impl GlobalStatement for StandardFunctionDefinition {
         &self,
         options: &CodeGenerationOptions,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        let mut init_asm = vec![
-            AsmToken::CreateLabel(self.declaration.entry_label.clone()),
-            AsmToken::LocationComment(format!(
+        let mut init_asm = vec![AsmToken::CreateLabel(self.declaration.entry_label.clone())];
+
+        if options.debug_locations {
+            init_asm.push(AsmToken::LocationComment(format!(
                 "+{}({})",
                 self.declaration.func_type.keyword(),
                 self.declaration.name
-            )),
-            AsmToken::OperationLiteral(Box::new(OpCopy::new(
-                RegisterDef::FN_VAR_BASE.into(),
-                Register::StackPointer.into(),
-            ))),
-        ];
+            )));
+        }
+
+        init_asm.push(AsmToken::OperationLiteral(Box::new(OpCopy::new(
+            RegisterDef::FN_VAR_BASE.into(),
+            Register::StackPointer.into(),
+        ))));
 
         let scope_size = self.scope_manager.get_max_size();
 
@@ -173,11 +175,13 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         for s in self.statements.iter() {
             let mut local_stack = TemporaryStackTracker::default();
-            statement_asm.push(
-                self.declaration
-                    .name
-                    .to_asm(AsmToken::LocationComment(format!("{s}"))),
-            );
+            if options.debug_locations {
+                statement_asm.push(
+                    self.declaration
+                        .name
+                        .to_asm(AsmToken::LocationComment(format!("{s}"))),
+                );
+            }
             statement_asm.extend(s.get_exec_code(options, &mut local_stack)?);
             stack_requirements.merge(local_stack);
         }
@@ -242,11 +246,13 @@ impl GlobalStatement for StandardFunctionDefinition {
         };
 
         asm_end.push(AsmToken::OperationLiteral(op));
-        asm_end.push(AsmToken::LocationComment(format!(
-            "-{}({})",
-            self.declaration.func_type.keyword(),
-            self.declaration.name
-        )));
+        if options.debug_locations {
+            asm_end.push(AsmToken::LocationComment(format!(
+                "-{}({})",
+                self.declaration.func_type.keyword(),
+                self.declaration.name
+            )));
+        }
 
         asm.extend(self.declaration.name.to_asm_iter(asm_end));
 
@@ -617,7 +623,9 @@ impl Statement for StatementGroup {
         let mut asm = Vec::new();
         for s in self.statements.iter() {
             let mut local_stack = TemporaryStackTracker::default();
-            asm.push(self.token.to_asm(AsmToken::LocationComment(format!("{s}"))));
+            if options.debug_locations {
+                asm.push(self.token.to_asm(AsmToken::LocationComment(format!("{s}"))));
+            }
             asm.extend(s.get_exec_code(options, &mut local_stack)?.into_iter());
             required_stack.merge(local_stack);
         }

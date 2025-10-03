@@ -145,13 +145,14 @@ impl GlobalVariableStatement {
 impl GlobalStatement for GlobalVariableStatement {
     fn get_static_code(
         &self,
-        _options: &CodeGenerationOptions,
+        options: &CodeGenerationOptions,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let name = self.global_var.get_token();
         let var = &self.global_var;
         let mut asm_static = Vec::new();
 
-        asm_static.push(name.to_asm(AsmToken::LocationComment(format!(
+        if options.debug_locations {
+            asm_static.push(name.to_asm(AsmToken::LocationComment(format!(
                 "+gvar({}) : {}{}",
                 name,
                 self.global_var.dtype,
@@ -161,6 +162,7 @@ impl GlobalStatement for GlobalVariableStatement {
                     .map(|x| format!(" ({x})"))
                     .unwrap_or_default()
             ))));
+        }
 
         asm_static.push(name.to_asm(AsmToken::CreateLabel(var.access_label().into())));
 
@@ -413,7 +415,8 @@ impl Statement for LocalVariableStatement {
         let mut asm = ExpressionData::default();
         let var = self.var.as_ref();
 
-        asm.push_asm(var.token.to_asm(AsmToken::LocationComment(format!(
+        if options.debug_locations {
+            asm.push_asm(var.token.to_asm(AsmToken::LocationComment(format!(
             "+lvar({}) ${}+{} : {}{}",
             var.token,
             var.base,
@@ -421,6 +424,7 @@ impl Statement for LocalVariableStatement {
             var.dtype,
             var.dtype.primitive_type().map(|x| format!(" ({x})")).unwrap_or_default()
         ))));
+        }
 
         if let Some(e) = &var.init_expr {
             asm.push_asm(var.token.to_asm(AsmToken::Comment(format!(

@@ -660,8 +660,10 @@ impl TokenList {
                 text_lines.push(format!("{}", i.tok).replace("\n", "\\n"));
             }
 
-            text_lines.push(format!(";Program Start: {:04x}", min_addr));
-            text_lines.push(";Labels:".to_string());
+            let mut label_text = Vec::new();
+
+            label_text.push(format!(";Program Start: {:04x}", min_addr));
+            label_text.push(";Labels:".to_string());
             let mut locs: Vec<(u32, &String)> = state
                 .labels
                 .iter()
@@ -669,11 +671,11 @@ impl TokenList {
                 .collect::<Vec<_>>();
             locs.sort_by(|a, b| a.0.cmp(&b.0));
             for (v, k) in locs {
-                text_lines.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
+                label_text.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
             }
-            text_lines.push(";Debug:".to_string());
+            label_text.push(";Debug:".to_string());
             for (addr, cmt) in state.debug_comment.iter() {
-                text_lines.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
+                label_text.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
             }
 
             return Ok(AssemblerOutput {
@@ -682,6 +684,7 @@ impl TokenList {
                 labels: state.labels,
                 debug: state.debug_comment,
                 assembly_lines: text_lines,
+                assembly_debug: label_text,
             });
         }
 
@@ -696,6 +699,7 @@ pub struct AssemblerOutput {
     pub labels: HashMap<String, u32>,
     pub debug: Vec<(u32, String)>,
     pub assembly_lines: Vec<String>,
+    pub assembly_debug: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
