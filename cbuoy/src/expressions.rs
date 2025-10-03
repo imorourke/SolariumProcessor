@@ -287,7 +287,7 @@ struct DereferenceExpression {
 
 impl Expression for DereferenceExpression {
     fn get_type(&self) -> Result<Type, TokenError> {
-        if let Type::Pointer(dt) = self.base.get_type()? {
+        if let Type::Pointer(dt) = self.base.get_type()?.remove_const() {
             Ok(dt.as_ref().clone())
         } else {
             Err(self

@@ -93,6 +93,13 @@ impl Type {
         }
     }
 
+    pub fn remove_const(&self) -> Type {
+        match self {
+            Self::Const(t) => t.as_ref().clone(),
+            t => t.clone(),
+        }
+    }
+
     pub fn is_pointer(&self) -> bool {
         matches!(self, Self::Pointer(_) | Self::Function(_))
     }
