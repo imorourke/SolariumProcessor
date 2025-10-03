@@ -402,9 +402,42 @@ mod test {
 
     use crate::cpu_thread::ThreadState;
 
+    fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
+        let tokens = cbuoy::parse_str(in_code)
+            .and_then(|x| x.get_assembler())
+            .unwrap();
+        let asm = jib_asm::assemble_tokens(tokens).unwrap();
+
+        let mut cpu = ThreadState::new().unwrap();
+        cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
+
+        let mut serial_output = Vec::new();
+        let mut iter_count = 0;
+
+        while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
+            match cpu.step_cpu(false) {
+                Err(crate::messages::ThreadToUi::LogMessage(msg)) => {
+                    panic!("unable to step CPU\n{msg}")
+                }
+                Err(err) => panic!("unable to step cpu - {err:?}"),
+                _ => (),
+            };
+            while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
+                serial_output.push(c);
+            }
+            iter_count += 1;
+            assert!(iter_count < 20000);
+        }
+
+        println!("Step Count: {}", cpu.step_count);
+        println!("{}", str::from_utf8(&serial_output).unwrap());
+
+        assert_eq!(str::from_utf8(&serial_output).unwrap(), expected_out);
+    }
+
     #[test]
     fn test_malloc() {
-        const MALLOC_EXPECTED: &str = "A\n\
+        const EXPECTED: &str = "A\n\
             @36864, 10\n\
             @36886, 12\n\
             @36910, 30\n\
@@ -424,36 +457,29 @@ mod test {
             @36864, 33\n\
             F\n\
             No Heap Allocations\n\
-            Heap Test Pass\n\
-        ";
+            Heap Test Pass\n";
 
         let cb = include_str!(concat!(env!("OUT_DIR"), "/test_kmalloc.cb"));
-        let tokens = cbuoy::parse_str(cb)
-            .and_then(|x| x.get_assembler())
-            .unwrap();
-        let asm = jib_asm::assemble_tokens(tokens).unwrap();
 
-        let mut cpu = ThreadState::new().unwrap();
-        cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
+        run_cpu_serial_out_test(cb, EXPECTED);
+    }
 
-        let mut serial_output = Vec::new();
-        let mut iter_count = 0;
+    #[test]
+    fn test_struct_ptr() {
+        static EXPECTED: &str = "Hello, world!\n\
+            13\n\
+            720\n\
+            13\n\
+            13\n\
+            13\n\
+            13\n\
+            0\n\
+            1\n\
+            1234\n\
+            Hello, world!\n\
+            7";
+        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_struct_ptr.cb"));
 
-        while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
-            match cpu.step_cpu(false) {
-                Err(_) => panic!("unable to step cpu"),
-                _ => (),
-            };
-            while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
-                serial_output.push(c);
-            }
-            iter_count += 1;
-            assert!(iter_count < 20000);
-        }
-
-        println!("Step Count: {}", cpu.step_count);
-        println!("{}", str::from_utf8(&serial_output).unwrap());
-
-        assert_eq!(str::from_utf8(&serial_output).unwrap(), MALLOC_EXPECTED);
+        run_cpu_serial_out_test(cb, EXPECTED);
     }
 }

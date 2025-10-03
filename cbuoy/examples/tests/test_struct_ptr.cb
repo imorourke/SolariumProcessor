@@ -1,0 +1,165 @@
+#include ../components/kserialio.cb
+
+global a: u16 = 255 + 5;
+global b: u32;
+global c: u32 = (-1) : u32;
+global d: i16 = 0 - 1 + a;
+global e: i8 = 127;
+global f: i8 = -128;
+const Z: i8 = 10;
+global q: i8 = Z;
+global z: u8 = Z;
+global func_test: fn()void;
+global TEST_STR: *u8 = "Hello, world!";
+global ptr_test: u32 = 0;
+global ex_ptr: *u32 = 0x3000;
+
+struct TEST {
+    a: u16;
+    b: u32;
+}
+
+global Q: TEST;
+
+struct Node {
+    a: *Node;
+    b: *Node;
+    v: u32;
+}
+
+fn add_numbers(dest: *u16, a: u16, b: u16) u16 {
+    *dest = 4 * a + b * 2;
+}
+
+asmfn strlenasm(c: *u8) u32 {
+    "ldi 8:u16 1";
+    "ldi 9:u16 0";
+    "ld 10:u32 $arg";
+    "ld 11:u8 10";
+    "tz 11";
+    "jmpri 16";
+    "add 9:u32 9 8";
+    "add 10:u32 10 8";
+    "jmpri -20";
+    "copy $ret 9";
+    "ret";
+}
+
+fn strlen(c: *u8) u32 {
+    def len: u32 = 0u32;
+    while (*c != 0) {
+        len = len + 1u32;
+        c = c + 1u8;
+    }
+    return len;
+}
+
+struct LenStruct {
+    len: u32;
+    val: u32;
+}
+
+fn strlens(c: *u8) LenStruct {
+    def s: LenStruct;
+    s.len = 0;
+    s.val = 0;
+    while (*c != 0) {
+        s.len = s.len + 1;
+        s.val = s.len;
+        c = c + 1;
+    }
+    return s;
+}
+
+fn test_fn(a: u16, b: u32) void {
+    b = 7;
+}
+
+fn factorial(a: u32) u32 {
+    if (a < 2) {
+        return 1;
+    } else {
+        return a * factorial(a - 1);
+    }
+}
+
+fn main() void {
+    print(TEST_STR);
+    print("\n");
+    print_uint(strlenasm(TEST_STR));
+    print("\n");
+    print_uint(factorial(6));
+    print("\n");
+
+    print_uint(strlen(TEST_STR));
+    print("\n");
+    print_uint(strlens(TEST_STR).len);
+    print("\n");
+
+    def s1: u32 = strlen(TEST_STR);
+    def s2: LenStruct = strlens(TEST_STR);
+
+    print_uint(s1);
+    print("\n");
+    print_uint(s2.len);
+    print("\n");
+
+    print_uint(0);
+    print("\n");
+    print_uint(1);
+    print("\n");
+    print_uint(1234);
+    print("\n");
+    print(TEST_STR);
+    print("\n");
+    const X: i16 = 3;
+    def a: u16 = 32;
+    {
+        def bloc: u32 = a;
+    }
+
+    def ex_ptr2: **u32 = &ex_ptr;
+    def ex_val: u32 = **ex_ptr2;
+
+    ex_ptr = ex_ptr + 1;
+
+    while (a != 0) {
+        a = a - 1;
+    }
+
+    if (a == 0) {
+        c = 7i16 : i16;
+    } else {
+        c = 9;
+    }
+
+    *ex_ptr = 0x4387 : u8;
+
+    def q: *TEST;
+    q = &Q;
+
+    Q.a = 3;
+    Q.b = 65535;
+    (*q).a = 5;
+
+    test_fn(1, 2);
+
+    def q2: TEST = Q;
+    Q.a = 4;
+
+    add_numbers(&b, 10, q2.a);
+
+    q2 = Q;
+    add_numbers(&c, 10, q2.a);
+
+    def ptr_local: *u16 = &ptr_test;
+    *ptr_local = 1;
+    *(ptr_local + 1) = 2;
+
+    def nt: Node;
+    nt.a = &nt;
+    nt.b = &nt;
+    nt.v = 7;
+
+    print_uint((*(nt.a)).v);
+}

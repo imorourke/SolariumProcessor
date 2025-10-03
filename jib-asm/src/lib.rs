@@ -689,7 +689,7 @@ impl TokenList {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct AssemblerOutput {
     pub start_address: u32,
     pub bytes: Vec<u8>,

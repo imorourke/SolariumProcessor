@@ -11,6 +11,7 @@ fn main() {
         "../cbuoy/examples/os.cb",
         "../cbuoy/examples/default.cb",
         "../cbuoy/examples/tests/test_kmalloc.cb",
+        "../cbuoy/examples/tests/test_struct_ptr.cb",
     ];
     let mut required_files = HashSet::new();
 
