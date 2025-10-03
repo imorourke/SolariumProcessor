@@ -1,7 +1,7 @@
 #ifndef K_MALLOC
 #define K_MALLOC
 
-#include serialio.cb
+#include kserialio.cb
 
 struct mem_val_t {
     size: u32;

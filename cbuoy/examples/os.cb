@@ -1,5 +1,5 @@
 #include components/kmalloc.cb
-#include components/serialio.cb
+#include components/kserialio.cb
 #include components/ktsk.cb
 #include components/kcpu.cb
 

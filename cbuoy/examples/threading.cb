@@ -1,5 +1,5 @@
 #include components/ktsk.cb
-#include components/serialio.cb
+#include components/kserialio.cb
 #include components/kcpu.cb
 
 global CLOCK_LOC: *u32 = 0xA022u32;

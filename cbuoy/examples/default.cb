@@ -1,3 +1,5 @@
+#include components/kserialio.cb
+
 global a: u16 = 255 + 5;
 global b: u32;
 global c: u32 = (-1) : u32;
@@ -28,8 +30,6 @@ struct Node {
 fn add_numbers(dest: *u16, a: u16, b: u16) u16 {
     *dest = 4 * a + b * 2;
 }
-
-#include components/serialio.cb
 
 asmfn strlenasm(c: *u8) u32 {
     "ldi 8:u16 1";

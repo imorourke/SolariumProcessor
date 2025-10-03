@@ -1,9 +1,9 @@
 #ifndef K_SERIAL_IO
 #define K_SERIAL_IO
 
-global SERIAL_IN_SIZE: *u8 = 0xA000u32 + 2;
-global SERIAL_IN_LOC: *u8 = 0xA000u32 + 3;
-global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
+global SERIAL_IN_SIZE: const *u8 = 0xA000u32 + 2;
+global SERIAL_IN_LOC: const *u8 = 0xA000u32 + 3;
+global SERIAL_OUT_LOC: const *u8 = 0xA000u32 + 5;
 
 #ifdef K_SERIAL_IO_CBUOY_PRINT
 fn print(c: *u8) void {
@@ -12,11 +12,19 @@ fn print(c: *u8) void {
         c = c + 1;
     }
 }
+
+fn print_digit(v: u8) void {
+    if (v < 10) {
+        *SERIAL_OUT_LOC = '0' + v;
+    } else {
+        *SERIAL_OUT_LOC = '?';
+    }
+}
 #else
 asmfn print(c: *u8) void {
     "push $stat";
     "intoff";
-    "ldn 8:u32";
+    "%LDLOC% 8:u32";
     ".loadloc %{SERIAL_OUT_LOC}%";
     "ld 8:u32 8";
     ".align";
@@ -33,15 +41,26 @@ asmfn print(c: *u8) void {
     "popr $stat";
     "ret";
 }
-#endif
 
-fn print_digit(v: u8) void {
-    if (v < 10) {
-        *SERIAL_OUT_LOC = '0' + v;
-    } else {
-        *SERIAL_OUT_LOC = '?';
-    }
+asmfn print_digit(v: u8) void {
+    "ldi 9:u16 @{v}@";
+    "add 9:u32 $arg 9";
+    "ld 9:u8 9";
+    "ldi 10:u16 10";
+    "%LDLOC% 11:u32";
+    ".loadloc %{SERIAL_OUT_LOC}%";
+    "ld 11:u32 11";
+    "tl 12:u8 9 10";
+    "tz 12";
+    "jmpri 16";
+    "ldi 10:u16 0x30"; // TODO - Replace with literals for characters
+    "add 10:u8 9 10";
+    "jmpri 8";
+    "ldi 10:u16 0x3F";
+    "sav 11:u8 10";
+    "ret";
 }
+#endif
 
 fn print_uint(v: u32) void {
     def chars: [12]u8;

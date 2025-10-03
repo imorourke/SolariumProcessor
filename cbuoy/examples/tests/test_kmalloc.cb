@@ -1,5 +1,5 @@
 #include ../components/kmalloc.cb
-#include ../components/serialio.cb
+#include ../components/kserialio.cb
 
 fn main() void {
     def a: *u8 = k_malloc(10);
