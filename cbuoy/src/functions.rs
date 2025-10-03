@@ -433,6 +433,9 @@ impl AsmFunctionDefinition {
                 for (src, replacement) in replacement_labels {
                     tok_str = tok_str.replace(&src, &replacement);
                 }
+
+                tok_str = tok_str.replace("%LDLOC%", &state.get_options().load_label_inst_name());
+
                 let t = Token::new(&tok_str, t.get_loc().clone());
 
                 tokens.expect(";")?;

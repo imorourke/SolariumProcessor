@@ -367,6 +367,14 @@ impl CodeGenerationOptions {
             Box::new(OpLdn::new(arg))
         })
     }
+
+    pub fn load_label_inst_name(&self) -> String {
+        if matches!(self.prog_type, ProgramType::Application) {
+            OpLdno::name()
+        } else {
+            OpLdn::name()
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -399,6 +407,10 @@ impl CompilingState {
         let current = self.current_id;
         self.current_id += 1;
         current
+    }
+
+    pub fn get_options(&self) -> &CodeGenerationOptions {
+        &self.options
     }
 
     pub fn get_assembler(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
