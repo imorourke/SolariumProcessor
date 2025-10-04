@@ -190,7 +190,10 @@ impl StructDefinition {
 
         let rs = Rc::new(s);
 
-        state.upgrade_opaque_type(name.clone(), Type::Struct(rs.clone()))?;
+        state.add_user_type(
+            name.clone(),
+            UserTypeOptions::ConcreteType(Type::Struct(rs.clone())),
+        )?;
         Ok((rs, name))
     }
 

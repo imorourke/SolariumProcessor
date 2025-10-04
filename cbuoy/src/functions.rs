@@ -662,10 +662,14 @@ impl Statement for IfStatement {
 
         let label_base = format!("___{KEYWORD_IF}_statement_{}", self.id);
 
-        let mut asm = vec![self.token.to_asm(AsmToken::Comment(format!(
-            "{KEYWORD_IF} statement for {} {}",
-            self.id, self.token,
-        )))];
+        let mut asm = if options.debug_locations {
+            vec![self.token.to_asm(AsmToken::Comment(format!(
+                "{KEYWORD_IF} statement for {} {}",
+                self.id, self.token,
+            )))]
+        } else {
+            Vec::new()
+        };
 
         asm.extend(
             self.test_expr
@@ -767,18 +771,23 @@ impl Statement for WhileStatement {
         let test_label = format!("{label_base}_test");
         let end_label = Self::end_label_fmt(self.id);
 
-        let mut asm = vec![
-            self.token.to_asm(AsmToken::Comment(format!(
+        let mut asm = if options.debug_locations {
+            vec![self.token.to_asm(AsmToken::Comment(format!(
                 "while statement for {} {}",
                 self.id, self.token,
-            ))),
-            self.token.to_asm(AsmToken::CreateLabel(test_label.clone())),
-        ];
+            )))]
+        } else {
+            Vec::new()
+        };
 
-        asm.push(self.token.to_asm(AsmToken::Comment(format!(
-            "{KEYWORD_WHILE} test using {}",
-            self.test_expr
-        ))));
+        asm.push(self.token.to_asm(AsmToken::CreateLabel(test_label.clone())));
+
+        if options.debug_locations {
+            asm.push(self.token.to_asm(AsmToken::Comment(format!(
+                "{KEYWORD_WHILE} test using {}",
+                self.test_expr
+            ))));
+        }
         asm.extend(
             self.test_expr
                 .load_value_to_register(options, def, required_stack)?

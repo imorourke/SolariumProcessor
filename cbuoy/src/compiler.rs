@@ -16,7 +16,7 @@ use crate::{
     functions::{FunctionDeclaration, FunctionDefinition},
     literals::{Literal, StringLiteral},
     tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize_str},
-    typing::{FunctionParameter, Type},
+    typing::{FunctionParameter, StructDefinition, Type},
     utilities::load_to_register,
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
@@ -381,6 +381,7 @@ impl CodeGenerationOptions {
 #[derive(Debug, Default, Clone)]
 pub struct CompilingState {
     statements: Vec<Rc<dyn GlobalStatement>>,
+    struct_defs: Vec<(Token, Rc<StructDefinition>)>,
     global_scope: HashMap<String, GlobalType>,
     user_types: Rc<RefCell<UserTypes>>,
     string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
@@ -439,32 +440,28 @@ impl CompilingState {
         };
 
         if self.options.debug_locations {
-            for gv in self.global_scope.values() {
-                if let GlobalType::UserType(tok, UserTypeOptions::ConcreteType(Type::Struct(s))) =
-                    gv
-                {
+            for (tok, s) in self.struct_defs.iter() {
+                asm.push(tok.to_asm(AsmToken::LocationComment(format!(
+                    "+struct({}) {}",
+                    tok,
+                    s.get_size(),
+                ))));
+
+                let mut struct_vals = s
+                    .get_fields()
+                    .iter()
+                    .map(|(k, v)| (v.offset, k, v.dtype.clone()))
+                    .collect::<Vec<_>>();
+                struct_vals.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (offset, name, dtype) in struct_vals {
                     asm.push(tok.to_asm(AsmToken::LocationComment(format!(
-                        "+struct({}) {}",
-                        tok,
-                        s.get_size(),
-                    ))));
-
-                    let mut struct_vals = s
-                        .get_fields()
-                        .iter()
-                        .map(|(k, v)| (v.offset, k, v.dtype.clone()))
-                        .collect::<Vec<_>>();
-                    struct_vals.sort_by(|a, b| a.0.cmp(&b.0));
-
-                    for (offset, name, dtype) in struct_vals {
-                        asm.push(tok.to_asm(AsmToken::LocationComment(format!(
                         "+field({}) +{} : {}{}",
                         name,
                         offset,
                         dtype,
                         dtype.primitive_type().map(|x| format!(" ({x})")).unwrap_or(String::new()),
                     ))));
-                    }
                 }
             }
         }
@@ -524,7 +521,18 @@ impl CompilingState {
             asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
-        for s in self.string_literals.borrow().values() {
+        let string_vals = {
+            let mut literals = self
+                .string_literals
+                .borrow()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            literals.sort_by(|a, b| a.get_token().get_value().cmp(b.get_token().get_value()));
+            literals
+        };
+
+        for s in string_vals {
             asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
@@ -579,9 +587,39 @@ impl CompilingState {
     }
 
     pub fn add_user_type(&mut self, name: Token, ty: UserTypeOptions) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::UserType(name, ty))?;
+        let ret = match self.global_scope.entry(name.get_value().to_string()) {
+            Entry::Occupied(mut e) => {
+                let opaque_token = match e.get() {
+                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
+                    _ => {
+                        return Err(name.into_err("unable to find opaque type with provided name"));
+                    }
+                };
+
+                if matches!(ty, UserTypeOptions::ConcreteType(_)) {
+                    if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
+                        self.struct_defs.push((opaque_token.clone(), s.clone()));
+                    }
+                    *e.get_mut() = GlobalType::UserType(opaque_token, ty);
+                    Ok(())
+                } else {
+                    Err(name.into_err(
+                        "provided type is not a concrete type to upgrade opaque type with",
+                    ))
+                }
+            }
+            Entry::Vacant(e) => {
+                if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
+                    self.struct_defs.push((name.clone(), s.clone()));
+                }
+                e.insert(GlobalType::UserType(name, ty));
+                Ok(())
+            }
+        };
+
         self.update_user_types();
-        Ok(())
+
+        ret
     }
 
     pub fn get_user_type(&self, name: &Token) -> Result<UserTypeReference, TokenError> {
@@ -663,30 +701,6 @@ impl CompilingState {
                 tv.types.insert(n.clone(), t.clone());
             }
         }
-    }
-
-    pub fn upgrade_opaque_type(&mut self, name: Token, ty: Type) -> Result<(), TokenError> {
-        let ret = match self.global_scope.entry(name.get_value().to_string()) {
-            Entry::Occupied(mut e) => {
-                let valid = match e.get() {
-                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
-                    _ => {
-                        return Err(name
-                            .clone()
-                            .into_err("unable to find opaque type with provided name"));
-                    }
-                };
-                *e.get_mut() = GlobalType::UserType(valid, UserTypeOptions::ConcreteType(ty));
-                Ok(())
-            }
-            _ => Err(name.clone().into_err(format!(
-                "opaque type with provided name {name} not found for upgrade"
-            ))),
-        };
-
-        self.update_user_types();
-
-        ret
     }
 
     fn add_to_global_scope(&mut self, t: GlobalType) -> Result<(), TokenError> {

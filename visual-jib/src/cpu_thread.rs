@@ -3,7 +3,6 @@ use jib::cpu::{Processor, ProcessorError};
 use jib::device::{InterruptClockDevice, SerialInputOutputDevice};
 use jib::memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment};
 use jib_asm::InstructionList;
-#[cfg(feature = "write_history")]
 use std::io::Write;
 use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
@@ -73,8 +72,7 @@ struct ThreadState {
     inst_map: InstructionList,
     breakpoint: Option<u32>,
     step_count: u128,
-    #[cfg(feature = "write_history")]
-    history_file: std::fs::File,
+    history_file: Option<std::fs::File>,
 }
 
 impl ThreadState {
@@ -93,8 +91,7 @@ impl ThreadState {
             inst_map: InstructionList::default(),
             breakpoint: None,
             step_count: 0,
-            #[cfg(feature = "write_history")]
-            history_file: std::fs::File::create("history.csv").unwrap(),
+            history_file: None,
         };
 
         s.reset()?;
@@ -141,7 +138,6 @@ impl ThreadState {
         self.step_count += 1;
         let res = self.cpu.step();
 
-        #[cfg(feature = "write_history")]
         self.write_cpu_state();
 
         if let Err(e) = res {
@@ -156,8 +152,9 @@ impl ThreadState {
                     .join("\n")
             );
 
-            #[cfg(feature = "write_history")]
-            writeln!(self.history_file, "{msg}").unwrap();
+            if let Some(h) = self.history_file.as_mut() {
+                writeln!(h, "{msg}").unwrap();
+            }
 
             Err(ThreadToUi::LogMessage(msg))
         } else {
@@ -224,36 +221,36 @@ impl ThreadState {
             self.cpu.memory_set(i as u32, *val)?;
         }
 
-        #[cfg(feature = "write_history")]
-        {
-            write!(self.history_file, "#Step,Instruction").unwrap();
+        if let Some(h) = self.history_file.as_mut() {
+            write!(h, "#Step,Instruction").unwrap();
             for (i, _) in self.cpu.get_register_state().registers.iter().enumerate() {
-                write!(self.history_file, ",R{:02}", i).unwrap();
+                write!(h, ",R{:02}", i).unwrap();
             }
-            writeln!(self.history_file).unwrap();
-            self.write_cpu_state();
+            writeln!(h).unwrap();
         }
+        self.write_cpu_state();
 
         Ok(())
     }
 
-    #[cfg(feature = "write_history")]
     fn write_cpu_state(&mut self) {
-        let inst_details = if let Ok(inst) = self.cpu.get_current_inst()
-            && let Some(disp_val) = self.inst_map.get_display_inst(inst)
-        {
-            disp_val
-        } else {
-            format!("{}", self.cpu.get_current_op().unwrap())
-        };
+        if let Some(h) = self.history_file.as_mut() {
+            let inst_details = if let Ok(inst) = self.cpu.get_current_inst()
+                && let Some(disp_val) = self.inst_map.get_display_inst(inst)
+            {
+                disp_val
+            } else {
+                format!("{}", self.cpu.get_current_op().unwrap())
+            };
 
-        write!(self.history_file, "{},{}", self.step_count, inst_details).unwrap();
+            write!(h, "{},{}", self.step_count, inst_details).unwrap();
 
-        for r in self.cpu.get_register_state().registers {
-            write!(self.history_file, ",{r:#010x}").unwrap()
+            for r in self.cpu.get_register_state().registers {
+                write!(h, ",{r:#010x}").unwrap();
+            }
+
+            writeln!(h).unwrap();
         }
-
-        writeln!(self.history_file).unwrap()
     }
 
     fn handle_msg(&mut self, msg: UiToThread) -> Option<ThreadToUi> {
@@ -438,14 +435,21 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 
 #[cfg(test)]
 mod test {
+    use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
 
     use crate::cpu_thread::ThreadState;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let tokens = cbuoy::parse_str(in_code)
-            .and_then(|x| x.get_assembler())
-            .unwrap();
+        let tokens = cbuoy::parse_str(
+            in_code,
+            CodeGenerationOptions {
+                debug_locations: true,
+                ..Default::default()
+            },
+        )
+        .and_then(|x| x.get_assembler())
+        .unwrap();
         let asm = jib_asm::assemble_tokens(tokens).unwrap();
 
         let mut cpu = ThreadState::new().unwrap();

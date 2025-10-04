@@ -1,5 +1,6 @@
 use crate::cpu_thread::cpu_thread;
 use crate::messages::{ThreadToUi, UiToThread};
+use cbuoy::CodeGenerationOptions;
 use gtk::glib::clone;
 use gtk::{Application, ApplicationWindow};
 use gtk::{glib, prelude::*};
@@ -229,10 +230,16 @@ fn build_code_column(
                     let cb =
                         text_buffer.text(&text_buffer.start_iter(), &text_buffer.end_iter(), false);
 
-                    match cbuoy::parse_str(cb.as_str()).and_then(|x| x.get_assembler()) {
+                    let options = CodeGenerationOptions::default();
+
+                    match cbuoy::parse_str(cb.as_str(), options).and_then(|x| x.get_assembler()) {
                         Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
                             Ok(asm_out) => {
-                                let asm = asm_out.assembly_lines.join("\n");
+                                let asm = format!(
+                                    "{}\n{}",
+                                    asm_out.assembly_lines.join("\n"),
+                                    asm_out.assembly_debug.join("\n")
+                                );
 
                                 tx_ui.send(UiToThread::SetCode(asm_out)).unwrap();
                                 tx_thread

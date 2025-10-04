@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["write_history"]
-write_history = []
+#default = ["write_history"]
+#write_history = []
 
 [dependencies]
 async-channel = "2"

@@ -1,5 +1,5 @@
 use crate::{
-    compiler::CompilingState,
+    compiler::{CodeGenerationOptions, CompilingState},
     functions::{AsmFunctionDefinition, StandardFunctionDefinition, StandardFunctionType},
     tokenizer::{
         KEYWORD_ASMFN, KEYWORD_CONST, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_GLOBAL, KEYWORD_STRUCT,
@@ -9,12 +9,15 @@ use crate::{
     variables::VariableDefinition,
 };
 
-pub fn parse_str(s: &str) -> Result<CompilingState, TokenError> {
-    parse(tokenize_str(s)?)
+pub fn parse_str(s: &str, options: CodeGenerationOptions) -> Result<CompilingState, TokenError> {
+    parse(tokenize_str(s)?, options)
 }
 
-pub fn parse(tokens: Vec<Token>) -> Result<CompilingState, TokenError> {
-    let mut state = CompilingState::default();
+pub fn parse(
+    tokens: Vec<Token>,
+    options: CodeGenerationOptions,
+) -> Result<CompilingState, TokenError> {
+    let mut state = CompilingState::new(options);
     let mut token_iter = TokenIter::from(&tokens);
 
     while let Some(next) = token_iter.peek().map(|v| v.get_value().to_string()) {

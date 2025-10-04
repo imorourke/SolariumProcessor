@@ -12,7 +12,7 @@ global z: u8 = Z;
 global func_test: fn()void;
 global TEST_STR: *u8 = "Hello, world!";
 global ptr_test: u32 = 0;
-global ex_ptr: *u32 = 0x3000;
+global ex_ptr: *u32 = &ptr_test;
 
 struct TEST {
     a: u16;
