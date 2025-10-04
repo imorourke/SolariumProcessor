@@ -1,6 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
-use cbuoy::{PreprocessorLine, TokenError, parse, read_and_preprocess, tokenize};
+use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preprocess, tokenize};
 use clap::Parser;
 use jib_asm::assemble_tokens;
 
@@ -15,6 +15,13 @@ struct CompilerArguments {
         help = "Creates a binary file with the generated machine code"
     )]
     output_binary: Option<PathBuf>,
+    #[arg(
+        short = 'k',
+        long = "kernel",
+        default_value_t = false,
+        help = "Enables program generation in kernel mode"
+    )]
+    is_kernel_program: bool,
     #[arg(
         short = 'a',
         long = "output-ast",
@@ -103,7 +110,17 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let cbstate = match parse(input_tokens.clone()) {
+    let cbstate = match parse(
+        input_tokens.clone(),
+        cbuoy::CodeGenerationOptions {
+            prog_type: if args.is_kernel_program {
+                ProgramType::DEFAULT_KERNEL
+            } else {
+                ProgramType::Application
+            },
+            debug_locations: args.include_locations,
+        },
+    ) {
         Ok(asm) => asm,
         Err(e) => {
             print_error(&input_preprocessor, &e);

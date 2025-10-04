@@ -340,12 +340,16 @@ pub enum ProgramType {
     Kernel { stack_loc: u32, start_offset: u32 },
 }
 
+impl ProgramType {
+    pub const DEFAULT_KERNEL: Self = ProgramType::Kernel {
+        stack_loc: 0x1000,
+        start_offset: 0x2000,
+    };
+}
+
 impl Default for ProgramType {
     fn default() -> Self {
-        Self::Kernel {
-            stack_loc: 0x1000,
-            start_offset: 0x2000,
-        }
+        Self::DEFAULT_KERNEL
     }
 }
 

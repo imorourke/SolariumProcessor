@@ -9,7 +9,7 @@ mod typing;
 mod utilities;
 mod variables;
 
-pub use compiler::CodeGenerationOptions;
+pub use compiler::{CodeGenerationOptions, ProgramType};
 pub use parser::{parse, parse_str};
 pub use preprocessor::{PreprocessorError, PreprocessorLine, read_and_preprocess};
 pub use tokenizer::{TokenError, tokenize, tokenize_file, tokenize_str};
