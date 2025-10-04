@@ -53,7 +53,7 @@ asmfn print_digit(v: u8) void {
     "tl 12:u8 9 10";
     "tz 12";
     "jmpri 16";
-    "ldi 10:u16 0x30"; // TODO - Replace with literals for characters
+    "ldi 10:u16 '0'";
     "add 10:u8 9 10";
     "jmpri 8";
     "ldi 10:u16 0x3F";
