@@ -6,14 +6,14 @@ global SERIAL_IN_LOC: const *u8 = 0xA000u32 + 3;
 global SERIAL_OUT_LOC: const *u8 = 0xA000u32 + 5;
 
 #ifdef K_SERIAL_IO_CBUOY_PRINT
-fn print(c: *u8) void {
+fn k_io_print(c: *u8) void {
     while (*c != 0) {
         *SERIAL_OUT_LOC = *c;
         c = c + 1;
     }
 }
 
-fn print_digit(v: u8) void {
+fn k_io_print_digit(v: u8) void {
     if (v < 10) {
         *SERIAL_OUT_LOC = '0' + v;
     } else {
@@ -21,7 +21,7 @@ fn print_digit(v: u8) void {
     }
 }
 #else
-asmfn print(c: *u8) void {
+asmfn k_io_print(c: *u8) void {
     "push $stat";
     "intoff";
     "%LDLOC% 8:u32";
@@ -42,7 +42,7 @@ asmfn print(c: *u8) void {
     "ret";
 }
 
-asmfn print_digit(v: u8) void {
+asmfn k_io_print_digit(v: u8) void {
     "ldi 9:u16 @{v}@";
     "add 9:u32 $arg 9";
     "ld 9:u8 9";
@@ -62,11 +62,11 @@ asmfn print_digit(v: u8) void {
 }
 #endif
 
-fn print_uint(v: u32) void {
+fn k_io_print_uint(v: u32) void {
     def chars: [12]u8;
     def cp: *u8 = &chars;
     if (v == 0) {
-        print_digit(0);
+        k_io_print_digit(0);
     } else {
         while (v != 0) {
             *cp = v % 10;
@@ -75,16 +75,51 @@ fn print_uint(v: u32) void {
         }
         while (cp != &chars[0]) {
             cp = cp - 1;
-            print_digit(*cp);
+            k_io_print_digit(*cp);
         }
     }
 }
 
-fn print_stat(name: *u8, v: u32) void {
-    print(name);
-    print(": ");
-    print_uint(v);
-    print("\n");
+fn k_io_print_stat(name: *u8, v: u32) void {
+    k_io_print(name);
+    k_io_print(": ");
+    k_io_print_uint(v);
+    k_io_print("\n");
+}
+
+fn k_io_read_char() u8 {
+    return *SERIAL_IN_LOC;
+}
+
+fn k_io_read_char_immediate() u8 {
+    if (*SERIAL_IN_SIZE > 0) {
+        return *SERIAL_IN_LOC;
+    } else {
+        return 0u8;
+    }
+}
+
+// NOTE - WILL NULL TERMINATE!
+fn k_io_read_str_until(buffer: *u8, len: u32, target: u8) u32 {
+    if (len == 0) {
+        return 0;
+    } else {
+        def i: *u8 = buffer;
+        def end: *u8 = (buffer + len - 1);
+
+        def num_read: u32 = 0;
+
+        while (i != end) {
+            *i = *SERIAL_IN_LOC;
+            num_read = num_read + 1;
+            if (*i == target) {
+                *(i + 1) = 0;
+                break;
+            }
+        }
+
+        return num_read;
+    }
 }
 
 #endif // K_SERIAL_IO

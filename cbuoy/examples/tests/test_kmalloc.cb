@@ -7,15 +7,15 @@ fn main() void {
     def c: *u8 = k_malloc(30);
     def d: *u8 = k_malloc(45);
 
-    print("A\n");
+    k_io_print("A\n");
     k_heap_print();
 
     k_free(a);
-    print("B\n");
+    k_io_print("B\n");
     k_heap_print();
 
     a = k_malloc(5);
-    print("C\n");
+    k_io_print("C\n");
     k_heap_print();
 
     k_free(a);
@@ -23,17 +23,17 @@ fn main() void {
     k_free(c);
     k_free(d);
 
-    print("D\n");
+    k_io_print("D\n");
     k_heap_print();
 
     a = k_malloc(33);
 
-    print("E\n");
+    k_io_print("E\n");
     k_heap_print();
 
     k_free(a);
-    print("F\n");
+    k_io_print("F\n");
     k_heap_print();
 
-    print("Heap Test Pass\n");
+    k_io_print("Heap Test Pass\n");
 }

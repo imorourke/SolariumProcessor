@@ -17,14 +17,14 @@ global CLOCK_INT: *u32 = 0xA02Au32;
 fn main_tsk_a() void {
     def i_val: u32 = 0;
     while (1) {
-        print("TSK_A\n");
+        k_io_print("TSK_A\n");
         i_val = (i_val + 1) % 10;
     }
 }
 
 fn main_tsk_b() void {
     while (1) {
-        print("TSK_B\n");
+        k_io_print("TSK_B\n");
     }
 }
 

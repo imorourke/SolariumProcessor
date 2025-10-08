@@ -82,15 +82,15 @@ fn k_free(ptr: *u8) void {
 
 fn k_heap_print() void {
     if (K_MEM_ROOT == 0) {
-        print("No Heap Allocations\n");
+        k_io_print("No Heap Allocations\n");
     } else {
         def current: *mem_val_t = K_MEM_ROOT;
         while (current != 0) {
-            print("@");
-            print_uint(current : u32);
-            print(", ");
-            print_uint(current->size);
-            print("\n");
+            k_io_print("@");
+            k_io_print_uint(current : u32);
+            k_io_print(", ");
+            k_io_print_uint(current->size);
+            k_io_print("\n");
             current = current->next;
         }
     }

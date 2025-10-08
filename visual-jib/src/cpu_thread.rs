@@ -521,7 +521,8 @@ mod test {
             1\n\
             1234\n\
             Hello, world!\n\
-            7";
+            7\n\
+            7\n";
         let cb = include_str!(concat!(env!("OUT_DIR"), "/test_struct_ptr.cb"));
 
         run_cpu_serial_out_test(cb, EXPECTED);

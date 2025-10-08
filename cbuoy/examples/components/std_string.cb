@@ -2,7 +2,7 @@
 #define STD_STRING
 
 #ifndef STD_STRING_CBUOY
-asmfn strlenasm(c: *u8) u32 {
+asmfn strlen(c: *u8) u32 {
     "ldi 8:u16 1";
     "ldi 9:u16 0";
     "ld 10:u32 $arg";

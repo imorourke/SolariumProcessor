@@ -84,34 +84,34 @@ fn factorial(a: u32) u32 {
 }
 
 fn main() void {
-    print(TEST_STR);
-    print("\n");
-    print_uint(strlenasm(TEST_STR));
-    print("\n");
-    print_uint(factorial(6));
-    print("\n");
+    k_io_print(TEST_STR);
+    k_io_print("\n");
+    k_io_print_uint(strlenasm(TEST_STR));
+    k_io_print("\n");
+    k_io_print_uint(factorial(6));
+    k_io_print("\n");
 
-    print_uint(strlen(TEST_STR));
-    print("\n");
-    print_uint(strlens(TEST_STR).len);
-    print("\n");
+    k_io_print_uint(strlen(TEST_STR));
+    k_io_print("\n");
+    k_io_print_uint(strlens(TEST_STR).len);
+    k_io_print("\n");
 
     def s1: u32 = strlen(TEST_STR);
     def s2: LenStruct = strlens(TEST_STR);
 
-    print_uint(s1);
-    print("\n");
-    print_uint(s2.len);
-    print("\n");
+    k_io_print_uint(s1);
+    k_io_print("\n");
+    k_io_print_uint(s2.len);
+    k_io_print("\n");
 
-    print_uint(0);
-    print("\n");
-    print_uint(1);
-    print("\n");
-    print_uint(1234);
-    print("\n");
-    print(TEST_STR);
-    print("\n");
+    k_io_print_uint(0);
+    k_io_print("\n");
+    k_io_print_uint(1);
+    k_io_print("\n");
+    k_io_print_uint(1234);
+    k_io_print("\n");
+    k_io_print(TEST_STR);
+    k_io_print("\n");
     const X: i16 = 3;
     def a: u16 = 32;
     {
@@ -161,5 +161,5 @@ fn main() void {
     nt.b = &nt;
     nt.v = 7;
 
-    print_uint((*(nt.a)).v);
+    k_io_print_uint((*(nt.a)).v);
 }
