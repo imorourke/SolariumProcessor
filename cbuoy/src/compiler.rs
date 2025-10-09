@@ -288,10 +288,16 @@ struct UserTypes {
     types: HashMap<String, UserTypeOptions>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UserTypeReference {
     pub name: Token,
     db: Rc<RefCell<UserTypes>>,
+}
+
+impl Debug for UserTypeReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserTypeReference {{ name: {:?} }}", self.name)
+    }
 }
 
 impl UserTypeReference {
