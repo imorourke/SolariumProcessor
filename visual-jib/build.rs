@@ -10,6 +10,7 @@ fn main() {
     let input_files_base = [
         "../cbuoy/examples/os.cb",
         "../cbuoy/examples/default.cb",
+        "../cbuoy/examples/threading.cb",
         "../cbuoy/examples/tests/test_kmalloc.cb",
         "../cbuoy/examples/tests/test_struct_ptr.cb",
     ];
