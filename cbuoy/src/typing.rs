@@ -67,7 +67,7 @@ impl Type {
             Self::Struct(s) => s.fields.values().map(|v| v.dtype.byte_size()).sum(),
             Self::Function(_) => DataType::U32.byte_size(),
             Self::Const(t) => t.byte_size(),
-            Self::Opaque(_) => 0,
+            Self::Opaque(t) => t.get_type(true).map(|x| x.byte_size()).unwrap_or_default(),
         }
     }
 
