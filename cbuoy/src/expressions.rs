@@ -1374,39 +1374,36 @@ impl Expression for FunctionCallExpression {
             )));
         }
 
-        for (p, e) in func.parameters.iter().zip(self.args.iter()) {
-            if let Some(p_name) = p.name.clone() {
-                let var = Rc::new(LocalVariable::new(
-                    p_name,
-                    p.dtype.clone(),
-                    RegisterDef::FN_TEMPVAR_BASE,
-                    required_stack.offset,
-                    None,
-                )?);
-                required_stack.add_offset_value(p.dtype.byte_size());
+        for (i, (p, e)) in func.parameters.iter().zip(self.args.iter()).enumerate() {
+            let p_name = p.name.clone().unwrap_or(Token::new(
+                &format!("arg_{i}"),
+                self.token.get_loc().clone(),
+            ));
+            let var = Rc::new(LocalVariable::new(
+                p_name,
+                p.dtype.clone(),
+                RegisterDef::FN_TEMPVAR_BASE,
+                required_stack.offset,
+                None,
+            )?);
+            required_stack.add_offset_value(p.dtype.byte_size());
 
-                // Use an assignment expression for better control over the register usage
-                let assign = Rc::new(AssignmentExpression {
-                    addr_expr: var,
-                    token: self.token.clone(),
-                    val_expr: e.clone(),
-                });
+            // Use an assignment expression for better control over the register usage
+            let assign = Rc::new(AssignmentExpression {
+                addr_expr: var,
+                token: self.token.clone(),
+                val_expr: e.clone(),
+            });
 
-                let mut tmp_vals = *required_stack;
-                asm.push_asm(self.token.to_asm(AsmToken::Comment(format!(
+            let mut tmp_vals = *required_stack;
+            asm.push_asm(self.token.to_asm(AsmToken::Comment(format!(
                     "func {} arg {} :: {}",
                     self.func,
                     p.name.as_ref().map(|x| x.get_value().to_string()).unwrap_or("??".to_string()),
                     assign
                 ))));
-                asm.append(assign.load_value_to_register(options, next_load, &mut tmp_vals)?);
-                required_stack.merge(tmp_vals);
-            } else {
-                return Err(self
-                    .token
-                    .clone()
-                    .into_err("unable to find name for parameter at"));
-            }
+            asm.append(assign.load_value_to_register(options, next_load, &mut tmp_vals)?);
+            required_stack.merge(tmp_vals);
         }
 
         // Load the function location
