@@ -1,14 +1,14 @@
 global TEST_STR: *u8 = "Hello, world!";
 global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
 
-fn k_io_print(c: *u8) void {
+fn print(c: *u8) void {
     while (*c != 0) {
         *SERIAL_OUT_LOC = *c;
         c = c + 1;
     }
 }
 
-fn k_io_print_digit(v: u8) void {
+fn print_digit(v: u8) void {
     if (v < 10) {
         *SERIAL_OUT_LOC = '0' + v;
     } else {
@@ -16,11 +16,11 @@ fn k_io_print_digit(v: u8) void {
     }
 }
 
-fn k_io_print_uint(v: u32) void {
+fn print_uint(v: u32) void {
     def chars: [12]u8;
     def cp: *u8 = &chars;
     if (v == 0) {
-        k_io_print_digit(0);
+        print_digit(0);
     } else {
         while (v != 0) {
             *cp = v % 10;
@@ -29,14 +29,14 @@ fn k_io_print_uint(v: u32) void {
         }
         while (cp != &chars[0]) {
             cp = cp - 1;
-            k_io_print_digit(*cp);
+            print_digit(*cp);
         }
     }
 }
 
 fn main() void {
-    k_io_print_uint(1234);
-    k_io_print("\n");
-    k_io_print(TEST_STR);
-    k_io_print("\n");
+    print_uint(1234);
+    print("\n");
+    print(TEST_STR);
+    print("\n");
 }

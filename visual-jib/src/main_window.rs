@@ -156,7 +156,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!(concat!(env!("OUT_DIR"), "/default.cb")),
+            include_str!(concat!(env!("OUT_DIR"), "/threading.cb")),
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),

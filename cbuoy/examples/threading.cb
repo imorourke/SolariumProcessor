@@ -1,15 +1,15 @@
 #include components/ktsk.cb
 #include components/kserialio.cb
-#include components/kcpu.cb
-
-global CLOCK_LOC: *u32 = 0xA022u32;
-global CLOCK_INT: *u32 = 0xA02Au32;
+#include components/kirq.cb
+#include components/kclock.cb
 
 fn main_tsk_a() void {
     def i_val: u32 = 0;
     while (1) {
-        k_io_print("TSK_A\n");
         i_val = (i_val + 1) % 10;
+        if (i_val == 0) {
+            k_io_print("TSK_A\n");
+        }
     }
 }
 
@@ -22,23 +22,27 @@ fn main_tsk_b() void {
 fn main_tsk_c() void {
     while (1) {
         if (*SERIAL_IN_SIZE != 0) {
-            k_cpu_intoff();
+            k_irq_intoff();
             while (*SERIAL_IN_SIZE != 0) {
                 *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
             }
-            k_cpu_inton();
+            k_irq_inton();
         }
         k_tsk_yield();
     }
 }
 
+global stack_a: [1024]u8;
+global stack_b: [1024]u8;
+global stack_c: [1024]u8;
+
 fn main() void {
-    def irq1_loc: *u32 = 0x104;
-    *irq1_loc = k_tsk_yield;
-    k_tsk_init(main_tsk_a);
-    k_tsk_init(main_tsk_b);
-    k_tsk_init(main_tsk_c);
-    *CLOCK_LOC = 1000;
-    *CLOCK_INT = 1;
+    k_tsk_init(main_tsk_a, &stack_a[0]);
+    k_tsk_init(main_tsk_b, &stack_b[0]);
+    k_tsk_init(main_tsk_c, &stack_c[0]);
+
+    k_irq_set(1, k_tsk_yield);
+    k_clock_configure(1000, 1);
+
     k_tsk_main();
 }

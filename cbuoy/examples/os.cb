@@ -1,7 +1,9 @@
 #include components/kmalloc.cb
 #include components/kserialio.cb
 #include components/ktsk.cb
-#include components/kcpu.cb
+#include components/kirq.cb
+#include components/kclock.cb
+#include components/klist.cb
 
 const FD_SIZE_TABLE: u32 = 1024;
 const FD_THREAD: u32 = 1;
@@ -11,45 +13,44 @@ struct fd_type_t {
 }
 global FD_TABLE: [FD_SIZE_TABLE]fd_type_t;
 
-global CLOCK_LOC: *u32 = 0xA022u32;
-global CLOCK_INT: *u32 = 0xA02Au32;
-
 fn main_tsk_a() void {
     def i_val: u32 = 0;
     while (1) {
-        k_io_print("TSK_A\n");
         i_val = (i_val + 1) % 10;
+        if (i_val == 0) {
+            k_io_print("TSK_A\n");
+        }
     }
 }
 
 fn main_tsk_b() void {
     while (1) {
-        k_io_print("TSK_B\n");
-    }
-}
-
-fn main_tsk_c() void {
-    while (1) {
-        if (*SERIAL_IN_SIZE != 0) {
-            k_cpu_intoff();
-            while (*SERIAL_IN_SIZE != 0) {
-                *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
-            }
-            k_cpu_inton();
-        }
+        //k_io_print("TSK_B\n");
         k_tsk_yield();
     }
 }
 
+fn os_main() void {
+    k_io_print("Starting C/Buoy OS\n");
+    def input_buffer: [128]u8;
+    while (1) {
+        k_io_print("~> ");
+        if (k_io_read_str_until(&input_buffer[0], 128, '\n') > 0) {
+            k_io_print("  Unknown Command: ");
+            k_io_print(input_buffer);
+        }
+        k_io_print("\n");
+    }
+}
+
 fn main() void {
-    def irq1_loc: *u32 = 0x104;
-    *irq1_loc = k_tsk_yield;
-    k_tsk_init(main_tsk_a);
-    k_tsk_init(main_tsk_b);
-    k_tsk_init(main_tsk_c);
+    //k_tsk_init(main_tsk_a);
+    //k_tsk_init(main_tsk_b);
+    //k_tsk_init(os_main);
 
-    *CLOCK_LOC = 1000;
-    *CLOCK_INT = 1;
+    k_irq_set(1, k_tsk_yield);
+    k_clock_configure(1000, 1);
 
-    k_tsk_main();
+    //k_tsk_main();
+    os_main();
 }

@@ -116,6 +116,7 @@ fn k_io_read_str_until(buffer: *u8, len: u32, target: u8) u32 {
                 *(i + 1) = 0;
                 break;
             }
+            i = i + 1;
         }
 
         return num_read;

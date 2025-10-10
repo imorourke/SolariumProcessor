@@ -1,14 +1,7 @@
-#ifndef K_CPU_DEV
-#define K_CPU_DEV
+#ifndef K_CPU
+#define K_CPU
 
-asmfn k_cpu_intoff() void {
-    "intoff";
-    "ret";
-}
+const K_CPU_NUM_REGISTERS: u32 = 32;
+const K_CPU_BYTES_PER_WORD: u32 = 4;
 
-asmfn k_cpu_inton() void {
-    "inton";
-    "ret";
-}
-
-#endif // K_CPU_DEV
+#endif // K_CPU
