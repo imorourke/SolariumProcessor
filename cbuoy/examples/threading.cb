@@ -22,11 +22,11 @@ fn main_tsk_b() void {
 fn main_tsk_c() void {
     while (1) {
         if (*SERIAL_IN_SIZE != 0) {
-            k_irq_intoff();
+            asm { "intoff"; }
             while (*SERIAL_IN_SIZE != 0) {
                 *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
             }
-            k_irq_inton();
+            asm { "inton"; }
         }
         k_tsk_yield();
     }

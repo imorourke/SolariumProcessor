@@ -106,6 +106,7 @@ asmfn k_tsk_main() void {
     // Load stack location from root
     "%LDLOC% 8:u32";
     ".loadloc %{K_TSK_ROOT}%";
+    "ld 8:u32 8"; // Load the node root
     "ld 8:u32 8"; // Load the data pointer
     "tz 8";
     "ret"; // Return if there is no root node
@@ -118,7 +119,7 @@ asmfn k_tsk_main() void {
 }
 
 fn k_tsk_cleanup(remove_val: std_list_node_t) void {
-    k_irq_intoff();
+    asm { "intoff"; }
     def frame: *k_tsk_thread_frame_t = remove_val.data;
     if (frame->owns_stack) {
         k_free(frame->stack);
@@ -130,7 +131,6 @@ fn k_tsk_cleanup(remove_val: std_list_node_t) void {
         K_TSK_CURR = K_TSK_ROOT;
     }
     // TODO - yield without incrementing value - otherwise we will skip the actual next thread and skip a cycle
-    k_irq_inton();
 }
 
 fn k_tsk_init(func: fn() void, stack: *u8) void {
@@ -158,7 +158,37 @@ fn k_tsk_init(func: fn() void, stack: *u8) void {
     k_io_print("\n");
 }
 
-asmfn k_tsk_yield() void {
+fnint k_tsk_yield() void {
+    asm { "intoff"; }
+    if (K_TSK_ROOT == 0) asm {
+        "%LDLOC% 15:u32";
+        ".loadloc %{K_TSK_ORIG}%";
+        "ld 16:u16 15";
+        "ldi 14:u16 0";
+        "sav 15:u32 14";
+        "copy $sp 16";
+        "retint";
+    }
+    asm {
+        "%LDLOC% 14:u32";
+        ".loadloc %{K_TSK_CURR}%";
+        "ld 14:u32 14";
+        "sav 14:u32 $sp";
+    }
+    K_TSK_CURR = K_TSK_CURR->next;
+    if (K_TSK_CURR == 0) {
+        K_TSK_CURR = K_TSK_ROOT;
+    }
+    asm {
+        "%LDLOC% 14:u32";
+        ".loadloc %{K_TSK_CURR}%";
+        "ld 14:u32 14";
+        "ld 14:u32 14";
+        "copy $sp 14";
+    }
+}
+
+asmfn k_tsk_yield2() void {
     "intoff";
     // Load the current node pointer address to 14
     "%LDLOC% 14:u32";
