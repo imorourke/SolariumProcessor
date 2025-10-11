@@ -60,18 +60,25 @@ struct CompilerArguments {
         help = "Prints the preprocessed output to the console"
     )]
     print_preproc: bool,
+    #[arg(
+        short = 'D',
+        long = "define",
+        help = "Adds compiler definitions to define from the start of compiling"
+    )]
+    definitions: Vec<String>,
 }
 
 fn main() -> std::process::ExitCode {
     let args = CompilerArguments::parse();
 
-    let input_preprocessor = match read_and_preprocess(&args.input_file) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{e}");
-            return 1.into();
-        }
-    };
+    let input_preprocessor =
+        match read_and_preprocess(&args.input_file, args.definitions.into_iter()) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
+                return 1.into();
+            }
+        };
 
     if args.print_preproc {
         for l in input_preprocessor.iter() {

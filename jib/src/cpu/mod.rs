@@ -606,12 +606,32 @@ impl Processor {
         Ok(())
     }
 
-    fn pop_all_registers(&mut self, save_return_register: bool) -> Result<(), ProcessorError> {
+    fn pop_all_registers(&mut self) -> Result<(), ProcessorError> {
+        let mut current_state = self.registers.get_state();
+
+        for v in current_state.iter_mut().rev() {
+            *v = self.stack_pop()?;
+        }
+
+        self.registers.set_state(current_state);
+
+        Ok(())
+    }
+
+    /// Pops all registers, preserving the returning function's return register and
+    /// interrupt status flag entries.
+    fn pop_all_registers_func_return(&mut self) -> Result<(), ProcessorError> {
+        const INTERRUPT_STATUS_MASK: u32 = RegisterFlag::InterruptEnable.get_mask()
+            | RegisterFlag::InterruptExecuting.get_mask()
+            | RegisterFlag::InterruptValue.get_mask();
+
         let mut current_state = self.registers.get_state();
 
         for (i, v) in current_state.iter_mut().enumerate().rev() {
             let val = self.stack_pop()?;
-            if !save_return_register || i != Register::Return.get_index() {
+            if i == Register::Status.get_index() {
+                *v = (val & !INTERRUPT_STATUS_MASK) | (*v & INTERRUPT_STATUS_MASK);
+            } else if i != Register::Return.get_index() {
                 *v = val;
             }
         }
@@ -727,7 +747,11 @@ impl Processor {
                 {
                     self.interrupt_controller.clear_interrupt(index)?;
                 }
-                self.pop_all_registers(opcode == Self::OP_RETURN)?;
+                if opcode == Self::OP_RETURN {
+                    self.pop_all_registers_func_return()?;
+                } else {
+                    self.pop_all_registers()?;
+                }
                 inst_jump = None;
             }
             Self::OP_PUSH => {

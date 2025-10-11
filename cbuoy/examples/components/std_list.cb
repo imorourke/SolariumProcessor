@@ -3,23 +3,23 @@
 
 #include kmalloc.cb
 
-struct std_list_node {
+struct std_list_node_t {
     data: *u8;
+    next: *std_list_node_t;
     owns_data: u8;
-    next: *std_list_node;
 }
 
-fn std_list_create_node(data: *u8, owns_data: u8) *std_list_node {
-    def node: *std_list_node = k_malloc(sizeof(std_list_node));
+fn std_list_create_node(data: *u8, owns_data: u8) *std_list_node_t {
+    def node: *std_list_node_t = k_malloc(sizeof(std_list_node_t));
     node->data = data;
     node->owns_data = owns_data;
     node->next = 0;
     return node;
 }
 
-fn std_list_destroy(root: *std_list_node) void {
-    def next: *std_list_node = root;
-    def tmp: *std_list_node;
+fn std_list_destroy(root: *std_list_node_t) void {
+    def next: *std_list_node_t = root;
+    def tmp: *std_list_node_t;
     while (next != 0) {
         tmp = next;
         next = next->next;
@@ -30,8 +30,8 @@ fn std_list_destroy(root: *std_list_node) void {
     }
 }
 
-fn std_list_remove(root: *std_list_node, remove: *std_list_node) *std_list_node {
-    def n: *std_list_node = root;
+fn std_list_remove(root: *std_list_node_t, remove: *std_list_node_t) *std_list_node_t {
+    def n: *std_list_node_t = root;
     if (remove == root) {
         n = n->next;
         root->next = 0;
@@ -39,22 +39,23 @@ fn std_list_remove(root: *std_list_node, remove: *std_list_node) *std_list_node 
         return n;
     } else {
         while (n->next != 0) {
-            if (n->next : *std_list_node == remove) { // TODO - Fix this
+            if (n->next : *std_list_node_t == remove) {
                 n->next = n->next->next;
                 remove->next = 0;
                 std_list_destroy(remove);
+                break;
             }
         }
         return root;
     }
 }
 
-fn std_list_append(root: *std_list_node, new: *std_list_node) *std_list_node {
+fn std_list_append(root: *std_list_node_t, new: *std_list_node_t) *std_list_node_t {
     if (root == 0) {
         return 0;
     }
 
-    def n: *std_list_node = root;
+    def n: *std_list_node_t = root;
     while (n->next != 0) {
         n = n->next;
     }
@@ -63,7 +64,16 @@ fn std_list_append(root: *std_list_node, new: *std_list_node) *std_list_node {
     return root;
 }
 
-fn std_list_find(root: *std_list_node, func: fn(*u8) u8) *std_list_node {
+fn std_list_len(root: *std_list_node_t) u32 {
+    def len: u32 = 0;
+    while (root != 0) {
+        len = len + 1;
+        root = root->next;
+    }
+    return len;
+}
+
+fn std_list_find(root: *std_list_node_t, func: fn(*u8) u8) *std_list_node_t {
     while (root != 0) {
         if (func(root->data)) {
             return root;
@@ -73,7 +83,7 @@ fn std_list_find(root: *std_list_node, func: fn(*u8) u8) *std_list_node {
     return 0;
 }
 
-fn std_list_foreach(root: *std_list_node, func: fn(*u8, *u8) void, state: *u8) void {
+fn std_list_foreach(root: *std_list_node_t, func: fn(*u8, *u8) void, state: *u8) void {
     while (root != 0) {
         func(root->data, state);
         root = root->next;

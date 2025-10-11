@@ -17,7 +17,7 @@ fn main() {
     let mut required_files = HashSet::new();
 
     for in_file in input_files_base {
-        let output = cbuoy::read_and_preprocess(Path::new(in_file)).unwrap();
+        let output = cbuoy::read_and_preprocess(Path::new(in_file), [].into_iter()).unwrap();
         let out_file = Path::join(
             out_dir,
             Path::new(Path::new(in_file).file_name().unwrap().to_str().unwrap()),

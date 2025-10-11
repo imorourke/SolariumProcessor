@@ -144,7 +144,7 @@ impl RegisterFlag {
         }
     }
 
-    const fn get_mask(&self) -> u32 {
+    pub const fn get_mask(&self) -> u32 {
         const fn gen_int_value_mask() -> u32 {
             let mut i = 0;
             let mut val = 0;

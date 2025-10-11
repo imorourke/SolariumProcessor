@@ -15,9 +15,9 @@ use crate::{
     },
     literals::StringLiteral,
     tokenizer::{
-        EndOfTokenStream, KEYWORD_ASMFN, KEYWORD_BREAK, KEYWORD_CONST, KEYWORD_DBG_BREAK,
-        KEYWORD_DEF, KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF, KEYWORD_RETURN,
-        KEYWORD_WHILE, Token, TokenIter, get_identifier,
+        EndOfTokenStream, KEYWORD_ASM, KEYWORD_ASMFN, KEYWORD_BREAK, KEYWORD_CONST,
+        KEYWORD_DBG_BREAK, KEYWORD_DEF, KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF,
+        KEYWORD_RETURN, KEYWORD_WHILE, Token, TokenIter, get_identifier,
     },
     typing::{Function, Type},
     utilities::load_to_register,
@@ -346,26 +346,13 @@ impl Display for FunctionDeclaration {
     }
 }
 
-#[derive(Debug)]
-pub struct AsmFunctionDefinition {
-    name: Token,
-    entry_label: String,
-    dtype: Function,
-    asm_text: Vec<Token>,
+#[derive(Debug, Clone)]
+pub struct AsmCodeBlock {
+    statements: Vec<(Token, String)>,
 }
 
-impl AsmFunctionDefinition {
-    pub fn parse(tokens: &mut TokenIter, state: &mut CompilingState) -> Result<(), TokenError> {
-        tokens.expect(KEYWORD_ASMFN)?;
-        let name_token = tokens.next()?;
-        let name = get_identifier(&name_token)?;
-        state.init_scope(name_token.clone())?;
-
-        let func_type = Function::read_tokens(tokens, state, true)?;
-        for p in func_type.parameters.iter() {
-            state.get_scopes_mut()?.add_parameter(p.clone())?;
-        }
-
+impl AsmCodeBlock {
+    pub fn parse(tokens: &mut TokenIter, state: &mut CompilingState) -> Result<Self, TokenError> {
         tokens.expect("{")?;
 
         let mut statements = Vec::new();
@@ -411,8 +398,15 @@ impl AsmFunctionDefinition {
                         MatchFunctionValue::new("local_var", "@", |state, name| {
                             state.get_local_variable_offset(name).map(|x| x.to_string())
                         }),
-                        MatchFunctionValue::new("struct_offset", "&", |_state_, _name| {
-                            todo!("dtype.field offsets")
+                        MatchFunctionValue::new("struct_offset", "&", |state, name| {
+                            if let Some((struct_name, field_name)) = name.split_once('.')
+                                && let Some(st) = state.get_struct_definition(struct_name)
+                                && let Some(f) = st.get_field(field_name)
+                            {
+                                Some(format!("{}", f.offset))
+                            } else {
+                                None
+                            }
                         }),
                         MatchFunctionValue::new("sizeof", "#", |state, name| {
                             state
@@ -442,10 +436,8 @@ impl AsmFunctionDefinition {
 
                 tok_str = tok_str.replace("%LDLOC%", &state.get_options().load_label_inst_name());
 
-                let t = Token::new(&tok_str, t.get_loc().clone());
-
                 tokens.expect(";")?;
-                statements.push(t);
+                statements.push((t, tok_str));
             } else {
                 return Err(
                     t.into_err("unable to convert into a string literal for the asmfn context")
@@ -453,13 +445,69 @@ impl AsmFunctionDefinition {
             }
         }
 
+        Ok(Self { statements })
+    }
+}
+
+impl Statement for AsmCodeBlock {
+    fn get_exec_code(
+        &self,
+        _options: &CodeGenerationOptions,
+        _temporary_stack_tracker: &mut TemporaryStackTracker,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
+        let mut vals = Vec::new();
+        for (t, s) in self.statements.iter() {
+            match AsmToken::try_from(s.as_ref()) {
+                Ok(asm) => vals.push(t.to_asm(asm)),
+                Err(e) => {
+                    return Err(t.clone().into_err(format!(
+                        "unable to convert '{t}' into a valid assembly - {e}"
+                    )));
+                }
+            };
+        }
+        Ok(vals)
+    }
+}
+
+impl Display for AsmCodeBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "asm {{")?;
+        for (_, s) in self.statements.iter() {
+            write!(f, "{};", s)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug)]
+pub struct AsmFunctionDefinition {
+    name: Token,
+    entry_label: String,
+    dtype: Function,
+    asm_text: AsmCodeBlock,
+}
+
+impl AsmFunctionDefinition {
+    pub fn parse(tokens: &mut TokenIter, state: &mut CompilingState) -> Result<(), TokenError> {
+        tokens.expect(KEYWORD_ASMFN)?;
+        let name_token = tokens.next()?;
+        let name = get_identifier(&name_token)?;
+        state.init_scope(name_token.clone())?;
+
+        let func_type = Function::read_tokens(tokens, state, true)?;
+        for p in func_type.parameters.iter() {
+            state.get_scopes_mut()?.add_parameter(p.clone())?;
+        }
+
+        let asm_text = AsmCodeBlock::parse(tokens, state)?;
         let entry_label = format!("__{KEYWORD_ASMFN}_{}_{name}", state.get_next_id());
 
         let func = Rc::new(AsmFunctionDefinition {
             name: name_token,
             entry_label,
             dtype: func_type,
-            asm_text: statements,
+            asm_text,
         });
 
         state.extract_scope()?;
@@ -488,31 +536,18 @@ impl FunctionDefinition for AsmFunctionDefinition {
 impl GlobalStatement for AsmFunctionDefinition {
     fn get_func_code(
         &self,
-        _options: &CodeGenerationOptions,
+        options: &CodeGenerationOptions,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut vals = vec![
             self.name
                 .to_asm(AsmToken::CreateLabel(self.entry_label.to_string())),
         ];
-        for t in self.asm_text.iter() {
-            let s = match StringLiteral::get_quoted_text(t.get_value()) {
-                Some(txt) => txt,
-                None => {
-                    return Err(t
-                        .clone()
-                        .into_err("unable to get a string literal from value"));
-                }
-            };
 
-            match AsmToken::try_from(s) {
-                Ok(asm) => vals.push(t.to_asm(asm)),
-                Err(e) => {
-                    return Err(t.clone().into_err(format!(
-                        "unable to convert '{t}' into a valid assembly - {e}"
-                    )));
-                }
-            };
-        }
+        vals.extend(
+            self.asm_text
+                .get_exec_code(options, &mut TemporaryStackTracker::default())?,
+        );
+
         Ok(vals)
     }
 
@@ -535,7 +570,7 @@ impl Display for AsmFunctionDefinition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "asmfn {}({}) {} {{",
+            "asmfn {}({}) {} {}",
             self.name.get_value(),
             self.dtype
                 .parameters
@@ -554,14 +589,9 @@ impl Display for AsmFunctionDefinition {
                 .return_type
                 .as_ref()
                 .map(|x| format!("{x}"))
-                .unwrap_or("void".to_string())
-        )?;
-
-        for s in self.asm_text.iter() {
-            writeln!(f, "  {};", s.get_value())?;
-        }
-
-        writeln!(f, "}}")
+                .unwrap_or("void".to_string()),
+            self.asm_text
+        )
     }
 }
 
@@ -1162,6 +1192,10 @@ fn parse_statement(
                 test_expr,
                 statement,
             })))
+        } else if next.get_value() == KEYWORD_ASM {
+            tokens.expect(KEYWORD_ASM)?;
+            let asm_block = AsmCodeBlock::parse(tokens, state)?;
+            Ok(Some(Rc::new(asm_block)))
         } else if next.get_value() == KEYWORD_BREAK {
             let tok = tokens.expect(KEYWORD_BREAK)?;
             tokens.expect(";")?;

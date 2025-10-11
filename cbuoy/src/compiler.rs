@@ -784,6 +784,16 @@ impl CompilingState {
         })
     }
 
+    pub fn get_struct_definition(&self, name: &str) -> Option<Rc<StructDefinition>> {
+        for (t, s) in &self.struct_defs {
+            if t.get_value() == name {
+                return Some(s.clone());
+            }
+        }
+
+        None
+    }
+
     pub fn get_identifier_type(&self, name: &str) -> Option<Type> {
         if is_identifier(name) {
             if let Some(lv_type) = self.scope_manager.as_ref().and_then(|sm| {

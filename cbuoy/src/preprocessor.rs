@@ -178,8 +178,14 @@ impl PreprocessorState {
     }
 }
 
-pub fn read_and_preprocess(file: &Path) -> Result<Vec<PreprocessorLine>, PreprocessorError> {
+pub fn read_and_preprocess<I: Iterator<Item = String>>(
+    file: &Path,
+    defs: I,
+) -> Result<Vec<PreprocessorLine>, PreprocessorError> {
     let mut state = PreprocessorState::default();
+    for d in defs.into_iter() {
+        state.definitions.insert(d);
+    }
     let s = state.read_file(file)?;
     if !state.if_statements.is_empty() {
         Err(PreprocessorError {

@@ -4,16 +4,18 @@
 #include kcpu.cb
 #include kserialio.cb
 
+struct k_tsk_thread_frame_t {
+    last_ptr: u32;
+    stack: *u8;
+    owns_stack: u8;
+}
+
+#ifdef K_TSK_VER1
+
 const K_TSK_STACK_NUM: u32 = 4;
 global K_TSK_THREAD_NUM: u32 = 0;
 global K_TSK_THREAD_CURR: u32 = 0;
-
-struct k_tsk_thread_stack_t {
-    last_ptr: u32;
-    stack: *u8;
-}
-
-global K_TSK_THREAD_STACK: [K_TSK_STACK_NUM]k_tsk_thread_stack_t;
+global K_TSK_THREAD_STACK: [K_TSK_STACK_NUM]k_tsk_thread_frame_t;
 
 asmfn k_tsk_main() void {
     "%LDLOC% 8:u32";
@@ -30,31 +32,34 @@ asmfn k_tsk_main() void {
 
 asmfn k_tsk_yield() void {
     "intoff";
-    "; Increment K_TSK_THREAD_NUM to next thread";
+    "; Load the current thread frame";
     "%LDLOC% 8:u32";
     ".loadloc %{K_TSK_THREAD_NUM}%";
     "ld 8:u32 8";
     "%LDLOC% 9:u32";
     ".loadloc %{K_TSK_THREAD_CURR}%";
     "ld 10:u32 9";
+    "; Save the index for the stack pointer";
     "copy 16 10";
+    "; Increment K_TSK_NUM";
     "ldi 11:u16 1";
     "add 10:u32 10 11";
     "rem 10:u32 10 8";
     "sav 9:u32 10";
-    "; Swap stack pointer";
+    "; Swap stack pointer, multiplying by the frame size to get the offset";
     "; 10 = new pointer";
     "; 16 = old pointer";
-    "ldi 8:u16 #{k_tsk_thread_stack_t}#";
+    "ldi 8:u16 #{k_tsk_thread_frame_t}#";
     "mul 10:u32 10 8";
     "mul 16:u32 16 8";
+    "; Add the offset to the array base";
     "%LDLOC% 9:u32";
     ".loadloc %{K_TSK_THREAD_STACK}%";
     "add 10:u32 10 9";
     "add 16:u32 16 9";
+    "; Actually perform the swap";
     "sav 16:u32 $sp";
     "ld $sp:u32 10";
-    "inton";
     "retint";
 }
 
@@ -65,18 +70,18 @@ asmfn k_tsk_cleanup() void {
 
 fn k_tsk_init(func: fn() void, stack: *u8) void {
     if (K_TSK_THREAD_NUM < K_TSK_STACK_NUM) {
-        def current: *k_tsk_thread_stack_t = &K_TSK_THREAD_STACK[K_TSK_THREAD_NUM];
+        def current: *k_tsk_thread_frame_t = &K_TSK_THREAD_STACK[K_TSK_THREAD_NUM];
         current->stack = stack;
         def return_stack: *u32 = current->stack;
         def start_stack: *u32 = return_stack + K_CPU_NUM_REGISTERS;
-        return_stack[0] = k_tsk_cleanup;
-        return_stack[2] = start_stack;
+        return_stack[K_CPU_REG_PROGRAM_COUNTER] = k_tsk_cleanup;
+        return_stack[K_CPU_REG_STACK_POINTER] = start_stack;
         k_io_print_stat("Base Struct", current);
         k_io_print_stat("Base Stack", start_stack);
-        start_stack[0] = func;
-        start_stack[1] = 1; // Enable Interrupts on the new stack
+        start_stack[K_CPU_REG_PROGRAM_COUNTER] = func;
+        start_stack[K_CPU_REG_STATUS] = 1; // Enable Interrupts on the new stack
         k_io_print_stat("Function Location", func : u32);
-        start_stack[2] = (start_stack + 32) : u32;
+        start_stack[K_CPU_REG_STACK_POINTER] = (start_stack + 32) : u32;
         current->last_ptr = start_stack[2];
         k_io_print_stat("Stack Location", current->last_ptr);
         k_io_print_stat("Stack Size", (current->last_ptr : u32) - (start_stack : u32));
@@ -87,5 +92,111 @@ fn k_tsk_init(func: fn() void, stack: *u8) void {
         k_io_print("Exceed allowed thread count\n");
     }
 }
+
+#else
+
+#include std_list.cb
+#include kirq.cb
+
+global K_TSK_ORIG: u32 = 0;
+global K_TSK_CURR: *std_list_node_t = 0;
+global K_TSK_ROOT: *std_list_node_t = 0;
+
+asmfn k_tsk_main() void {
+    // Load stack location from root
+    "%LDLOC% 8:u32";
+    ".loadloc %{K_TSK_ROOT}%";
+    "ld 8:u32 8"; // Load the data pointer
+    "tz 8";
+    "ret"; // Return if there is no root node
+    "ld 8:u32 8"; // Load the last stack location
+    "%LDLOC% 10:u32";
+    ".loadloc %{K_TSK_ORIG}%";
+    "sav 10:u32 $sp";
+    "copy $sp 8";
+    "ret";
+}
+
+fn k_tsk_cleanup(remove_val: std_list_node_t) void {
+    k_irq_intoff();
+    def frame: *k_tsk_thread_frame_t = remove_val.data;
+    if (frame->owns_stack) {
+        k_free(frame->stack);
+    }
+    k_free(remove_val.data);
+    K_TSK_CURR = remove_val.next;
+    K_TSK_ROOT = std_list_remove(K_TSK_ROOT, &remove_val);
+    if (K_TSK_CURR == 0) {
+        K_TSK_CURR = K_TSK_ROOT;
+    }
+    // TODO - yield without incrementing value - otherwise we will skip the actual next thread and skip a cycle
+    k_irq_inton();
+}
+
+fn k_tsk_init(func: fn() void, stack: *u8) void {
+    def current: *k_tsk_thread_frame_t;
+    current = k_malloc(sizeof(k_tsk_thread_frame_t));
+    def new_node: *std_list_node_t = std_list_create_node(current, 0);
+
+    current->stack = stack;
+    def return_stack: *u32 = current->stack;
+    def start_stack: *u32 = return_stack + K_CPU_NUM_REGISTERS;
+    return_stack[K_CPU_REG_PROGRAM_COUNTER] = k_tsk_cleanup;
+    return_stack[K_CPU_REG_STACK_POINTER] = start_stack;
+    start_stack[K_CPU_REG_PROGRAM_COUNTER] = func;
+    start_stack[K_CPU_REG_STATUS] = 1; // Enable Interrupts on the new stack
+    start_stack[K_CPU_REG_STACK_POINTER] = (start_stack + 32) : u32;
+    current->last_ptr = start_stack[2];
+
+    if (K_TSK_ROOT == 0) {
+        K_TSK_ROOT = new_node;
+    } else {
+        K_TSK_ROOT = std_list_append(K_TSK_ROOT, new_node);
+    }
+
+    k_io_print_stat("Current Thread Count", std_list_len(K_TSK_ROOT));
+    k_io_print("\n");
+}
+
+asmfn k_tsk_yield() void {
+    "intoff";
+    // Load the current node pointer address to 14
+    "%LDLOC% 14:u32";
+    ".loadloc %{K_TSK_CURR}%";
+    // Load the node value to 15
+    "ld 15:u32 14";
+    // Check for zero - if so, terminate the thread
+    "tnz 15";
+    "jmpri 32";
+    "%LDLOC% 15:u32";
+    ".loadloc %{K_TSK_ORIG}%";
+    "ld 16:u32 15";
+    "ldi 8:u16 0";
+    "sav 15:u32 8";
+    "copy $sp 16";
+    "retint";
+    // Load the task pointer address to 16, where we will save $sp (offset 0 to node data)
+    "ld 16:u32 15";
+    // Load the offset value and increment to get the next point
+    "ldi 8:u16 &{std_list_node_t.next}&";
+    "add 15:u32 15 8";
+    "ld 15:u32 15";
+    // Check if the next node pointer is zero. If zero, load the root frame
+    "tnz 15";
+    "jmpri 20";
+    // If zero, load the root task node";
+    "%LDLOC% 15:u32";
+    ".loadloc %{K_TSK_ROOT}%";
+    "ld 15:u32 15";
+    "ld 16:u32 15";
+    // Save the new pointer to 14 (original location)
+    "sav 14:u32 15";
+    // Perform the swap
+    "sav 16:u32 $sp";
+    "ld $sp:u32 10";
+    "retint";
+}
+
+#endif // K_TSK_VER1
 
 #endif // K_TSK

@@ -15,12 +15,22 @@ fn k_irq_set(num: u32, func: fn() void) fn() void {
     return retval;
 }
 
-asmfn k_irq_intoff() void {
+asmfn k_irq_intoff() u32 {
+    "ldi 9:u16 1";
+    "band $ret:u32 9 $stat";
     "intoff";
     "ret";
 }
 
 asmfn k_irq_inton() void {
+    "inton";
+    "ret";
+}
+
+asmfn k_irq_restore(val: u8) void {
+    "intoff";
+    "ld 9:u8 $arg";
+    "tnz 9";
     "inton";
     "ret";
 }

@@ -25,7 +25,7 @@ pub fn tokenize_str(s: &str) -> Result<Vec<Token>, TokenError> {
 }
 
 pub fn tokenize_file(file: &Path) -> Result<Vec<Token>, TokenError> {
-    let preproc = read_and_preprocess(file)?;
+    let preproc = read_and_preprocess(file, [].into_iter())?;
     tokenize(preproc.into_iter().map(|l| (l.text, Some(l.loc))))
 }
 
@@ -359,6 +359,7 @@ pub const KEYWORD_IF: &str = "if";
 pub const KEYWORD_USING: &str = "using";
 pub const KEYWORD_SIZEOF: &str = "sizeof";
 pub const KEYWORD_WHILE: &str = "while";
+pub const KEYWORD_ASM: &str = "asm";
 pub const KEYWORD_ELSE: &str = "else";
 pub const KEYWORD_GLOBAL: &str = "global";
 pub const KEYWORD_DEF: &str = "def";
@@ -378,6 +379,7 @@ static RESERVED_KEYWORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
         KEYWORD_USING,
         KEYWORD_SIZEOF,
         KEYWORD_WHILE,
+        KEYWORD_ASM,
         KEYWORD_ELSE,
         KEYWORD_GLOBAL,
         KEYWORD_DEF,
