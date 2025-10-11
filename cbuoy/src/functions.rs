@@ -376,7 +376,7 @@ impl AsmCodeBlock {
                             name,
                             match_func,
                             matcher: Regex::new(&format!(
-                                "{bounding_char}\\{{(?<name>[\\w\\d_]+)\\}}{bounding_char}"
+                                "{bounding_char}\\{{(?<name>[\\w\\d_\\.]+)\\}}{bounding_char}"
                             ))
                             .unwrap(),
                         }
@@ -429,15 +429,17 @@ impl AsmCodeBlock {
                     }
                 }
 
-                let mut tok_str = t.get_value().to_string();
+                //let mut tok_str = t.get_value().to_string();
+                let mut token_str = token_text.to_string();
                 for (src, replacement) in replacement_labels {
-                    tok_str = tok_str.replace(&src, &replacement);
+                    token_str = token_str.replace(&src, &replacement);
                 }
 
-                tok_str = tok_str.replace("%LDLOC%", &state.get_options().load_label_inst_name());
+                token_str =
+                    token_str.replace("%LDLOC%", &state.get_options().load_label_inst_name());
 
                 tokens.expect(";")?;
-                statements.push((t, tok_str));
+                statements.push((t, token_str));
             } else {
                 return Err(
                     t.into_err("unable to convert into a string literal for the asmfn context")

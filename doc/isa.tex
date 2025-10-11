@@ -501,6 +501,7 @@ Note that, in this case, both functions and variables share the same namespace. 
     & if (\textlangle BaseExpression\textrangle) \textlangle Statement\textrangle \\
     & if (\textlangle BaseExpression\textrangle) \textlangle Statement\textrangle else \textlangle Statement\textrangle \\
     & while (\textlangle BaseExpression\textrangle) \textlangle Statement\textrangle \\
+    & asm \{ [\textlangle WordLiteral; \textrangle \dots] \} \\
     StatementList & $\rightarrow$ \\
     & \textlangle Statement\textrangle \\
     & \textlangle Statement\textrangle \textlangle Statement\textrangle \\
@@ -572,7 +573,7 @@ To allow for additional optimization, Jib assembly code can also be mixed in wit
 
 For example, the above listing could have the print function replaced by the print function in List \ref{listing:example-cbuoy-print-asm} and be considerably more efficient.
 
-\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/examples/components/serialio.cb}
+\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/examples/components/kserialio.cb}
 
 The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 1320 CPU cycles. After replacing the print function with the one in Listing \ref{listing:example-cbuoy-print-asm}, the same program completes to a halt in 1010 CPU cycles. Used appropriately, similar optimizations can be made throughout program code to target and improve execution time for different functions as-needed. This also the programmer to slowly learn assembly language by starting with a higher-level programming language as an entry-point, and then working to the lower-level functionality gradually over time as they get familiar with the system. Assembly language is required for several key pieces of functionality, including setting up things to manage the stack directly - such as creating threads - and for interfacing more efficiently with hardware input/output devices.
 
