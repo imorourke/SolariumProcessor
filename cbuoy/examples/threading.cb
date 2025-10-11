@@ -4,13 +4,8 @@
 #include components/kclock.cb
 
 fn main_tsk_a() void {
-    def i_val: u32 = 0;
-    while (1) {
-        i_val = (i_val + 1) % 10;
-        if (i_val == 0) {
-            k_io_print("TSK_A\n");
-        }
-    }
+    k_io_print("TSK_A\n");
+    asm { "brk"; }
 }
 
 fn main_tsk_b() void {
