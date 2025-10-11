@@ -621,17 +621,12 @@ impl Processor {
     /// Pops all registers, preserving the returning function's return register and
     /// interrupt status flag entries.
     fn pop_all_registers_func_return(&mut self) -> Result<(), ProcessorError> {
-        const INTERRUPT_STATUS_MASK: u32 = RegisterFlag::InterruptEnable.get_mask()
-            | RegisterFlag::InterruptExecuting.get_mask()
-            | RegisterFlag::InterruptValue.get_mask();
-
         let mut current_state = self.registers.get_state();
 
         for (i, v) in current_state.iter_mut().enumerate().rev() {
             let val = self.stack_pop()?;
-            if i == Register::Status.get_index() {
-                *v = (val & !INTERRUPT_STATUS_MASK) | (*v & INTERRUPT_STATUS_MASK);
-            } else if i != Register::Return.get_index() {
+
+            if i != Register::Return.get_index() {
                 *v = val;
             }
         }
