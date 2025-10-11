@@ -136,7 +136,7 @@ fn k_tsk_cleanup(remove_val: std_list_node_t) void {
 fn k_tsk_init(func: fn() void, stack: *u8) void {
     def current: *k_tsk_thread_frame_t;
     current = k_malloc(sizeof(k_tsk_thread_frame_t));
-    def new_node: *std_list_node_t = std_list_create_node(current, 0);
+    def new_node: *std_list_node_t = std_list_create_node(current);
 
     current->stack = stack;
     def return_stack: *u32 = current->stack;
@@ -150,6 +150,7 @@ fn k_tsk_init(func: fn() void, stack: *u8) void {
 
     if (K_TSK_ROOT == 0) {
         K_TSK_ROOT = new_node;
+        K_TSK_CURR = K_TSK_ROOT;
     } else {
         K_TSK_ROOT = std_list_append(K_TSK_ROOT, new_node);
     }
@@ -173,6 +174,7 @@ fnint k_tsk_yield() void {
         "%LDLOC% 14:u32";
         ".loadloc %{K_TSK_CURR}%";
         "ld 14:u32 14";
+        "ld 14:u32 14";
         "sav 14:u32 $sp";
     }
     K_TSK_CURR = K_TSK_CURR->next;
@@ -182,6 +184,7 @@ fnint k_tsk_yield() void {
     asm {
         "%LDLOC% 14:u32";
         ".loadloc %{K_TSK_CURR}%";
+        "ld 14:u32 14";
         "ld 14:u32 14";
         "ld 14:u32 14";
         "copy $sp 14";

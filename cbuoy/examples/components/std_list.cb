@@ -6,15 +6,21 @@
 struct std_list_node_t {
     data: *u8;
     next: *std_list_node_t;
-    owns_data: u8;
 }
 
-fn std_list_create_node(data: *u8, owns_data: u8) *std_list_node_t {
+fn std_list_create_node(data: *u8) *std_list_node_t {
     def node: *std_list_node_t = k_malloc(sizeof(std_list_node_t));
     node->data = data;
-    node->owns_data = owns_data;
     node->next = 0;
     return node;
+}
+
+fn std_list_delete_al_data(root: *std_list_node_t) void {
+    while (root != 0) {
+        k_free(root->data);
+        root->data = 0;
+        root = root->next;
+    }
 }
 
 fn std_list_destroy(root: *std_list_node_t) void {
@@ -23,9 +29,6 @@ fn std_list_destroy(root: *std_list_node_t) void {
     while (next != 0) {
         tmp = next;
         next = next->next;
-        if (tmp->owns_data) {
-            k_free(tmp->data);
-        }
         k_free(tmp);
     }
 }

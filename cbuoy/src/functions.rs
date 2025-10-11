@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc, sync::LazyLock};
 
 use jib::cpu::{DataType, Register};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpBrk, OpConv, OpCopy, OpJmp, OpRet,
+    ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpConv, OpCopy, OpJmp, OpRet,
     OpRetInt, OpSub, OpTz,
 };
 use regex::Regex;
@@ -15,9 +15,9 @@ use crate::{
     },
     literals::StringLiteral,
     tokenizer::{
-        EndOfTokenStream, KEYWORD_ASM, KEYWORD_ASMFN, KEYWORD_BREAK, KEYWORD_CONST,
-        KEYWORD_DBG_BREAK, KEYWORD_DEF, KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF,
-        KEYWORD_RETURN, KEYWORD_WHILE, Token, TokenIter, get_identifier,
+        EndOfTokenStream, KEYWORD_ASM, KEYWORD_ASMFN, KEYWORD_BREAK, KEYWORD_CONST, KEYWORD_DEF,
+        KEYWORD_ELSE, KEYWORD_FN, KEYWORD_FNINT, KEYWORD_IF, KEYWORD_RETURN, KEYWORD_WHILE, Token,
+        TokenIter, get_identifier,
     },
     typing::{Function, Type},
     utilities::load_to_register,
@@ -913,30 +913,6 @@ impl Display for ExpressionStatement {
 }
 
 #[derive(Debug, Clone)]
-struct DebugBreakpointStatement {
-    token: Token,
-}
-
-impl Statement for DebugBreakpointStatement {
-    fn get_exec_code(
-        &self,
-        _options: &CodeGenerationOptions,
-        _required_stack: &mut TemporaryStackTracker,
-    ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        Ok(vec![
-            self.token
-                .to_asm(AsmToken::OperationLiteral(Box::new(OpBrk))),
-        ])
-    }
-}
-
-impl Display for DebugBreakpointStatement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{KEYWORD_DBG_BREAK}")
-    }
-}
-
-#[derive(Debug, Clone)]
 struct ReturnStatementTempVar {
     token: Token,
     temp_var: LocalVariable,
@@ -1210,10 +1186,6 @@ fn parse_statement(
             } else {
                 Err(tok.into_err("cannot break outside of a while loop"))
             }
-        } else if next.get_value() == KEYWORD_DBG_BREAK {
-            let tok = tokens.expect(KEYWORD_DBG_BREAK)?;
-            tokens.expect(";")?;
-            Ok(Some(Rc::new(DebugBreakpointStatement { token: tok })))
         } else if next.get_value() == KEYWORD_RETURN {
             let tok = tokens.expect(KEYWORD_RETURN)?;
 

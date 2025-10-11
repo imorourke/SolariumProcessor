@@ -370,7 +370,6 @@ pub const KEYWORD_CONST: &str = "const";
 pub const KEYWORD_STRUCT: &str = "struct";
 pub const KEYWORD_VOID: &str = "void";
 pub const KEYWORD_BREAK: &str = "break";
-pub const KEYWORD_DBG_BREAK: &str = "brkpt";
 pub const KEYWORD_RETURN: &str = "return";
 
 static RESERVED_KEYWORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
@@ -390,7 +389,6 @@ static RESERVED_KEYWORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
         KEYWORD_STRUCT,
         KEYWORD_VOID,
         KEYWORD_BREAK,
-        KEYWORD_DBG_BREAK,
         KEYWORD_RETURN,
     ]
     .map(|v| v.to_string());
