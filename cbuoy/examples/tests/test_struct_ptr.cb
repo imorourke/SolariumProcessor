@@ -1,4 +1,4 @@
-#include components/kserialio.cb
+#include ../components/kserialio.cb
 
 global a: u16 = 255 + 5;
 global b: u32;
@@ -162,4 +162,7 @@ fn main() void {
     nt.v = 7;
 
     k_io_print_uint((*(nt.a)).v);
+    k_io_print("\n");
+    k_io_print_uint(nt.a->v);
+    k_io_print("\n");
 }

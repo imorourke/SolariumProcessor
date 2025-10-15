@@ -1,21 +1,14 @@
 use std::{io::Write, path::PathBuf};
 
-use cbuoy::{TokenError, parse};
+use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preprocess, tokenize};
 use clap::Parser;
 use jib_asm::assemble_tokens;
 
-#[derive(Debug, clap::Parser)]
+#[derive(Default, Debug, clap::Parser)]
 #[command(version, about)]
 struct CompilerArguments {
     #[arg()]
     input_file: PathBuf,
-    #[arg(
-        short = 'p',
-        long = "print",
-        default_value_t = false,
-        help = "Prints the generated assembly to the console"
-    )]
-    print_assembly: bool,
     #[arg(
         short = 'o',
         long = "output",
@@ -23,11 +16,19 @@ struct CompilerArguments {
     )]
     output_binary: Option<PathBuf>,
     #[arg(
-        short = 'j',
-        long = "jib",
-        help = "Creates a text file with the generated assembly code"
+        short = 'k',
+        long = "kernel",
+        default_value_t = false,
+        help = "Enables program generation in kernel mode"
     )]
-    output_assembly: Option<PathBuf>,
+    is_kernel_program: bool,
+    #[arg(
+        short = 'a',
+        long = "output-ast",
+        default_value_t = false,
+        help = "Prints the AST to the console"
+    )]
+    print_ast: bool,
     #[arg(
         short = 'l',
         long = "locs",
@@ -36,34 +37,100 @@ struct CompilerArguments {
     )]
     include_locations: bool,
     #[arg(
-        short = 'a',
-        long = "ast",
-        default_value_t = false,
-        help = "Prints the AST to the console"
+        short = 'j',
+        long = "jib",
+        help = "Creates a text file with the generated assembly code"
     )]
-    print_ast: bool,
+    output_assembly: Option<PathBuf>,
+    #[arg(
+        long = "print-asm",
+        default_value_t = false,
+        help = "Prints the generated assembly to the console"
+    )]
+    print_assembly: bool,
+    #[arg(
+        short = 'c',
+        long = "output-cbp",
+        help = "Creates a text file containing the preprocessed source code"
+    )]
+    output_preproc: Option<PathBuf>,
+    #[arg(
+        long = "print-cbp",
+        default_value_t = false,
+        help = "Prints the preprocessed output to the console"
+    )]
+    print_preproc: bool,
+    #[arg(
+        short = 'D',
+        long = "define",
+        help = "Adds compiler definitions to define from the start of compiling"
+    )]
+    definitions: Vec<String>,
 }
 
 fn main() -> std::process::ExitCode {
     let args = CompilerArguments::parse();
 
-    let input_text = {
-        match std::fs::read_to_string(&args.input_file) {
+    let input_preprocessor =
+        match read_and_preprocess(&args.input_file, args.definitions.into_iter()) {
             Ok(v) => v,
             Err(e) => {
+                eprintln!("{e}");
+                return 1.into();
+            }
+        };
+
+    if args.print_preproc {
+        for l in input_preprocessor.iter() {
+            println!("{}", l.text);
+        }
+    }
+
+    if let Some(file) = &args.output_preproc {
+        match std::fs::File::create(file) {
+            Ok(mut f) => {
+                for l in input_preprocessor.iter() {
+                    writeln!(f, "{}", l.text).unwrap();
+                }
+            }
+            Err(e) => {
                 eprintln!(
-                    "unable to open input file {} - {e}",
-                    args.input_file.as_os_str().to_str().unwrap_or("?")
+                    "unable to open output file {} - {e}",
+                    file.to_str().unwrap_or("?")
                 );
+                return 1.into();
+            }
+        }
+    }
+
+    let input_tokens = {
+        match tokenize(
+            input_preprocessor
+                .iter()
+                .map(|x| (x.text.clone(), Some(x.loc.clone()))),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
                 return 1.into();
             }
         }
     };
 
-    let cbstate = match parse(&input_text) {
+    let cbstate = match parse(
+        input_tokens.clone(),
+        cbuoy::CodeGenerationOptions {
+            prog_type: if args.is_kernel_program {
+                ProgramType::DEFAULT_KERNEL
+            } else {
+                ProgramType::Application
+            },
+            debug_locations: args.include_locations,
+        },
+    ) {
         Ok(asm) => asm,
         Err(e) => {
-            print_error(&input_text, &e);
+            print_error(&input_preprocessor, &e);
             return 1.into();
         }
     };
@@ -75,7 +142,7 @@ fn main() -> std::process::ExitCode {
     let asm = match cbstate.get_assembler() {
         Ok(v) => v,
         Err(e) => {
-            print_error(&input_text, &e);
+            print_error(&input_preprocessor, &e);
             return 1.into();
         }
     };
@@ -100,6 +167,11 @@ fn main() -> std::process::ExitCode {
                 for l in &asm_out.assembly_lines {
                     writeln!(f, "{l}").unwrap();
                 }
+                if args.include_locations {
+                    for l in &asm_out.assembly_debug {
+                        writeln!(f, "{l}").unwrap();
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("{e}");
@@ -121,21 +193,24 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn print_error(txt: &str, err: &TokenError) {
+fn print_error(txt: &[PreprocessorLine], err: &TokenError) {
     eprintln!("Error: {}", err.msg);
 
     if let Some(t) = &err.token {
-        let line_num = t.get_loc().line;
-        let display_num = line_num + 1;
-        let line = txt.lines().nth(line_num).unwrap();
-        eprintln!("{display_num} >> {line}");
-        eprint!("{display_num}    ");
-        for _ in 0..t.get_loc().column {
-            eprint!(" ");
+        for l in txt.iter() {
+            if l.loc.line == t.get_loc().line && Some(&l.loc.file) == t.get_loc().file.as_ref() {
+                let line = &l.text;
+                eprintln!("{} >> {line}", l.loc);
+                eprint!("{}    ", l.loc);
+                for _ in 0..t.get_loc().column {
+                    eprint!(" ");
+                }
+                for _ in 0..t.get_value().len() {
+                    eprint!("^");
+                }
+                eprintln!();
+                break;
+            }
         }
-        for _ in 0..t.get_value().len() {
-            eprint!("^");
-        }
-        eprintln!();
     }
 }

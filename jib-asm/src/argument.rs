@@ -110,8 +110,8 @@ impl TryFrom<u8> for ArgumentRegister {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArgumentType {
-    reg: ArgumentRegister,
-    data_type: DataType,
+    pub reg: ArgumentRegister,
+    pub data_type: DataType,
 }
 
 impl ArgumentType {

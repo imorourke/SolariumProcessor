@@ -1,186 +1,43 @@
-const STACK_SIZE: u32 = 1024;
-const STACK_NUM: u32 = 4;
-global THREAD_NUM: u32 = 0;
-global THREAD_CURR: u32 = 0;
-
-struct thread_stack_t {
-    last_ptr: u32;
-    stack: [STACK_SIZE]u8;
-}
-
-global THREAD_STACK: [STACK_NUM]thread_stack_t;
-
-global SERIAL_IN_SIZE: *u8 = 0xA000u32 + 2;
-global SERIAL_IN_LOC: *u8 = 0xA000u32 + 3;
-global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
-global CLOCK_LOC: *u32 = 0xA022u32;
-global CLOCK_INT: *u32 = 0xA02Au32;
-
-asmfn tsk_yield() void {
-    "intoff";
-    "; Increment THREAD_NUM to next thread";
-    "ldn 8:u32";
-    ".loadloc %{THREAD_NUM}%";
-    "ld 8:u32 8";
-    "ldn 9:u32";
-    ".loadloc %{THREAD_CURR}%";
-    "ld 10:u32 9";
-    "copy 16 10";
-    "ldi 11:u16 1";
-    "add 10:u32 10 11";
-    "rem 10:u32 10 8";
-    "sav 9:u32 10";
-    "; Swap stack pointer";
-    "; 10 = new pointer";
-    "; 16 = old pointer";
-    "ldi 8:u16 #{thread_stack_t}#";
-    "mul 10:u32 10 8";
-    "mul 16:u32 16 8";
-    "ldn 9:u32";
-    ".loadloc %{THREAD_STACK}%";
-    "add 10:u32 10 9";
-    "add 16:u32 16 9";
-    "sav 16:u32 $sp";
-    "ld $sp:u32 10";
-    "inton";
-    "retint";
-}
-
-asmfn print(c: *u8) void {
-    "push $stat";
-    "intoff";
-    "ldn 8:u32";
-    ".loadloc %{SERIAL_OUT_LOC}%";
-    "ld 8:u32 8";
-    ".align";
-    "ldi 9:u16 1";
-    "ld 10:u32 $arg";
-    "ldi 11:u16 @{c}@";
-    "add 10:u32 10 11";
-    "ld 11:u8 10";
-    "tz 11";
-    "jmpri 16";
-    "sav 8:u8 11";
-    "add 10:u32 10 9";
-    "jmpri -20";
-    "popr $stat";
-    "ret";
-}
-
-fn print_digit(v: u8) void {
-    if (v < 10) {
-        *SERIAL_OUT_LOC = '0' + v;
-    } else {
-        *SERIAL_OUT_LOC = '?';
-    }
-}
-
-fn print_uint(v: u32) void {
-    def chars: [12]u8;
-    def cp: *u8 = &chars;
-    if (v == 0) {
-        print_digit(0);
-    } else {
-        while (v != 0) {
-            *cp = v % 10;
-            v = v / 10;
-            cp = cp + 1;
-        }
-        while (cp != &chars) {
-            cp = cp - 1;
-            print_digit(*cp);
-        }
-    }
-}
-
-fn print_stat(name: *u8, v: u32) void {
-    print(name);
-    print(": ");
-    print_uint(v);
-    print("\n");
-}
-
-fn init_thread(func: fn() void) void {
-    if (THREAD_NUM < STACK_NUM) {
-        def current: *thread_stack_t = &THREAD_STACK[THREAD_NUM];
-        def current_stack: *u32 = &((*current).stack);
-        print_stat("Base Struct", current);
-        print_stat("Base Stack", current_stack);
-        current_stack[0] = func;
-        current_stack[1] = 1; // Enable Interrupts on the new stack
-        print_stat("Function Location", func : u32);
-        current_stack[2] = (current_stack + 32) : u32;
-        (*current).last_ptr = current_stack[2];
-        print_stat("Stack Location", (*current).last_ptr);
-        print_stat("Stack Size", (((*current).last_ptr) : u32) - (current_stack : u32));
-        THREAD_NUM = THREAD_NUM + 1;
-        print_stat("Current Thread Count", THREAD_NUM);
-        print("\n");
-    } else {
-        print("Exceed allowed thread count\n");
-    }
-}
+#include components/ktsk.cb
+#include components/kserialio.cb
+#include components/kirq.cb
+#include components/kclock.cb
 
 fn main_tsk_a() void {
-    def i_val: u32 = 0;
-    while (1) {
-        print("TSK_A\n");
-        i_val = (i_val + 1) % 10;
-    }
+    k_io_print("TSK_A\n");
+    asm { "brk"; }
 }
 
 fn main_tsk_b() void {
     while (1) {
-        print("TSK_B\n");
+        k_io_print("TSK_B\n");
     }
-}
-
-asmfn tsk_intoff() void {
-    "intoff";
-    "ret";
-}
-
-asmfn tsk_inton() void {
-    "inton";
-    "ret";
 }
 
 fn main_tsk_c() void {
     while (1) {
         if (*SERIAL_IN_SIZE != 0) {
-            tsk_intoff();
+            asm { "intoff"; }
             while (*SERIAL_IN_SIZE != 0) {
                 *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
             }
-            tsk_inton();
+            asm { "inton"; }
         }
-        tsk_yield();
+        k_tsk_yield();
     }
 }
 
-asmfn tsk_main() void {
-    "ldn 8:u32";
-    ".loadloc %{THREAD_NUM}%";
-    "ld 8:u32 8";
-    "tz 8";
-    "ret";
-    "ldn 9:u32";
-    ".loadloc %{THREAD_STACK}%";
-    "ld 9:u32 9";
-    "copy $sp 9";
-    "ret";
-}
+global stack_a: [1024]u8;
+global stack_b: [1024]u8;
+global stack_c: [1024]u8;
 
 fn main() void {
-    def test_array: [2]u32;
-    &test_array[0];
-    &test_array[1];
-    def irq1_loc: *u32 = 0x104;
-    *irq1_loc = tsk_yield;
-    init_thread(main_tsk_a);
-    init_thread(main_tsk_b);
-    init_thread(main_tsk_c);
-    *CLOCK_LOC = 1000;
-    *CLOCK_INT = 1;
-    tsk_main();
+    k_tsk_init(main_tsk_a, &stack_a[0]);
+    k_tsk_init(main_tsk_b, &stack_b[0]);
+    k_tsk_init(main_tsk_c, &stack_c[0]);
+
+    k_irq_set(1, k_tsk_yield);
+    k_clock_configure(1000, 1);
+
+    k_tsk_main();
 }

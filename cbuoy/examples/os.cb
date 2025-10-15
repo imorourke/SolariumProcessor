@@ -1,0 +1,56 @@
+#include components/kmalloc.cb
+#include components/kserialio.cb
+#include components/ktsk.cb
+#include components/kirq.cb
+#include components/kclock.cb
+#include components/std_list.cb
+
+const FD_SIZE_TABLE: u32 = 1024;
+const FD_THREAD: u32 = 1;
+struct fd_type_t {
+    type: u32;
+    val: *u32;
+}
+global FD_TABLE: [FD_SIZE_TABLE]fd_type_t;
+
+fn main_tsk_a() void {
+    def i_val: u32 = 0;
+    while (1) {
+        i_val = (i_val + 1) % 10;
+        if (i_val == 0) {
+            k_io_print("TSK_A\n");
+        }
+    }
+}
+
+fn main_tsk_b() void {
+    while (1) {
+        //k_io_print("TSK_B\n");
+        k_tsk_yield();
+    }
+}
+
+fn os_main() void {
+    k_io_print("Starting C/Buoy OS\n");
+    def input_buffer: [128]u8;
+    while (1) {
+        k_io_print("~> ");
+        if (k_io_read_str_until(&input_buffer[0], 128, '\n') > 0) {
+            k_io_print("  Unknown Command: ");
+            k_io_print(input_buffer);
+        }
+        k_io_print("\n");
+    }
+}
+
+fn main() void {
+    //k_tsk_init(main_tsk_a);
+    //k_tsk_init(main_tsk_b);
+    //k_tsk_init(os_main);
+
+    k_irq_set(1, k_tsk_yield);
+    k_clock_configure(1000, 1);
+
+    //k_tsk_main();
+    os_main();
+}

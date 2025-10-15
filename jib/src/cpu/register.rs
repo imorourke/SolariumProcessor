@@ -5,7 +5,7 @@ pub enum Register {
     ProgramCounter,
     Status,
     StackPointer,
-    Overflow,
+    LoadOffset,
     Return,
     ArgumentBase,
     GeneralPurpose(usize),
@@ -17,7 +17,7 @@ impl Register {
     pub const IDX_PROGRAM_COUNTER: usize = 0;
     pub const IDX_STATUS: usize = 1;
     pub const IDX_STACK_POINTER: usize = 2;
-    pub const IDX_OVERFLOW: usize = 3;
+    pub const IDX_LOAD_OFFSET: usize = 3;
     pub const IDX_RETURN: usize = 4;
     pub const IDX_ARGUMENT_BASE: usize = 5;
     pub const IDX_FIRST_GP: usize = 6;
@@ -35,7 +35,7 @@ impl Register {
             Self::ProgramCounter => Self::IDX_PROGRAM_COUNTER,
             Self::Status => Self::IDX_STATUS,
             Self::StackPointer => Self::IDX_STACK_POINTER,
-            Self::Overflow => Self::IDX_OVERFLOW,
+            Self::LoadOffset => Self::IDX_LOAD_OFFSET,
             Self::Return => Self::IDX_RETURN,
             Self::ArgumentBase => Self::IDX_ARGUMENT_BASE,
             Self::GeneralPurpose(num) => *num,
@@ -47,7 +47,7 @@ impl Register {
             Self::IDX_PROGRAM_COUNTER => Some(Self::ProgramCounter),
             Self::IDX_STATUS => Some(Self::Status),
             Self::IDX_STACK_POINTER => Some(Self::StackPointer),
-            Self::IDX_OVERFLOW => Some(Self::Overflow),
+            Self::IDX_LOAD_OFFSET => Some(Self::LoadOffset),
             Self::IDX_RETURN => Some(Self::Return),
             Self::IDX_ARGUMENT_BASE => Some(Self::ArgumentBase),
             _ => None,
@@ -59,7 +59,7 @@ impl Register {
             Some(Self::ProgramCounter) => "pc",
             Some(Self::Status) => "stat",
             Some(Self::StackPointer) => "sp",
-            Some(Self::Overflow) => "ovf",
+            Some(Self::LoadOffset) => "ldo",
             Some(Self::Return) => "ret",
             Some(Self::ArgumentBase) => "arg",
             _ => "",
@@ -85,7 +85,7 @@ impl TryFrom<usize> for Register {
             Self::IDX_PROGRAM_COUNTER => Self::ProgramCounter,
             Self::IDX_STATUS => Self::Status,
             Self::IDX_STACK_POINTER => Self::StackPointer,
-            Self::IDX_OVERFLOW => Self::Overflow,
+            Self::IDX_LOAD_OFFSET => Self::LoadOffset,
             Self::IDX_RETURN => Self::Return,
             Self::IDX_ARGUMENT_BASE => Self::ArgumentBase,
             x if (Self::IDX_FIRST_GP..Self::NUM_REGISTERS).contains(&x) => Self::GeneralPurpose(x),
@@ -144,7 +144,7 @@ impl RegisterFlag {
         }
     }
 
-    const fn get_mask(&self) -> u32 {
+    pub const fn get_mask(&self) -> u32 {
         const fn gen_int_value_mask() -> u32 {
             let mut i = 0;
             let mut val = 0;

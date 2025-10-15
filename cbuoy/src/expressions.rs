@@ -14,7 +14,7 @@ use jib_asm::{
 
 use crate::{
     TokenError,
-    compiler::{CompilingState, Statement},
+    compiler::{CodeGenerationOptions, CompilingState, Statement},
     literals::{Literal, LiteralValue},
     tokenizer::{KEYWORD_SIZEOF, Token, TokenIter, get_identifier, is_identifier},
     typing::{StructDefinition, StructField, Type},
@@ -140,6 +140,7 @@ impl TemporaryStackTracker {
     }
 }
 
+#[allow(unused_variables)]
 pub trait Expression: Debug + Display {
     fn get_token(&self) -> &Token;
 
@@ -158,8 +159,9 @@ pub trait Expression: Debug + Display {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
-        #[allow(unused_variables)] required_stack: &mut TemporaryStackTracker,
+        required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         Err(self.get_token().clone().into_err(format!(
             "expression does not have a mappable address in memory - cannot load to {reg}"
@@ -168,6 +170,7 @@ pub trait Expression: Debug + Display {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError>;
@@ -233,10 +236,13 @@ impl Expression for UnaryExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut base_expr = self.base.load_value_to_register(reg, required_stack)?;
+        let mut base_expr = self
+            .base
+            .load_value_to_register(options, reg, required_stack)?;
 
         let asm_inst = match self.op {
             UnaryOperation::Plus => None,
@@ -281,7 +287,7 @@ struct DereferenceExpression {
 
 impl Expression for DereferenceExpression {
     fn get_type(&self) -> Result<Type, TokenError> {
-        if let Type::Pointer(dt) = self.base.get_type()? {
+        if let Type::Pointer(dt) = self.base.get_type()?.remove_const() {
             Ok(dt.as_ref().clone())
         } else {
             Err(self
@@ -298,18 +304,23 @@ impl Expression for DereferenceExpression {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        self.base.load_value_to_register(reg, required_stack)
+        self.base
+            .load_value_to_register(options, reg, required_stack)
     }
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self.base.load_value_to_register(reg, required_stack)?;
+        let mut asm = self
+            .base
+            .load_value_to_register(options, reg, required_stack)?;
         let dt = self.get_primitive_type()?;
 
         asm.push_asm(
@@ -347,10 +358,12 @@ impl Expression for AddressOfExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        self.base.load_address_to_register(reg, required_stack)
+        self.base
+            .load_address_to_register(options, reg, required_stack)
     }
 }
 
@@ -516,6 +529,13 @@ impl BinaryArithmeticExpression {
             rhs,
         }
     }
+
+    fn get_ptr_size(t: &Type) -> Option<usize> {
+        match t {
+            Type::Pointer(base) => Some(base.byte_size()),
+            _ => None,
+        }
+    }
 }
 
 impl Expression for BinaryArithmeticExpression {
@@ -524,16 +544,25 @@ impl Expression for BinaryArithmeticExpression {
     }
 
     fn get_type(&self) -> Result<Type, TokenError> {
-        if let Ok(t) = self.lhs.get_type()
-            && t.is_pointer()
+        let ta = self.lhs.get_type()?;
+        let tb = self.rhs.get_type()?;
+
+        if let Some(sa) = Self::get_ptr_size(&ta)
+            && let Some(sb) = Self::get_ptr_size(&tb)
         {
-            Ok(t)
-        } else if let Ok(t) = self.rhs.get_type()
-            && t.is_pointer()
-        {
-            Ok(t)
-        } else if let Some(Type::Primitive(a)) = self.lhs.get_type()?.base_type() {
-            if let Some(Type::Primitive(b)) = self.rhs.get_type()?.base_type() {
+            if sa == sb {
+                Ok(Type::Primitive(DataType::I32))
+            } else {
+                Err(self.token.clone().into_err(format!(
+                    "cannot perform arithmetic with {ta} size {sa} and {tb} size {sb}"
+                )))
+            }
+        } else if ta.is_pointer() {
+            Ok(ta)
+        } else if tb.is_pointer() {
+            Ok(tb)
+        } else if let Some(Type::Primitive(a)) = ta.base_type() {
+            if let Some(Type::Primitive(b)) = tb.base_type() {
                 Ok(Type::Primitive(Type::coerce_type(a, b)))
             } else {
                 Err(self
@@ -566,22 +595,31 @@ impl Expression for BinaryArithmeticExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         if let Some(dt) = self.get_type()?.primitive_type() {
-            let mut asm = self.lhs.load_value_to_register(reg, required_stack)?;
+            let mut asm = self
+                .lhs
+                .load_value_to_register(options, reg, required_stack)?;
             let reg_a = reg.reg;
 
             let reg_b;
             if let Some(reg_next) = reg.increment() {
-                asm.append(self.rhs.load_value_to_register(reg_next, required_stack)?);
+                asm.append(
+                    self.rhs
+                        .load_value_to_register(options, reg_next, required_stack)?,
+                );
                 reg_b = reg_next.reg;
             } else {
                 asm.push_asm(self.get_token().to_asm(AsmToken::OperationLiteral(Box::new(
                     OpPush::new(reg.reg.into()),
                 ))));
-                asm.append(self.rhs.load_value_to_register(reg, required_stack)?);
+                asm.append(
+                    self.rhs
+                        .load_value_to_register(options, reg, required_stack)?,
+                );
                 asm.push_asm(self.get_token().to_asm(AsmToken::OperationLiteral(Box::new(
                     OpCopy::new(reg.spare.into(), reg.reg.into()),
                 ))));
@@ -613,23 +651,27 @@ impl Expression for BinaryArithmeticExpression {
 
             let type_a = self.lhs.get_type()?;
             let type_b = self.rhs.get_type()?;
+            let mut div_val = None;
 
             let pointer_instructions = if self.operation == BinaryArithmeticOperation::Plus
                 || self.operation == BinaryArithmeticOperation::Minus
             {
-                if type_a.is_pointer() && type_b.is_pointer() {
-                    Err(self
+                let tas = Self::get_ptr_size(&type_a);
+                let tbs = Self::get_ptr_size(&type_b);
+
+                if let Some(sa) = tas
+                    && let Some(sb) = tbs
+                {
+                    if sa != sb {
+                        Err(self
                         .get_token()
                         .clone()
-                        .into_err("cannot add one pointer to another pointer directly"))
-                } else {
-                    fn get_base_size(t: &Type) -> Option<usize> {
-                        match t {
-                            Type::Pointer(base) => Some(base.byte_size()),
-                            _ => None,
-                        }
+                        .into_err("cannot add one pointer to another pointer directly with mismatching sizes"))
+                    } else {
+                        div_val = Some(sa);
+                        Ok(Vec::new())
                     }
-
+                } else {
                     fn generate_ptr_mul_asm(
                         size: usize,
                         incr_val: Register,
@@ -668,9 +710,9 @@ impl Expression for BinaryArithmeticExpression {
                         }
                     }
 
-                    if let Some(sa) = get_base_size(&type_a) {
+                    if let Some(sa) = tas {
                         generate_ptr_mul_asm(sa, reg_b, reg_a)
-                    } else if let Some(sb) = get_base_size(&type_b) {
+                    } else if let Some(sb) = tbs {
                         generate_ptr_mul_asm(sb, reg_a, reg_b)
                     } else {
                         Ok(Vec::new())
@@ -751,6 +793,20 @@ impl Expression for BinaryArithmeticExpression {
                     .to_asm_iter(op_instructions.into_iter().map(AsmToken::OperationLiteral)),
             );
 
+            if let Some(d) = div_val {
+                asm.extend_asm(self.token.to_asm_iter([
+                    AsmToken::OperationLiteral(Box::new(OpLdi::new(
+                        ArgumentType::new(reg.spare, DataType::U16),
+                        d as u16,
+                    ))),
+                    AsmToken::OperationLiteral(Box::new(OpDiv::new(
+                        reg_type,
+                        reg_type.reg,
+                        reg.spare.into(),
+                    ))),
+                ]));
+            }
+
             Ok(asm)
         } else {
             Err(self
@@ -785,10 +841,13 @@ impl Expression for AsExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self.expr.load_value_to_register(reg, required_stack)?;
+        let mut asm = self
+            .expr
+            .load_value_to_register(options, reg, required_stack)?;
         if let Some(dt) = self.data_type.primitive_type() {
             let src_type = self.expr.get_primitive_type()?;
 
@@ -827,26 +886,59 @@ impl Display for AsExpression {
 }
 
 #[derive(Debug, Clone)]
-struct DotExpression {
+struct FieldAccessExpression {
     token: Token,
     field: Token,
     s_expression: Rc<dyn Expression>,
+    s_expr_is_pointer: bool,
 }
 
-impl DotExpression {
+impl FieldAccessExpression {
     fn get_struct(&self) -> Result<Rc<StructDefinition>, TokenError> {
         let mut base_type = self.s_expression.get_type()?;
-        while let Some(new_type) = base_type.base_type() {
-            base_type = new_type;
+        while matches!(base_type, Type::Opaque(_) | Type::Const(_)) {
+            if let Some(bt) = base_type.base_type() {
+                base_type = bt;
+            } else {
+                return Err(self
+                    .token
+                    .clone()
+                    .into_err(format!("unable to get base type for {}", self.s_expression)));
+            }
         }
 
-        if let Type::Struct(s) = base_type {
-            Ok(s)
+        fn get_struct_from_base(
+            token: &Token,
+            base_type: Type,
+        ) -> Result<Rc<StructDefinition>, TokenError> {
+            match base_type {
+                Type::Opaque(o) => {
+                    if let Type::Struct(s) = o.get_type(true)? {
+                        Ok(s)
+                    } else {
+                        Err(token.clone().into_err(format!(
+                            "left-hand expression to field access is not a structure from user type- {}",
+                            o.name
+                        )))
+                    }
+                }
+                Type::Struct(s) => Ok(s.clone()),
+                x => Err(token.clone().into_err(format!(
+                    "left-hand expression to field access is not a structure - {}",
+                    x
+                ))),
+            }
+        }
+
+        if !self.s_expr_is_pointer {
+            get_struct_from_base(&self.token, base_type)
+        } else if let Type::Pointer(p) = &base_type {
+            get_struct_from_base(&self.token, p.as_ref().clone())
         } else {
-            Err(self
-                .token
-                .clone()
-                .into_err("left-hand expression to dot is not a structure"))
+            Err(self.token.clone().into_err(format!(
+                "left-hand expression to field access is not a structure - {}",
+                base_type
+            )))
         }
     }
 
@@ -863,7 +955,7 @@ impl DotExpression {
     }
 }
 
-impl Expression for DotExpression {
+impl Expression for FieldAccessExpression {
     fn get_token(&self) -> &Token {
         &self.token
     }
@@ -874,12 +966,18 @@ impl Expression for DotExpression {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self
-            .s_expression
-            .load_address_to_register(reg, required_stack)?;
+        let mut asm = if self.s_expr_is_pointer {
+            self.s_expression
+                .load_value_to_register(options, reg, required_stack)?
+        } else {
+            self.s_expression
+                .load_address_to_register(options, reg, required_stack)?
+        };
+
         asm.extend_asm(
             self.token
                 .to_asm_iter(load_to_register(reg.spare, self.get_field()?.offset as u32)),
@@ -897,10 +995,11 @@ impl Expression for DotExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self.load_address_to_register(reg, required_stack)?;
+        let mut asm = self.load_address_to_register(options, reg, required_stack)?;
         let dt = self.get_primitive_type()?;
 
         asm.push_asm(
@@ -915,9 +1014,15 @@ impl Expression for DotExpression {
     }
 }
 
-impl Display for DotExpression {
+impl Display for FieldAccessExpression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.s_expression, self.field.get_value())
+        write!(
+            f,
+            "{}{}{}",
+            self.s_expression,
+            if self.s_expr_is_pointer { "->" } else { "." },
+            self.field.get_value()
+        )
     }
 }
 
@@ -945,6 +1050,7 @@ impl Expression for AssignmentExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
@@ -962,13 +1068,14 @@ impl Expression for AssignmentExpression {
         if let Some(dest_dtype) = self.addr_expr.get_type()?.primitive_type() {
             let val_dtype = self.val_expr.get_primitive_type()?;
 
-            asm.append(
-                self.addr_expr
-                    .load_address_to_register(addr_def, required_stack)?,
-            );
+            asm.append(self.addr_expr.load_address_to_register(
+                options,
+                addr_def,
+                required_stack,
+            )?);
             asm.append(
                 self.val_expr
-                    .load_value_to_register(val_def, required_stack)?,
+                    .load_value_to_register(options, val_def, required_stack)?,
             );
 
             if val_dtype != dest_dtype {
@@ -988,14 +1095,16 @@ impl Expression for AssignmentExpression {
             && let Ok(target_type) = self.addr_expr.get_type()
         {
             if val_type == target_type {
-                asm.append(
-                    self.addr_expr
-                        .load_address_to_register(addr_def, required_stack)?,
-                );
-                asm.append(
-                    self.val_expr
-                        .load_address_to_register(val_def, required_stack)?,
-                );
+                asm.append(self.addr_expr.load_address_to_register(
+                    options,
+                    addr_def,
+                    required_stack,
+                )?);
+                asm.append(self.val_expr.load_address_to_register(
+                    options,
+                    val_def,
+                    required_stack,
+                )?);
 
                 let mem = MemcpyStatement::new(
                     self.token.clone(),
@@ -1004,7 +1113,7 @@ impl Expression for AssignmentExpression {
                     val_type.byte_size(),
                 );
 
-                asm.extend_asm(mem.get_exec_code(required_stack)?);
+                asm.extend_asm(mem.get_exec_code(options, required_stack)?);
 
                 Ok(asm)
             } else {
@@ -1051,16 +1160,19 @@ impl Expression for ArrayIndexExpression {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         let mut asm = match self.address_expr.get_type()? {
-            Type::Array(_, _) => self
-                .address_expr
-                .load_address_to_register(reg, required_stack)?,
-            Type::Pointer(_) => self
-                .address_expr
-                .load_value_to_register(reg, required_stack)?,
+            Type::Array(_, _) => {
+                self.address_expr
+                    .load_address_to_register(options, reg, required_stack)?
+            }
+            Type::Pointer(_) => {
+                self.address_expr
+                    .load_value_to_register(options, reg, required_stack)?
+            }
             v => {
                 return Err(self.token.clone().into_err(format!(
                     "unable to convert from `{}` into a valid array type",
@@ -1092,12 +1204,13 @@ impl Expression for ArrayIndexExpression {
         );
 
         if let Some(lit) = index_expr.simplify() {
-            asm.append(lit.load_value_to_register(index_reg, required_stack)?);
+            asm.append(lit.load_value_to_register(options, index_reg, required_stack)?);
         } else {
-            asm.append(
-                self.index_expr
-                    .load_value_to_register(index_reg, required_stack)?,
-            );
+            asm.append(self.index_expr.load_value_to_register(
+                options,
+                index_reg,
+                required_stack,
+            )?);
 
             if type_size != 1 {
                 asm.extend_asm(self.token.to_asm_iter(load_to_register(
@@ -1129,10 +1242,11 @@ impl Expression for ArrayIndexExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        let mut asm = self.load_address_to_register(reg, required_stack)?;
+        let mut asm = self.load_address_to_register(options, reg, required_stack)?;
         asm.push_asm(
             self.token
                 .to_asm(AsmToken::OperationLiteral(Box::new(OpLd::new(
@@ -1181,6 +1295,7 @@ impl Expression for FunctionCallExpression {
 
     fn load_address_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
@@ -1188,7 +1303,7 @@ impl Expression for FunctionCallExpression {
             && let Some(rt) = &f.return_type
             && rt.primitive_type().is_none()
         {
-            self.load_value_to_register(reg, required_stack)
+            self.load_value_to_register(options, reg, required_stack)
         } else {
             Err(self
                 .token
@@ -1199,6 +1314,7 @@ impl Expression for FunctionCallExpression {
 
     fn load_value_to_register(
         &self,
+        options: &CodeGenerationOptions,
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
@@ -1258,46 +1374,43 @@ impl Expression for FunctionCallExpression {
             )));
         }
 
-        for (p, e) in func.parameters.iter().zip(self.args.iter()) {
-            if let Some(p_name) = p.name.clone() {
-                let var = Rc::new(LocalVariable::new(
-                    p_name,
-                    p.dtype.clone(),
-                    RegisterDef::FN_TEMPVAR_BASE,
-                    required_stack.offset,
-                    None,
-                )?);
-                required_stack.add_offset_value(p.dtype.byte_size());
+        for (i, (p, e)) in func.parameters.iter().zip(self.args.iter()).enumerate() {
+            let p_name = p.name.clone().unwrap_or(Token::new(
+                &format!("arg_{i}"),
+                self.token.get_loc().clone(),
+            ));
+            let var = Rc::new(LocalVariable::new(
+                p_name,
+                p.dtype.clone(),
+                RegisterDef::FN_TEMPVAR_BASE,
+                required_stack.offset,
+                None,
+            )?);
+            required_stack.add_offset_value(p.dtype.byte_size());
 
-                // Use an assignment expression for better control over the register usage
-                let assign = Rc::new(AssignmentExpression {
-                    addr_expr: var,
-                    token: self.token.clone(),
-                    val_expr: e.clone(),
-                });
+            // Use an assignment expression for better control over the register usage
+            let assign = Rc::new(AssignmentExpression {
+                addr_expr: var,
+                token: self.token.clone(),
+                val_expr: e.clone(),
+            });
 
-                let mut tmp_vals = *required_stack;
-                asm.push_asm(self.token.to_asm(AsmToken::Comment(format!(
+            let mut tmp_vals = *required_stack;
+            asm.push_asm(self.token.to_asm(AsmToken::Comment(format!(
                     "func {} arg {} :: {}",
                     self.func,
                     p.name.as_ref().map(|x| x.get_value().to_string()).unwrap_or("??".to_string()),
                     assign
                 ))));
-                asm.append(assign.load_value_to_register(next_load, &mut tmp_vals)?);
-                required_stack.merge(tmp_vals);
-            } else {
-                return Err(self
-                    .token
-                    .clone()
-                    .into_err("unable to find name for parameter at"));
-            }
+            asm.append(assign.load_value_to_register(options, next_load, &mut tmp_vals)?);
+            required_stack.merge(tmp_vals);
         }
 
         // Load the function location
 
         asm.append(
             self.func
-                .load_value_to_register(next_load, required_stack)?,
+                .load_value_to_register(options, next_load, required_stack)?,
         );
 
         asm.extend_asm(self.token.to_asm_iter([AsmToken::OperationLiteral(Box::new(
@@ -1412,17 +1525,31 @@ fn parse_expression_without_binary_expressions(
         Rc::new(Literal::try_from(first.clone())?)
     };
 
+    const TOKEN_DOT: &str = ".";
+    const TOKEN_ARROW: &str = "->";
+
     while let Some(next) = tokens.peek() {
         if BINARY_STR.contains_key(next.get_value()) {
             break;
-        } else if next.get_value() == "." {
-            let dot_token = tokens.expect(".")?;
+        } else if next.get_value() == TOKEN_DOT {
+            let dot_token = tokens.expect(TOKEN_DOT)?;
             let ident_token = tokens.next()?;
 
-            expr = Rc::new(DotExpression {
+            expr = Rc::new(FieldAccessExpression {
                 field: ident_token,
                 token: dot_token,
                 s_expression: expr,
+                s_expr_is_pointer: false,
+            })
+        } else if next.get_value() == TOKEN_ARROW {
+            let dot_token = tokens.expect(TOKEN_ARROW)?;
+            let ident_token = tokens.next()?;
+
+            expr = Rc::new(FieldAccessExpression {
+                field: ident_token,
+                token: dot_token,
+                s_expression: expr,
+                s_expr_is_pointer: true,
             })
         } else if next.get_value() == ":" {
             let token = tokens.expect(":")?;
@@ -1519,11 +1646,19 @@ fn process_binary_expressions(
                     a,
                     b,
                 ))),
-                BinaryOperation::Assignment => Ok(Rc::new(AssignmentExpression {
-                    token: token.clone(),
-                    addr_expr: a,
-                    val_expr: b,
-                })),
+                BinaryOperation::Assignment => {
+                    if !a.get_type()?.is_const() {
+                        Ok(Rc::new(AssignmentExpression {
+                            token: token.clone(),
+                            addr_expr: a,
+                            val_expr: b,
+                        }))
+                    } else {
+                        Err(token
+                            .clone()
+                            .into_err("left-hand expression is a constant value"))
+                    }
+                }
             }
         } else {
             Err(TokenError {

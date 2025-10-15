@@ -1,0 +1,96 @@
+#ifndef STD_LIST
+#define STD_LIST
+
+#include kmalloc.cb
+
+struct std_list_node_t {
+    data: *u8;
+    next: *std_list_node_t;
+}
+
+fn std_list_create_node(data: *u8) *std_list_node_t {
+    def node: *std_list_node_t = k_malloc(sizeof(std_list_node_t));
+    node->data = data;
+    node->next = 0;
+    return node;
+}
+
+fn std_list_delete_al_data(root: *std_list_node_t) void {
+    while (root != 0) {
+        k_free(root->data);
+        root->data = 0;
+        root = root->next;
+    }
+}
+
+fn std_list_destroy(root: *std_list_node_t) void {
+    def next: *std_list_node_t = root;
+    def tmp: *std_list_node_t;
+    while (next != 0) {
+        tmp = next;
+        next = next->next;
+        k_free(tmp);
+    }
+}
+
+fn std_list_remove(root: *std_list_node_t, remove: *std_list_node_t) *std_list_node_t {
+    def n: *std_list_node_t = root;
+    if (remove == root) {
+        n = n->next;
+        root->next = 0;
+        std_list_destroy(root);
+        return n;
+    } else {
+        while (n->next != 0) {
+            if (n->next : *std_list_node_t == remove) {
+                n->next = n->next->next;
+                remove->next = 0;
+                std_list_destroy(remove);
+                break;
+            }
+        }
+        return root;
+    }
+}
+
+fn std_list_append(root: *std_list_node_t, new: *std_list_node_t) *std_list_node_t {
+    if (root == 0) {
+        return 0;
+    }
+
+    def n: *std_list_node_t = root;
+    while (n->next != 0) {
+        n = n->next;
+    }
+
+    n->next = new;
+    return root;
+}
+
+fn std_list_len(root: *std_list_node_t) u32 {
+    def len: u32 = 0;
+    while (root != 0) {
+        len = len + 1;
+        root = root->next;
+    }
+    return len;
+}
+
+fn std_list_find(root: *std_list_node_t, func: fn(*u8) u8) *std_list_node_t {
+    while (root != 0) {
+        if (func(root->data)) {
+            return root;
+        }
+        root = root->next;
+    }
+    return 0;
+}
+
+fn std_list_foreach(root: *std_list_node_t, func: fn(*u8, *u8) void, state: *u8) void {
+    while (root != 0) {
+        func(root->data, state);
+        root = root->next;
+    }
+}
+
+#endif // STD_LIST

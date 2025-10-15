@@ -3,6 +3,7 @@ use jib::cpu::{Processor, ProcessorError};
 use jib::device::{InterruptClockDevice, SerialInputOutputDevice};
 use jib::memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment};
 use jib_asm::InstructionList;
+use std::io::Write;
 use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 use std::cell::RefCell;
@@ -71,6 +72,7 @@ struct ThreadState {
     inst_map: InstructionList,
     breakpoint: Option<u32>,
     step_count: u128,
+    history_file: Option<std::fs::File>,
 }
 
 impl ThreadState {
@@ -89,6 +91,7 @@ impl ThreadState {
             inst_map: InstructionList::default(),
             breakpoint: None,
             step_count: 0,
+            history_file: None,
         };
 
         s.reset()?;
@@ -135,6 +138,8 @@ impl ThreadState {
         self.step_count += 1;
         let res = self.cpu.step();
 
+        self.write_cpu_state();
+
         if let Err(e) = res {
             let msg = format!(
                 "{}\n{}",
@@ -146,6 +151,10 @@ impl ThreadState {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
+
+            if let Some(h) = self.history_file.as_mut() {
+                writeln!(h, "{msg}").unwrap();
+            }
 
             Err(ThreadToUi::LogMessage(msg))
         } else {
@@ -212,7 +221,36 @@ impl ThreadState {
             self.cpu.memory_set(i as u32, *val)?;
         }
 
+        if let Some(h) = self.history_file.as_mut() {
+            write!(h, "#Step,Instruction").unwrap();
+            for (i, _) in self.cpu.get_register_state().registers.iter().enumerate() {
+                write!(h, ",R{:02}", i).unwrap();
+            }
+            writeln!(h).unwrap();
+        }
+        self.write_cpu_state();
+
         Ok(())
+    }
+
+    fn write_cpu_state(&mut self) {
+        if let Some(h) = self.history_file.as_mut() {
+            let inst_details = if let Ok(inst) = self.cpu.get_current_inst()
+                && let Some(disp_val) = self.inst_map.get_display_inst(inst)
+            {
+                disp_val
+            } else {
+                format!("{}", self.cpu.get_current_op().unwrap())
+            };
+
+            write!(h, "{},{}", self.step_count, inst_details).unwrap();
+
+            for r in self.cpu.get_register_state().registers {
+                write!(h, ",{r:#010x}").unwrap();
+            }
+
+            writeln!(h).unwrap();
+        }
     }
 
     fn handle_msg(&mut self, msg: UiToThread) -> Option<ThreadToUi> {
@@ -297,7 +335,6 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     let mut state = ThreadState::new().unwrap();
 
     const THREAD_LOOP_MS: u64 = 50;
-    //const THREAD_LOOP_HZ: u64 = 1000 / THREAD_LOOP_MS;
 
     'mainloop: while state.run_thread {
         if state.running {
@@ -394,4 +431,100 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     }
 
     let _ = tx.send(ThreadToUi::ThreadExit);
+}
+
+#[cfg(test)]
+mod test {
+    use cbuoy::CodeGenerationOptions;
+    use jib::cpu::Processor;
+
+    use crate::cpu_thread::ThreadState;
+
+    fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
+        let tokens = cbuoy::parse_str(
+            in_code,
+            CodeGenerationOptions {
+                debug_locations: true,
+                ..Default::default()
+            },
+        )
+        .and_then(|x| x.get_assembler())
+        .unwrap();
+        let asm = jib_asm::assemble_tokens(tokens).unwrap();
+
+        let mut cpu = ThreadState::new().unwrap();
+        cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
+
+        let mut serial_output = Vec::new();
+        let mut iter_count = 0;
+
+        while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
+            match cpu.step_cpu(false) {
+                Err(crate::messages::ThreadToUi::LogMessage(msg)) => {
+                    panic!("unable to step CPU\n{msg}")
+                }
+                Err(err) => panic!("unable to step cpu - {err:?}"),
+                _ => (),
+            };
+            while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
+                serial_output.push(c);
+            }
+            iter_count += 1;
+            assert!(iter_count < 20000);
+        }
+
+        println!("Step Count: {}", cpu.step_count);
+        println!("{}", str::from_utf8(&serial_output).unwrap());
+
+        assert_eq!(str::from_utf8(&serial_output).unwrap(), expected_out);
+    }
+
+    #[test]
+    fn test_malloc() {
+        const EXPECTED: &str = "A\n\
+            @36864, 10\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            B\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            C\n\
+            @36864, 5\n\
+            @36886, 12\n\
+            @36910, 30\n\
+            @36952, 45\n\
+            D\n\
+            No Heap Allocations\n\
+            E\n\
+            @36864, 33\n\
+            F\n\
+            No Heap Allocations\n\
+            Heap Test Pass\n";
+
+        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_kmalloc.cb"));
+
+        run_cpu_serial_out_test(cb, EXPECTED);
+    }
+
+    #[test]
+    fn test_struct_ptr() {
+        static EXPECTED: &str = "Hello, world!\n\
+            13\n\
+            720\n\
+            13\n\
+            13\n\
+            13\n\
+            13\n\
+            0\n\
+            1\n\
+            1234\n\
+            Hello, world!\n\
+            7\n\
+            7\n";
+        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_struct_ptr.cb"));
+
+        run_cpu_serial_out_test(cb, EXPECTED);
+    }
 }

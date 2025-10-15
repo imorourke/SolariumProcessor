@@ -7,7 +7,7 @@ use std::{
 
 use jib::cpu::{DataType, Register};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdi, OpLdn,
+    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdn, OpLdno, OpRet,
 };
 
 use crate::{
@@ -15,22 +15,33 @@ use crate::{
     expressions::{Expression, RegisterDef, TemporaryStackTracker},
     functions::{FunctionDeclaration, FunctionDefinition},
     literals::{Literal, StringLiteral},
-    tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize},
-    typing::{FunctionParameter, Type},
+    tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize_str},
+    typing::{FunctionParameter, StructDefinition, Type},
+    utilities::load_to_register,
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
 
 pub trait Statement: Debug + Display {
     fn get_exec_code(
         &self,
+        options: &CodeGenerationOptions,
         temporary_stack_tracker: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError>;
 }
 
 pub trait GlobalStatement: Debug {
-    fn get_init_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
-    fn get_static_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
-    fn get_func_code(&self) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_init_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_static_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
+    fn get_func_code(
+        &self,
+        options: &CodeGenerationOptions,
+    ) -> Result<Vec<AsmTokenLoc>, TokenError>;
 }
 
 #[derive(Debug, Clone)]
@@ -277,10 +288,16 @@ struct UserTypes {
     types: HashMap<String, UserTypeOptions>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UserTypeReference {
     pub name: Token,
     db: Rc<RefCell<UserTypes>>,
+}
+
+impl Debug for UserTypeReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserTypeReference {{ name: {:?} }}", self.name)
+    }
 }
 
 impl UserTypeReference {
@@ -324,33 +341,73 @@ impl PartialEq for UserTypeReference {
 }
 
 #[derive(Debug, Clone)]
-pub struct CompilingState {
-    init_loc: u32,
-    statements: Vec<Rc<dyn GlobalStatement>>,
-    global_scope: HashMap<String, GlobalType>,
-    user_types: Rc<RefCell<UserTypes>>,
-    string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
-    current_id: usize,
-    full_program: bool,
-    scope_manager: Option<ScopeManager>,
+pub enum ProgramType {
+    Application,
+    Kernel { stack_loc: u32, start_offset: u32 },
 }
 
-impl Default for CompilingState {
+impl ProgramType {
+    pub const DEFAULT_KERNEL: Self = ProgramType::Kernel {
+        stack_loc: 0x1000,
+        start_offset: 0x2000,
+    };
+}
+
+impl Default for ProgramType {
     fn default() -> Self {
-        Self {
-            init_loc: 0x2000,
-            current_id: 0,
-            full_program: true,
-            scope_manager: None,
-            global_scope: HashMap::default(),
-            user_types: Rc::default(),
-            string_literals: RefCell::default(),
-            statements: Vec::default(),
+        Self::DEFAULT_KERNEL
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct CodeGenerationOptions {
+    pub prog_type: ProgramType,
+    pub debug_locations: bool,
+}
+
+impl CodeGenerationOptions {
+    pub fn load_label(&self, r: Register, s: String) -> [AsmToken; 2] {
+        [self.load_next_label_inst(r), AsmToken::LoadLoc(s)]
+    }
+
+    pub fn load_next_label_inst(&self, r: Register) -> AsmToken {
+        let arg = ArgumentType::new(r, DataType::U32);
+        AsmToken::OperationLiteral(if matches!(self.prog_type, ProgramType::Application) {
+            Box::new(OpLdno::new(arg))
+        } else {
+            Box::new(OpLdn::new(arg))
+        })
+    }
+
+    pub fn load_label_inst_name(&self) -> String {
+        if matches!(self.prog_type, ProgramType::Application) {
+            OpLdno::name()
+        } else {
+            OpLdn::name()
         }
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct CompilingState {
+    statements: Vec<Rc<dyn GlobalStatement>>,
+    struct_defs: Vec<(Token, Rc<StructDefinition>)>,
+    global_scope: HashMap<String, GlobalType>,
+    user_types: Rc<RefCell<UserTypes>>,
+    string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
+    current_id: usize,
+    scope_manager: Option<ScopeManager>,
+    options: CodeGenerationOptions,
+}
+
 impl CompilingState {
+    pub fn new(options: CodeGenerationOptions) -> Self {
+        Self {
+            options,
+            ..Default::default()
+        }
+    }
+
     fn blank_token_loc(tok: AsmToken) -> AsmTokenLoc {
         AsmTokenLoc {
             tok,
@@ -364,6 +421,10 @@ impl CompilingState {
         current
     }
 
+    pub fn get_options(&self) -> &CodeGenerationOptions {
+        &self.options
+    }
+
     pub fn get_assembler(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         fn add_name(asm: &mut Vec<AsmTokenLoc>, name: &str) {
             asm.extend_from_slice(&[
@@ -374,18 +435,22 @@ impl CompilingState {
 
         let init_label = "program_init".to_string();
 
-        let mut asm = if self.full_program {
+        let mut asm = if let ProgramType::Kernel {
+            stack_loc: _,
+            start_offset,
+        } = &self.options.prog_type
+        {
             vec![
                 Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
                 Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
-                Self::blank_token_loc(AsmToken::ChangeAddress(self.init_loc)),
+                Self::blank_token_loc(AsmToken::ChangeAddress(*start_offset)),
             ]
         } else {
             Vec::new()
         };
 
-        for gv in self.global_scope.values() {
-            if let GlobalType::UserType(tok, UserTypeOptions::ConcreteType(Type::Struct(s))) = gv {
+        if self.options.debug_locations {
+            for (tok, s) in self.struct_defs.iter() {
                 asm.push(tok.to_asm(AsmToken::LocationComment(format!(
                     "+struct({}) {}",
                     tok,
@@ -415,52 +480,75 @@ impl CompilingState {
         asm.push(Self::blank_token_loc(AsmToken::CreateLabel(
             init_label.clone(),
         )));
-        asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
-            OpLdi::new(
-                ArgumentType::new(Register::StackPointer, DataType::U16),
-                0x1000,
-            ),
-        ))));
+
+        if let ProgramType::Kernel { stack_loc, .. } = &self.options.prog_type {
+            asm.extend(
+                load_to_register(Register::StackPointer, *stack_loc)
+                    .into_iter()
+                    .map(Self::blank_token_loc),
+            );
+        }
 
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_init_code()?);
+            asm.extend_from_slice(&s.get_init_code(&self.options)?);
         }
 
         if let Some(GlobalType::Function(f)) = self.global_scope.get("main") {
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCopy::new(Register::ArgumentBase.into(), Register::StackPointer.into()),
             ))));
-            asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
-                OpLdn::new(ArgumentType::new(RegisterDef::SPARE, DataType::U32)),
-            ))));
-            asm.push(Self::blank_token_loc(AsmToken::LoadLoc(
-                f.get_entry_label().to_string(),
-            )));
+            asm.extend(
+                self.options
+                    .load_label(RegisterDef::SPARE, f.get_entry_label().to_string())
+                    .into_iter()
+                    .map(Self::blank_token_loc),
+            );
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCall::new(RegisterDef::SPARE.into()),
             ))));
         }
 
-        asm.extend_from_slice(
-            &[
-                AsmToken::Comment("Program Halt".into()),
-                AsmToken::OperationLiteral(Box::new(OpHalt)),
-            ]
-            .map(Self::blank_token_loc),
-        );
+        if matches!(self.options.prog_type, ProgramType::Application) {
+            asm.extend(
+                [
+                    AsmToken::Comment("Program End".into()),
+                    AsmToken::OperationLiteral(Box::new(OpRet)),
+                ]
+                .map(Self::blank_token_loc),
+            );
+        } else {
+            asm.extend(
+                [
+                    AsmToken::Comment("Program Halt".into()),
+                    AsmToken::OperationLiteral(Box::new(OpHalt)),
+                ]
+                .map(Self::blank_token_loc),
+            );
+        }
 
         add_name(&mut asm, "Static");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_static_code()?);
+            asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
-        for s in self.string_literals.borrow().values() {
-            asm.extend_from_slice(&s.get_static_code()?);
+        let string_vals = {
+            let mut literals = self
+                .string_literals
+                .borrow()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            literals.sort_by(|a, b| a.get_token().get_value().cmp(b.get_token().get_value()));
+            literals
+        };
+
+        for s in string_vals {
+            asm.extend_from_slice(&s.get_static_code(&self.options)?);
         }
 
         add_name(&mut asm, "Functions");
         for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_func_code()?);
+            asm.extend_from_slice(&s.get_func_code(&self.options)?);
         }
 
         Ok(asm)
@@ -509,9 +597,39 @@ impl CompilingState {
     }
 
     pub fn add_user_type(&mut self, name: Token, ty: UserTypeOptions) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::UserType(name, ty))?;
+        let ret = match self.global_scope.entry(name.get_value().to_string()) {
+            Entry::Occupied(mut e) => {
+                let opaque_token = match e.get() {
+                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
+                    _ => {
+                        return Err(name.into_err("unable to find opaque type with provided name"));
+                    }
+                };
+
+                if matches!(ty, UserTypeOptions::ConcreteType(_)) {
+                    if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
+                        self.struct_defs.push((opaque_token.clone(), s.clone()));
+                    }
+                    *e.get_mut() = GlobalType::UserType(opaque_token, ty);
+                    Ok(())
+                } else {
+                    Err(name.into_err(
+                        "provided type is not a concrete type to upgrade opaque type with",
+                    ))
+                }
+            }
+            Entry::Vacant(e) => {
+                if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
+                    self.struct_defs.push((name.clone(), s.clone()));
+                }
+                e.insert(GlobalType::UserType(name, ty));
+                Ok(())
+            }
+        };
+
         self.update_user_types();
-        Ok(())
+
+        ret
     }
 
     pub fn get_user_type(&self, name: &Token) -> Result<UserTypeReference, TokenError> {
@@ -567,22 +685,19 @@ impl CompilingState {
     }
 
     pub fn add_function(&mut self, func: Rc<dyn FunctionDefinition>) -> Result<(), TokenError> {
-        match self
+        if let Entry::Occupied(e) = self
             .global_scope
             .entry(func.get_token().get_value().to_string())
         {
-            Entry::Occupied(e) => {
-                if let GlobalType::FunctionDeclaration(_) = e.get() {
-                    e.remove_entry();
-                } else {
-                    return Err(func.get_token().clone().into_err(format!(
-                        "token already exists as {} - cannot add as a function",
-                        e.get()
-                    )));
-                };
-            }
-            _ => (),
-        };
+            if let GlobalType::FunctionDeclaration(_) = e.get() {
+                e.remove_entry();
+            } else {
+                return Err(func.get_token().clone().into_err(format!(
+                    "token already exists as {} - cannot add as a function",
+                    e.get()
+                )));
+            };
+        }
 
         self.add_to_global_scope(GlobalType::Function(func))
     }
@@ -596,30 +711,6 @@ impl CompilingState {
                 tv.types.insert(n.clone(), t.clone());
             }
         }
-    }
-
-    pub fn upgrade_opaque_type(&mut self, name: Token, ty: Type) -> Result<(), TokenError> {
-        let ret = match self.global_scope.entry(name.get_value().to_string()) {
-            Entry::Occupied(mut e) => {
-                let valid = match e.get() {
-                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
-                    _ => {
-                        return Err(name
-                            .clone()
-                            .into_err("unable to find opaque type with provided name"));
-                    }
-                };
-                *e.get_mut() = GlobalType::UserType(valid, UserTypeOptions::ConcreteType(ty));
-                Ok(())
-            }
-            _ => Err(name.clone().into_err(format!(
-                "opaque type with provided name {name} not found for upgrade"
-            ))),
-        };
-
-        self.update_user_types();
-
-        ret
     }
 
     fn add_to_global_scope(&mut self, t: GlobalType) -> Result<(), TokenError> {
@@ -693,6 +784,16 @@ impl CompilingState {
         })
     }
 
+    pub fn get_struct_definition(&self, name: &str) -> Option<Rc<StructDefinition>> {
+        for (t, s) in &self.struct_defs {
+            if t.get_value() == name {
+                return Some(s.clone());
+            }
+        }
+
+        None
+    }
+
     pub fn get_identifier_type(&self, name: &str) -> Option<Type> {
         if is_identifier(name) {
             if let Some(lv_type) = self.scope_manager.as_ref().and_then(|sm| {
@@ -717,7 +818,7 @@ impl CompilingState {
             }
         }
 
-        if let Ok(iter) = tokenize(name) {
+        if let Ok(iter) = tokenize_str(name) {
             let mut tokens = TokenIter::from(&iter);
             Type::read_type(&mut tokens, self).ok()
         } else {

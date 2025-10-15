@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use crate::{
     argument::{ArgumentError, ArgumentRegister, ArgumentType},
-    immediate::{parse_imm_i16, ImmediateError},
+    immediate::{ImmediateError, parse_imm_i16},
 };
 use jib::cpu::{Opcode, Processor};
 
@@ -889,6 +889,7 @@ InstSingleArg!(OpPopr, Processor::OP_POP_REG);
 InstSingleArg!(OpJmp, Processor::OP_JUMP);
 InstSingleArg!(OpJmpr, Processor::OP_JUMP_REL);
 InstSingleArgDataType!(OpLdn, Processor::OP_LOAD_NEXT);
+InstSingleArgDataType!(OpLdno, Processor::OP_LOAD_NEXT_OFFSET);
 
 InstSingleArg!(OpTz, Processor::OP_TEST_ZERO);
 InstSingleArg!(OpTnz, Processor::OP_TEST_NOT_ZERO);

@@ -8,7 +8,7 @@ use jib_asm::{
 
 use crate::{
     TokenError,
-    compiler::Statement,
+    compiler::{CodeGenerationOptions, Statement},
     expressions::{RegisterDef, TemporaryStackTracker},
     tokenizer::Token,
 };
@@ -64,6 +64,7 @@ impl MemcpyStatement {
 impl Statement for MemcpyStatement {
     fn get_exec_code(
         &self,
+        options: &CodeGenerationOptions,
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
         let mut asm = Vec::new();
@@ -74,7 +75,9 @@ impl Statement for MemcpyStatement {
 
         asm.extend_from_slice(&load_to_register(spare_reg, self.size as u32));
 
-        asm.push(AsmToken::Comment(format!("memcpy {}", self.token)));
+        if options.debug_locations {
+            asm.push(AsmToken::Comment(format!("memcpy {}", self.token)));
+        }
 
         asm.push(AsmToken::OperationLiteral(Box::new(OpPush::new(
             self.to_addr.into(),

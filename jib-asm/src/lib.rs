@@ -8,9 +8,9 @@ use std::{collections::HashMap, fmt::Display, rc::Rc, sync::LazyLock};
 pub use instructions::{
     INST_SIZE, Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl,
     OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp,
-    OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr,
-    OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle,
-    OpTneq, OpTnz, OpTz,
+    OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop,
+    OpPopr, OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge,
+    OpTl, OpTle, OpTneq, OpTnz, OpTz,
 };
 
 pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
@@ -108,10 +108,14 @@ pub struct LocationInfo {
     pub line: usize,
     pub column: usize,
     pub text: Option<Rc<str>>,
+    pub file: Option<Rc<str>>,
 }
 
 impl fmt::Display for LocationInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(i) = &self.file {
+            write!(f, "{i}")?;
+        }
         write!(f, "[{}]", self.line)?;
         if let Some(txt) = &self.text {
             write!(f, " {}", txt)
@@ -504,9 +508,9 @@ impl Default for InstructionList {
         let inst = create_instruction_map!(
             OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBshl, OpBshr, OpBxor, OpCall, OpConv, OpCopy,
             OpDiv, OpHalt, OpInt, OpIntoff, OpBrk, OpInton, OpIntr, OpJmp, OpJmpr, OpJmpri, OpLd,
-            OpLdi, OpLdn, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr, OpPush, OpRem,
-            OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle,
-            OpTneq, OpTnz, OpTz
+            OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr,
+            OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge,
+            OpTl, OpTle, OpTneq, OpTnz, OpTz
         );
 
         let inst_map = inst.iter().map(|(_, n, f, _)| (n.to_owned(), *f)).collect();
@@ -656,8 +660,10 @@ impl TokenList {
                 text_lines.push(format!("{}", i.tok).replace("\n", "\\n"));
             }
 
-            text_lines.push(format!(";Program Start: {:04x}", min_addr));
-            text_lines.push(";Labels:".to_string());
+            let mut label_text = Vec::new();
+
+            label_text.push(format!(";Program Start: {:04x}", min_addr));
+            label_text.push(";Labels:".to_string());
             let mut locs: Vec<(u32, &String)> = state
                 .labels
                 .iter()
@@ -665,11 +671,11 @@ impl TokenList {
                 .collect::<Vec<_>>();
             locs.sort_by(|a, b| a.0.cmp(&b.0));
             for (v, k) in locs {
-                text_lines.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
+                label_text.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
             }
-            text_lines.push(";Debug:".to_string());
+            label_text.push(";Debug:".to_string());
             for (addr, cmt) in state.debug_comment.iter() {
-                text_lines.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
+                label_text.push(format!(";  {addr:#06x} => {}", cmt.replace("\n", "\\n")));
             }
 
             return Ok(AssemblerOutput {
@@ -678,6 +684,7 @@ impl TokenList {
                 labels: state.labels,
                 debug: state.debug_comment,
                 assembly_lines: text_lines,
+                assembly_debug: label_text,
             });
         }
 
@@ -685,13 +692,14 @@ impl TokenList {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct AssemblerOutput {
     pub start_address: u32,
     pub bytes: Vec<u8>,
     pub labels: HashMap<String, u32>,
     pub debug: Vec<(u32, String)>,
     pub assembly_lines: Vec<String>,
+    pub assembly_debug: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -815,6 +823,7 @@ pub fn assemble_lines<'a, T: Iterator<Item = &'a str>>(
             line: i + 1,
             column: 0,
             text: Some(l.to_string().into()),
+            file: None, // TODO - Read in file if present?
         };
         if let Err(e) = state.parse_line(l, loc.clone()) {
             return Err(AssemblerErrorLoc { err: e, loc });

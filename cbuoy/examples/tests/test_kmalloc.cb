@@ -1,0 +1,39 @@
+#include ../components/kmalloc.cb
+#include ../components/kserialio.cb
+
+fn main() void {
+    def a: *u8 = k_malloc(10);
+    def b: *u8 = k_malloc(12);
+    def c: *u8 = k_malloc(30);
+    def d: *u8 = k_malloc(45);
+
+    k_io_print("A\n");
+    k_heap_print();
+
+    k_free(a);
+    k_io_print("B\n");
+    k_heap_print();
+
+    a = k_malloc(5);
+    k_io_print("C\n");
+    k_heap_print();
+
+    k_free(a);
+    k_free(b);
+    k_free(c);
+    k_free(d);
+
+    k_io_print("D\n");
+    k_heap_print();
+
+    a = k_malloc(33);
+
+    k_io_print("E\n");
+    k_heap_print();
+
+    k_free(a);
+    k_io_print("F\n");
+    k_heap_print();
+
+    k_io_print("Heap Test Pass\n");
+}

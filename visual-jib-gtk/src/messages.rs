@@ -1,7 +1,7 @@
 use jib::cpu::RegisterManager;
 use jib_asm::AssemblerOutput;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum UiToThread {
     CpuStep,
     CpuStart,
@@ -16,7 +16,7 @@ pub enum UiToThread {
     Exit,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ThreadToUi {
     ResponseMemory(u32, Vec<u8>),
     SerialOutput(String),

@@ -1,0 +1,15 @@
+#ifndef K_CPU
+#define K_CPU
+
+const K_CPU_NUM_REGISTERS: u32 = 32;
+const K_CPU_BYTES_PER_WORD: u32 = 4;
+
+const K_CPU_REG_PROGRAM_COUNTER: u32 = 0;
+const K_CPU_REG_STATUS: u32 = 1;
+const K_CPU_REG_STACK_POINTER: u32 = 2;
+const K_CPU_REG_LOAD_OFFSET: u32 = 3;
+const K_CPU_REG_RETURN: u32 = 4;
+const K_CPU_REG_ARGUMENT_BASE: u32 = 5;
+const K_CPU_REG_FIRST_GP: u32 = 6;
+
+#endif // K_CPU

@@ -1,11 +1,6 @@
 global TEST_STR: *u8 = "Hello, world!";
 global SERIAL_OUT_LOC: *u8 = 0xA000u32 + 5;
 
-struct TEST {
-    a: u16;
-    b: u32;
-}
-
 fn print(c: *u8) void {
     while (*c != 0) {
         *SERIAL_OUT_LOC = *c;
@@ -32,7 +27,7 @@ fn print_uint(v: u32) void {
             v = v / 10;
             cp = cp + 1;
         }
-        while (cp != &chars) {
+        while (cp != &chars[0]) {
             cp = cp - 1;
             print_digit(*cp);
         }
@@ -40,14 +35,6 @@ fn print_uint(v: u32) void {
 }
 
 fn main() void {
-    def s: TEST;
-    s.a = 0;
-    s.b = 183;
-
-    print_uint(s.a);
-    print("\n");
-    print_uint(s.b);
-    print("\n");
     print_uint(1234);
     print("\n");
     print(TEST_STR);
