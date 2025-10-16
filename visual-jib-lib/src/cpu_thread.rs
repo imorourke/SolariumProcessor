@@ -438,7 +438,7 @@ mod test {
     use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
 
-    use crate::cpu_thread::ThreadState;
+    use crate::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR, cpu_thread::ThreadState};
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
         let tokens = cbuoy::parse_str(
@@ -503,9 +503,7 @@ mod test {
             No Heap Allocations\n\
             Heap Test Pass\n";
 
-        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_kmalloc.cb"));
-
-        run_cpu_serial_out_test(cb, EXPECTED);
+        run_cpu_serial_out_test(EXAMPLE_CB_TEST_KMALLOC, EXPECTED);
     }
 
     #[test]
@@ -523,8 +521,6 @@ mod test {
             Hello, world!\n\
             7\n\
             7\n";
-        let cb = include_str!(concat!(env!("OUT_DIR"), "/test_struct_ptr.cb"));
-
-        run_cpu_serial_out_test(cb, EXPECTED);
+        run_cpu_serial_out_test(EXAMPLE_CB_TEST_STRUCT_PTR, EXPECTED);
     }
 }

@@ -1,19 +1,12 @@
 [package]
-name = "visual-jib-gtk"
+name = "visual-jib-lib"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-#default = ["write_history"]
-#write_history = []
-
 [dependencies]
-async-channel = "2"
-gtk = { version = "0.10", package = "gtk4", features = ["v4_6"] }
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
-visual-jib-lib = { path = "../visual-jib-lib", version = "*" }
 
 [build-dependencies]
 cbuoy = { path = "../cbuoy", version = "*" }

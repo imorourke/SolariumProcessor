@@ -1,10 +1,11 @@
-use crate::cpu_thread::cpu_thread;
-use crate::messages::{ThreadToUi, UiToThread};
 use cbuoy::CodeGenerationOptions;
 use gtk::glib::clone;
 use gtk::{Application, ApplicationWindow};
 use gtk::{glib, prelude::*};
 use jib::cpu::RegisterManager;
+use visual_jib_lib::EXAMPLE_CB_THREADING;
+use visual_jib_lib::cpu_thread::cpu_thread;
+use visual_jib_lib::messages::{ThreadToUi, UiToThread};
 
 pub fn build_ui(app: &Application) {
     // Create the tx/rx for the secondary thread
@@ -156,7 +157,7 @@ fn build_code_column(
             true,
         ),
         (
-            include_str!(concat!(env!("OUT_DIR"), "/threading.cb")),
+            EXAMPLE_CB_THREADING,
             "Build",
             "C/B",
             buffer_cbuoy_code.clone(),

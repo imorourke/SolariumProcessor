@@ -7,5 +7,6 @@ edition = "2024"
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
+visual-jib-lib = { path = "../visual-jib-lib", version = "*" }
 eframe = "0.32"
 image = "0.25"

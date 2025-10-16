@@ -1,6 +1,4 @@
-mod cpu_thread;
 mod main_window;
-mod messages;
 
 use gtk::prelude::*;
 use gtk::{Application, glib};

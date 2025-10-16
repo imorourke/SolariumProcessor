@@ -7,6 +7,7 @@ members = [
     "jib",
     "visual-jib-gtk",
     "visual-jib-egui",
+    "visual-jib-lib",
 ]
 default-members = ["visual-jib-egui"]
 resolver = "2"
