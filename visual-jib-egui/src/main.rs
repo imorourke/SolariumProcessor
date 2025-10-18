@@ -1,6 +1,6 @@
 use std::{io::Cursor, thread::JoinHandle};
 
-use eframe::egui::{self, IconData};
+use eframe::egui::{self, IconData, Visuals};
 use visual_jib_lib::{
     EXAMPLE_CB_THREADING,
     messages::{ThreadToUi, UiToThread},
@@ -50,7 +50,7 @@ impl eframe::App for VisualJib {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_pixels_per_point(1.5);
+        ctx.set_visuals(Visuals::light());
 
         while let Ok(msg) = self.rx_ui.recv_timeout(std::time::Duration::from_millis(0)) {
             match msg {
@@ -116,7 +116,8 @@ impl eframe::App for VisualJib {
                 ui.vertical(|ui| {
                     ui.heading("Code Entry");
                     if ui.button("Compile").clicked() {}
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both()
+                        .stick_to_right(true)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
                             ui.add(egui::TextEdit::multiline(&mut self.code_cbuoy).code_editor());
