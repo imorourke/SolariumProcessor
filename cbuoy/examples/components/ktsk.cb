@@ -74,7 +74,7 @@ fn k_tsk_cleanup(remove_val: std_list_node_t) void {
     if (K_TSK_CURR == 0) asm {
         "%LDLOC% 15:u32";
         ".loadloc %{K_TSK_ORIG}%";
-        "ld 16:u16 15";
+        "ld 16:u32 15";
         "ldi 14:u16 0";
         "sav 15:u32 14";
         "copy $sp 16";
