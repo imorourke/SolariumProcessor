@@ -1,16 +1,12 @@
 #ifndef K_IRQ
 #define K_IRQ
 
-#include kserialio.cb
-
 const K_IRQ_BASE: *u32 = 0x100;
 
 fn k_irq_set(num: u32, func: fn() void) fn() void {
     asm { "intoff"; }
     def loc: *u32 = K_IRQ_BASE; // TODO - Fix bug with adding here not treating as a pointer
     loc = loc + num;
-    k_io_print_stat("IRQ Loc", loc);
-    k_io_print_stat("IRQ Stat", func);
     def retval: fn() void = *loc;
     *loc = func;
     return retval;

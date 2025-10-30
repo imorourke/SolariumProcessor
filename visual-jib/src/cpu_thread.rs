@@ -335,10 +335,11 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     let mut state = ThreadState::new().unwrap();
 
     const THREAD_LOOP_MS: u64 = 50;
+    const MSGS_PER_LOOP: u64 = 1000;
 
     'mainloop: while state.run_thread {
         if state.running {
-            for _ in 0..1000 {
+            for _ in 0..MSGS_PER_LOOP {
                 let resp = match rx.try_recv() {
                     Ok(msg) => state.handle_msg(msg),
                     Err(TryRecvError::Disconnected) => break 'mainloop,

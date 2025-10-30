@@ -4,13 +4,23 @@
 #include components/kclock.cb
 
 fn main_tsk_a() void {
-    k_io_print("TSK_A\n");
-    asm { "brk"; }
+    def count: u32 = 0;
+    while (count < 100) {
+        if (count % 10 == 0) {
+            k_io_print("TSK_A\n");
+        }
+        count = count + 1;
+    }
 }
 
 fn main_tsk_b() void {
+    def count: u32 = 0;
     while (1) {
-        k_io_print("TSK_B\n");
+        if (count % 20 == 0) {
+            k_io_print("TSK_B\n");
+            count = 0;
+        }
+        count = count + 1;
     }
 }
 

@@ -36,15 +36,6 @@ asmfn k_tsk_main() void {
 
 fnint k_tsk_yield() void {
     asm { "intoff"; }
-    if (K_TSK_ROOT == 0) asm {
-        "%LDLOC% 15:u32";
-        ".loadloc %{K_TSK_ORIG}%";
-        "ld 16:u16 15";
-        "ldi 14:u16 0";
-        "sav 15:u32 14";
-        "copy $sp 16";
-        "retint";
-    }
     asm {
         "%LDLOC% 14:u32";
         ".loadloc %{K_TSK_CURR}%";
@@ -63,6 +54,7 @@ fnint k_tsk_yield() void {
         "ld 14:u32 14";
         "ld 14:u32 14";
         "copy $sp 14";
+        "retint";
     }
 }
 
@@ -78,8 +70,30 @@ fn k_tsk_cleanup(remove_val: std_list_node_t) void {
     if (K_TSK_CURR == 0) {
         K_TSK_CURR = K_TSK_ROOT;
     }
-    // TODO - yield without incrementing value - otherwise we will skip the actual next thread and skip a cycle
-    k_tsk_yield();
+
+    if (K_TSK_CURR == 0) asm {
+        "%LDLOC% 15:u32";
+        ".loadloc %{K_TSK_ORIG}%";
+        "ld 16:u16 15";
+        "ldi 14:u16 0";
+        "sav 15:u32 14";
+        "copy $sp 16";
+        "ret";
+    }
+
+    // Load the new task pointer and continue execution (copied from the end of k_tsk_yield)
+    // This needs to return from asm because we allocate stack space above for the temporary frame pointer.
+    // So, technically we are wasting some bytes off the end to cleanup our stack space. But, because we
+    // are switching tasks, we are okay with loosing this space. But those instructions will never be hit.
+    asm {
+        "%LDLOC% 14:u32";
+        ".loadloc %{K_TSK_CURR}%";
+        "ld 14:u32 14";
+        "ld 14:u32 14";
+        "ld 14:u32 14";
+        "copy $sp 14";
+        "ret";
+    }
 }
 
 fn k_tsk_init(func: fn() void, stack: *u8) void {
@@ -88,17 +102,21 @@ fn k_tsk_init(func: fn() void, stack: *u8) void {
     def new_node: *std_list_node_t = std_list_create_node(current);
 
     current->stack = stack;
-    def return_stack: *u32 = current->stack;
-    def start_stack: *u32 = return_stack + K_CPU_NUM_REGISTERS;
-    return_stack[K_CPU_REG_PROGRAM_COUNTER] = k_tsk_cleanup;
-    return_stack[K_CPU_REG_STACK_POINTER] = start_stack;
-    k_io_print_stat("Start Stack 1", return_stack[K_CPU_REG_STACK_POINTER]);
-    start_stack[K_CPU_REG_PROGRAM_COUNTER] = func;
-    start_stack[K_CPU_REG_STATUS] = 1; // Enable Interrupts on the new stack
-    start_stack[K_CPU_REG_STACK_POINTER] = start_stack + K_CPU_NUM_REGISTERS;
-    k_io_print_stat("Start Stack 2", start_stack[K_CPU_REG_STACK_POINTER]);
-    k_io_print_stat("Start Stack DIFF", start_stack[K_CPU_REG_STACK_POINTER] : u32 - return_stack[K_CPU_REG_STACK_POINTER] : u32);
-    current->last_ptr = start_stack[2];
+    def return_stack: *k_cpu_stack_frame_t = current->stack;
+    def start_stack: *k_cpu_stack_frame_t = return_stack + 1;
+
+    // Create the cleanup stack frame
+    return_stack->program_counter = k_tsk_cleanup;
+    return_stack->argument_base = new_node;
+    return_stack->stack_pointer = return_stack;
+
+    // Create the main stack frame for the requested function
+    start_stack->program_counter = func;
+    start_stack->status_flags = 1; // Enable Interrupts on the new stack
+    start_stack->stack_pointer = start_stack;
+
+    // Set the last pointer off the end of the second stack frame
+    current->last_ptr = (return_stack + 2) : u32;
 
     if (K_TSK_ROOT == 0) {
         K_TSK_ROOT = new_node;
@@ -106,9 +124,6 @@ fn k_tsk_init(func: fn() void, stack: *u8) void {
     } else {
         K_TSK_ROOT = std_list_append(K_TSK_ROOT, new_node);
     }
-
-    k_io_print_stat("Current Thread Count", std_list_len(K_TSK_ROOT));
-    k_io_print("\n");
 }
 
 #endif // K_TSK
