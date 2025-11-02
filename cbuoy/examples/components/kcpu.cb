@@ -22,4 +22,9 @@ struct k_cpu_stack_frame_t {
     gp: [26]u32;
 }
 
+asmfn k_cpu_reset() void {
+    "reset";
+    "ret";
+}
+
 #endif // K_CPU
