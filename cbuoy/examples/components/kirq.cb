@@ -5,8 +5,7 @@ const K_IRQ_BASE: *u32 = 0x100;
 
 fn k_irq_set(num: u32, func: fn() void) fn() void {
     asm { "intoff"; }
-    def loc: *u32 = K_IRQ_BASE; // TODO - Fix bug with adding here not treating as a pointer
-    loc = loc + num;
+    def loc: *u32 = K_IRQ_BASE + num;
     def retval: fn() void = *loc;
     *loc = func;
     return retval;

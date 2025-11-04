@@ -22,22 +22,6 @@ use crate::{
 
 static OPERATIONS: LazyLock<OperatorManager> = LazyLock::new(OperatorManager::default);
 
-#[derive(Debug, Clone)]
-pub struct Literal {
-    token: Token,
-    value: LiteralValue,
-}
-
-impl Literal {
-    pub fn new(token: Token, value: LiteralValue) -> Self {
-        Self { token, value }
-    }
-
-    pub fn get_value(&self) -> &LiteralValue {
-        &self.value
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LiteralValue {
     U8(u8),
@@ -203,13 +187,43 @@ impl LiteralValue {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Literal {
+    token: Token,
+    dtype: Type,
+    value: LiteralValue,
+}
+
+impl Literal {
+    pub fn new(token: Token, dtype: Type, value: LiteralValue) -> Self {
+        Self {
+            token,
+            dtype,
+            value,
+        }
+    }
+
+    pub fn new_value(token: Token, value: LiteralValue) -> Self {
+        Self {
+            token,
+            dtype: Type::Primitive(value.get_dtype()),
+            value,
+        }
+    }
+
+    pub fn get_value(&self) -> &LiteralValue {
+        &self.value
+    }
+}
+
 impl Expression for Literal {
     fn get_token(&self) -> &Token {
         &self.token
     }
 
     fn get_type(&self) -> Result<Type, TokenError> {
-        Ok(Type::Primitive(self.value.get_dtype()))
+        //Ok(Type::Primitive(self.value.get_dtype()))
+        Ok(self.dtype.clone())
     }
 
     fn load_value_to_register(
@@ -363,6 +377,7 @@ impl TryFrom<Token> for Literal {
 
         Ok(Literal {
             token: value,
+            dtype: Type::Primitive(res.get_dtype()),
             value: res,
         })
     }

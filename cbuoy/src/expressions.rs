@@ -268,8 +268,9 @@ impl Expression for UnaryExpression {
     }
 
     fn simplify(&self) -> Option<Literal> {
-        LiteralValue::unary(*self.base.simplify()?.get_value(), self.op)
-            .map_or(None, |x| Some(Literal::new(self.token.clone(), x)))
+        LiteralValue::unary(*self.base.simplify()?.get_value(), self.op).map_or(None, |x| {
+            Some(Literal::new(self.token.clone(), self.get_type().ok()?, x))
+        })
     }
 }
 
@@ -531,7 +532,7 @@ impl BinaryArithmeticExpression {
     }
 
     fn get_ptr_size(t: &Type) -> Option<usize> {
-        match t {
+        match t.remove_const() {
             Type::Pointer(base) => Some(base.byte_size()),
             _ => None,
         }
@@ -551,7 +552,7 @@ impl Expression for BinaryArithmeticExpression {
             && let Some(sb) = Self::get_ptr_size(&tb)
         {
             if sa == sb {
-                Ok(Type::Primitive(DataType::I32))
+                Ok(Type::Primitive(DataType::U32))
             } else {
                 Err(self.token.clone().into_err(format!(
                     "cannot perform arithmetic with {ta} size {sa} and {tb} size {sb}"
@@ -587,7 +588,7 @@ impl Expression for BinaryArithmeticExpression {
         if let Ok(v) =
             LiteralValue::operation(*lhs_val.get_value(), *rhs_val.get_value(), self.operation)
         {
-            Some(Literal::new(self.token.clone(), v))
+            Some(Literal::new(self.token.clone(), self.get_type().ok()?, v))
         } else {
             None
         }
@@ -872,7 +873,11 @@ impl Expression for AsExpression {
             let val = lit.get_value();
             let res = LiteralValue::from_u32(convert_types(val.as_u32(), val.get_dtype(), dt), dt);
 
-            Some(Literal::new(lit.get_token().clone(), res))
+            Some(Literal::new(
+                lit.get_token().clone(),
+                self.get_type().ok()?,
+                res,
+            ))
         } else {
             None
         }
@@ -1197,7 +1202,7 @@ impl Expression for ArrayIndexExpression {
             self.index_expr.get_token().clone(),
             BinaryArithmeticOperation::Product,
             self.index_expr.clone(),
-            Rc::new(Literal::new(
+            Rc::new(Literal::new_value(
                 self.index_expr.get_token().clone(),
                 LiteralValue::U32(type_size),
             )),
@@ -1513,7 +1518,7 @@ fn parse_expression_without_binary_expressions(
             Type::read_type(tokens, state)?
         };
         tokens.expect(")")?;
-        Rc::new(Literal::new(
+        Rc::new(Literal::new_value(
             first.clone(),
             LiteralValue::U32(input_t.byte_size() as u32),
         ))
