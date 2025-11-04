@@ -26,4 +26,24 @@ fn strlen(c: *u8) u32 {
 }
 #endif
 
+fn strtrim(s: *u8) *u8 {
+    while ((*s == ' ') || (*s == '\n')) {
+        s = s + 1;
+    }
+    def end: *u8 = s;
+    while ((*end != ' ') && (*end != '\n') && (*end != 0)) {
+        end = end + 1;
+    }
+    *end = 0;
+    return s;
+}
+
+fn strcmp(s1: *u8, s2: *u8) i32 {
+    while ((*s1 == *s2) && (*s1 != 0)) {
+        s1 = (s1 : u32) + 1;
+        s2 = (s2 : u32) + 1;
+    }
+    return ((*s1) : i32) - ((*s2) : i32);
+}
+
 #endif // STD_STRING
