@@ -42,9 +42,9 @@ global stack_b: [1024]u8;
 global stack_c: [1024]u8;
 
 fn main() void {
-    k_tsk_init(main_tsk_a, &stack_a[0]);
-    k_tsk_init(main_tsk_b, &stack_b[0]);
-    k_tsk_init(main_tsk_c, &stack_c[0]);
+    k_tsk_init(main_tsk_a, stack_a);
+    k_tsk_init(main_tsk_b, stack_b);
+    k_tsk_init(main_tsk_c, stack_c);
 
     k_irq_set(1, k_tsk_yield);
     k_clock_configure(1000, 1);
