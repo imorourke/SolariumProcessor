@@ -704,7 +704,10 @@ impl Processor {
 
         match opcode {
             Self::OP_NOOP | Self::OP_DEBUG_BREAK => (),
-            Self::OP_RESET => self.reset(ResetType::Soft)?,
+            Self::OP_RESET => {
+                self.reset(ResetType::Soft)?;
+                inst_jump = None;
+            }
             Self::OP_INTERRUPT_ENABLE => self
                 .registers
                 .set_status_flag(RegisterFlag::InterruptEnable, true)?,
