@@ -65,6 +65,7 @@ pub trait BinaryOperations {
     fn bsftr(&self, a: u32, b: u32) -> Result<OperationValue, OperationError>;
     fn bsftl(&self, a: u32, b: u32) -> Result<OperationValue, OperationError>;
     fn bnot(&self, a: u32) -> Result<OperationValue, OperationError>;
+    fn bswap(&self, a: u32) -> Result<OperationValue, OperationError>;
 }
 
 #[derive(Default)]
@@ -280,6 +281,10 @@ macro_rules! define_bitwise_for_type {
             fn bnot(&self, a: u32) -> Result<OperationValue, OperationError> {
                 let res = !(a as $tname);
                 Ok(((res as i32) as u32, false).into())
+            }
+
+            fn bswap(&self, a: u32) -> Result<OperationValue, OperationError> {
+                Ok((((a as $tname).swap_bytes() as i32) as u32, false).into())
             }
         }
     };

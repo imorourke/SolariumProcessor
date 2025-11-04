@@ -7,10 +7,10 @@ use std::{collections::HashMap, fmt::Display, rc::Rc, sync::LazyLock};
 
 pub use instructions::{
     INST_SIZE, Instruction, InstructionError, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBrk, OpBshl,
-    OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton, OpIntr, OpJmp,
-    OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop,
-    OpPopr, OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge,
-    OpTl, OpTle, OpTneq, OpTnz, OpTz,
+    OpBshr, OpBswap, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpHalt, OpInt, OpIntoff, OpInton,
+    OpIntr, OpJmp, OpJmpr, OpJmpri, OpLd, OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg,
+    OpNoop, OpNot, OpPop, OpPopr, OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub,
+    OpTeq, OpTg, OpTge, OpTl, OpTle, OpTneq, OpTnz, OpTz,
 };
 
 pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
@@ -507,10 +507,10 @@ impl Default for InstructionList {
     fn default() -> Self {
         let inst = create_instruction_map!(
             OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBshl, OpBshr, OpBxor, OpCall, OpConv, OpCopy,
-            OpDiv, OpHalt, OpInt, OpIntoff, OpBrk, OpInton, OpIntr, OpJmp, OpJmpr, OpJmpri, OpLd,
-            OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop, OpPopr,
-            OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg, OpTge,
-            OpTl, OpTle, OpTneq, OpTnz, OpTz
+            OpDiv, OpHalt, OpInt, OpIntoff, OpBrk, OpBswap, OpInton, OpIntr, OpJmp, OpJmpr,
+            OpJmpri, OpLd, OpLdi, OpLdn, OpLdno, OpLdr, OpLdri, OpMul, OpNeg, OpNoop, OpNot, OpPop,
+            OpPopr, OpPush, OpRem, OpReset, OpRet, OpRetInt, OpSav, OpSavr, OpSub, OpTeq, OpTg,
+            OpTge, OpTl, OpTle, OpTneq, OpTnz, OpTz
         );
 
         let inst_map = inst.iter().map(|(_, n, f, _)| (n.to_owned(), *f)).collect();

@@ -467,6 +467,10 @@ impl Processor {
         base: Self::OP_BASE_BITS,
         code: 5,
     };
+    pub const OP_BSWAP: Opcode = Opcode {
+        base: Self::OP_BASE_BITS,
+        code: 6,
+    };
 
     /// Resets the current CPU based on the given soft/hard reset vector
     pub fn reset(&mut self, reset_type: ResetType) -> Result<(), ProcessorError> {
@@ -948,6 +952,7 @@ impl Processor {
                     Self::OP_BSHL => bitwise.bsftl(val_a, val_b)?,
                     Self::OP_BSHR => bitwise.bsftr(val_a, val_b)?,
                     Self::OP_BNOT => bitwise.bnot(val_a)?,
+                    Self::OP_BSWAP => bitwise.bswap(val_a)?,
                     _ => return Err(ProcessorError::UnknownInstruction(inst)),
                 };
 
