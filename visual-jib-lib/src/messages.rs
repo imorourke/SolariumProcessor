@@ -25,4 +25,5 @@ pub enum ThreadToUi {
     ProgramCounterValue(u32, u32),
     ProcessorReset,
     ThreadExit,
+    CpuRunning(bool),
 }

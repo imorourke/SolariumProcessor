@@ -336,6 +336,8 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 
     const THREAD_LOOP_MS: u64 = 50;
 
+    let mut last_state_running = false;
+
     'mainloop: while state.run_thread {
         if state.running {
             for _ in 0..1000 {
@@ -423,6 +425,12 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
         }
         tx.send(ThreadToUi::ResponseMemory(base, resp_memory))
             .unwrap();
+
+        // Send CPU state
+        if last_state_running != state.running {
+            last_state_running = state.running;
+            tx.send(ThreadToUi::CpuRunning(state.running)).unwrap();
+        }
 
         // Final sleep
         if state.running {

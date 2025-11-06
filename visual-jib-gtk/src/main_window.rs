@@ -53,6 +53,7 @@ pub fn build_ui(app: &Application) {
     glib::spawn_future_local(async move {
         while let Ok(msg) = rx_ui_async.recv().await {
             match msg {
+                ThreadToUi::CpuRunning(_) => (),
                 ThreadToUi::ProcessorReset => {
                     serial_details.text_serial.buffer().set_text("");
                 }
