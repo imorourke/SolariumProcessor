@@ -101,7 +101,7 @@ impl Type {
     }
 
     pub fn is_pointer(&self) -> bool {
-        matches!(self, Self::Pointer(_) | Self::Function(_))
+        matches!(self.remove_const(), Self::Pointer(_) | Self::Function(_))
     }
 
     pub fn coerce_type(a: DataType, b: DataType) -> DataType {

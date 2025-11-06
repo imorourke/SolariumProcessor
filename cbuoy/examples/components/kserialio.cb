@@ -64,7 +64,7 @@ asmfn k_io_print_digit(v: u8) void {
 
 fn k_io_print_uint(v: u32) void {
     def chars: [12]u8;
-    def cp: *u8 = &chars;
+    def cp: *u8 = chars;
     if (v == 0) {
         k_io_print_digit(0);
     } else {
@@ -73,9 +73,31 @@ fn k_io_print_uint(v: u32) void {
             v = v / 10;
             cp = cp + 1;
         }
-        while (cp != &chars[0]) {
+        while (cp != chars) {
             cp = cp - 1;
             k_io_print_digit(*cp);
+        }
+    }
+}
+
+fn k_io_print_hex(v: u32) void {
+    def chars: [12]u8;
+    def cp: *u8 = chars;
+    if (v == 0) {
+        k_io_print_digit(0);
+    } else {
+        while (v != 0) {
+            *cp = v % 16;
+            v = v / 16;
+            cp = cp + 1;
+        }
+        while (cp != chars) {
+            cp = cp - 1;
+            if (*cp < 10) {
+                *SERIAL_OUT_LOC = '0' + *cp;
+            } else {
+                *SERIAL_OUT_LOC = 'A' + (*cp - 10);
+            }
         }
     }
 }
@@ -110,13 +132,15 @@ fn k_io_read_str_until(buffer: *u8, len: u32, target: u8) u32 {
         def num_read: u32 = 0;
 
         while (i != end) {
-            *i = *SERIAL_IN_LOC;
-            num_read = num_read + 1;
-            if (*i == target) {
-                *(i + 1) = 0;
-                break;
+            if (*SERIAL_IN_SIZE > 0) {
+                *i = *SERIAL_IN_LOC;
+                num_read = num_read + 1;
+                if (*i == target) {
+                    *(i + 1) = 0;
+                    break;
+                }
+                i = i + 1;
             }
-            i = i + 1;
         }
 
         return num_read;

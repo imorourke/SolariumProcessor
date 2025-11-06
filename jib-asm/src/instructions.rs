@@ -921,6 +921,7 @@ InstArith!(OpBxor, Processor::OP_BXOR);
 InstArith!(OpBshl, Processor::OP_BSHL);
 InstArith!(OpBshr, Processor::OP_BSHR);
 InstDoubleArgType!(OpBnot, Processor::OP_BNOT);
+InstDoubleArgType!(OpBswap, Processor::OP_BSWAP);
 
 InstArith!(OpTeq, Processor::OP_EQ);
 InstArith!(OpTneq, Processor::OP_NEQ);

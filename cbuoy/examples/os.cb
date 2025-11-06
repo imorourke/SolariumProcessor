@@ -4,6 +4,7 @@
 #include components/kirq.cb
 #include components/kclock.cb
 #include components/std_list.cb
+#include components/std_string.cb
 
 const FD_SIZE_TABLE: u32 = 1024;
 const FD_THREAD: u32 = 1;
@@ -30,27 +31,41 @@ fn main_tsk_b() void {
     }
 }
 
+const OS_INPUT_BUFFER_SIZE: u32 = 128;
+
 fn os_main() void {
     k_io_print("Starting C/Buoy OS\n");
-    def input_buffer: [128]u8;
-    while (1) {
+    def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
+    def valid: u8 = 1;
+    while (valid) {
         k_io_print("~> ");
-        if (k_io_read_str_until(&input_buffer[0], 128, '\n') > 0) {
-            k_io_print("  Unknown Command: ");
+        if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
             k_io_print(input_buffer);
+            def cmd: *u8 = strtrim(input_buffer);
+
+            if (strcmp(cmd, "ls") == 0) {
+                k_io_print("No files found\n");
+            } else if (strcmp(cmd, "pwd") == 0) {
+                k_io_print("/root\n");
+            } else if (strcmp(cmd, "reset") == 0) {
+                k_cpu_reset();
+            } else {
+                k_io_print("^! Unknown Command: ");
+                k_io_print(cmd);
+            }
         }
         k_io_print("\n");
     }
 }
 
+global K_OS_THREAD: [4096]u8;
+
 fn main() void {
-    //k_tsk_init(main_tsk_a);
-    //k_tsk_init(main_tsk_b);
-    //k_tsk_init(os_main);
+    k_tsk_init(os_main, K_OS_THREAD);
 
     k_irq_set(1, k_tsk_yield);
     k_clock_configure(1000, 1);
 
-    //k_tsk_main();
-    os_main();
+    k_tsk_main();
+    k_cpu_reset();
 }

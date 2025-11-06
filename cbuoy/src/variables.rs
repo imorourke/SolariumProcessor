@@ -77,9 +77,11 @@ impl Expression for GlobalVariable {
         &self,
         options: &CodeGenerationOptions,
         reg: RegisterDef,
-        _required_stack: &mut TemporaryStackTracker,
+        required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        if let Some(p) = self.dtype.primitive_type() {
+        if let Type::Array(_, _) = self.dtype.remove_const() {
+            self.load_address_to_register(options, reg, required_stack)
+        } else if let Some(p) = self.dtype.primitive_type() {
             let mut vals = options
                 .load_label(reg.reg, self.access_label().into())
                 .to_vec();
@@ -376,7 +378,9 @@ impl Expression for LocalVariable {
         reg: RegisterDef,
         required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
-        if let Some(dt) = self.dtype.primitive_type() {
+        if let Type::Array(_, _) = self.dtype.remove_const() {
+            self.load_address_to_register(options, reg, required_stack)
+        } else if let Some(dt) = self.dtype.primitive_type() {
             let mut asm = self.load_address_to_register(options, reg, required_stack)?;
             asm.push_asm(
                 self.token
@@ -568,7 +572,11 @@ impl VariableDefinition {
                     }
                 };
 
-                Ok(Literal::new(self.token, lit.get_value().convert(dt)))
+                Ok(Literal::new(
+                    self.token,
+                    self.dtype,
+                    lit.get_value().convert(dt),
+                ))
             } else {
                 Err(self
                     .token

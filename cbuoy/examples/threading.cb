@@ -4,13 +4,23 @@
 #include components/kclock.cb
 
 fn main_tsk_a() void {
-    k_io_print("TSK_A\n");
-    asm { "brk"; }
+    def count: u32 = 0;
+    while (count < 100) {
+        if (count % 10 == 0) {
+            k_io_print("TSK_A\n");
+        }
+        count = count + 1;
+    }
 }
 
 fn main_tsk_b() void {
+    def count: u32 = 0;
     while (1) {
-        k_io_print("TSK_B\n");
+        if (count % 20 == 0) {
+            k_io_print("TSK_B\n");
+            count = 0;
+        }
+        count = count + 1;
     }
 }
 
@@ -32,9 +42,9 @@ global stack_b: [1024]u8;
 global stack_c: [1024]u8;
 
 fn main() void {
-    k_tsk_init(main_tsk_a, &stack_a[0]);
-    k_tsk_init(main_tsk_b, &stack_b[0]);
-    k_tsk_init(main_tsk_c, &stack_c[0]);
+    k_tsk_init(main_tsk_a, stack_a);
+    k_tsk_init(main_tsk_b, stack_b);
+    k_tsk_init(main_tsk_c, stack_c);
 
     k_irq_set(1, k_tsk_yield);
     k_clock_configure(1000, 1);

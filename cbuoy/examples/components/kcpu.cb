@@ -12,4 +12,19 @@ const K_CPU_REG_RETURN: u32 = 4;
 const K_CPU_REG_ARGUMENT_BASE: u32 = 5;
 const K_CPU_REG_FIRST_GP: u32 = 6;
 
+struct k_cpu_stack_frame_t {
+    program_counter: u32;
+    status_flags: u32;
+    stack_pointer: u32;
+    load_offset: u32;
+    func_return: u32;
+    argument_base: u32;
+    gp: [26]u32;
+}
+
+asmfn k_cpu_reset() void {
+    "reset";
+    "ret";
+}
+
 #endif // K_CPU

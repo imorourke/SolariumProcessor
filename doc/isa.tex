@@ -233,7 +233,7 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			A & 4 & 0 & \texttt{inton} & Turn Interrupts On, set \texttt{\$STAT} \\
 			A & 4 & 1 & \texttt{intoff} & Turn Interrupts Off, set \texttt{\$STAT} \\
 
-            A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware; otherwise, acts as a \texttt{noop}) \\
+            A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware if supported; otherwise, acts as a \texttt{noop}) \\
 
 			I & 10 & 0 & \texttt{add [dst] [a] [b]} & \texttt{R[dst] = R[a] + R[b]} \\
 			I & 10 & 1 & \texttt{sub [dst] [a] [b]} & \texttt{R[dst] = R[a] - R[b]} \\
@@ -248,6 +248,7 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			I & 11 & 3 & \texttt{bshl [dst] [a] [b]} & \texttt{R[dst] = R[a] << R[b]} \\
 			I & 11 & 4 & \texttt{bshr [dst] [a] [b]} & \texttt{R[dst] = R[a] >> R[b]} \\
 			G & 11 & 5 & \texttt{bnot [dst] [a]} & \texttt{R[dst] = \textasciitilde R[a]} \\
+            D & 11 & 6 & \texttt{bswp [dst] [a]} & \texttt{R[dst] = R[a] (Swapped Bytes)}
 			\hline
 		\end{tabular}
 	\end{footnotesize}
