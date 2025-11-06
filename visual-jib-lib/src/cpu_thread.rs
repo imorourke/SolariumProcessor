@@ -331,47 +331,72 @@ impl ThreadState {
     }
 }
 
-pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
-    let mut state = ThreadState::new().unwrap();
+pub struct CpuThread {
+    rx: Receiver<UiToThread>,
+    tx: Sender<ThreadToUi>,
+    state: ThreadState,
+    last_state_running: bool,
+}
 
+impl CpuThread {
+    #[cfg(not(target_arch = "wasm32"))]
     const THREAD_LOOP_MS: u64 = 50;
     const MSGS_PER_LOOP: u64 = 1000;
 
-    let mut last_state_running = false;
+    pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Self {
+        Self {
+            rx,
+            tx,
+            state: ThreadState::new().unwrap(),
+            last_state_running: false,
+        }
+    }
 
-    'mainloop: while state.run_thread {
-        if state.running {
-            for _ in 0..MSGS_PER_LOOP {
-                let resp = match rx.try_recv() {
-                    Ok(msg) => state.handle_msg(msg),
-                    Err(TryRecvError::Disconnected) => break 'mainloop,
+    pub fn step(&mut self, allow_wait: bool) -> bool {
+        if self.state.running {
+            for _ in 0..Self::MSGS_PER_LOOP {
+                let resp = match self.rx.try_recv() {
+                    Ok(msg) => self.state.handle_msg(msg),
+                    Err(TryRecvError::Disconnected) => return false,
                     Err(TryRecvError::Empty) => break,
                 };
 
                 if let Some(r) = &resp {
-                    tx.send(r.clone())
+                    self.tx
+                        .send(r.clone())
                         .expect("Unable to send response to main thread!");
                 }
             }
         } else {
-            let resp = match rx.recv() {
-                Ok(msg) => state.handle_msg(msg),
-                Err(RecvError) => break 'mainloop,
+            let resp = if allow_wait {
+                match self.rx.recv() {
+                    Ok(msg) => self.state.handle_msg(msg),
+                    Err(RecvError) => return false,
+                }
+            } else {
+                match self.rx.try_recv() {
+                    Ok(msg) => self.state.handle_msg(msg),
+                    Err(TryRecvError::Disconnected) => return false,
+                    Err(TryRecvError::Empty) => return true,
+                }
             };
 
             if let Some(r) = &resp {
-                tx.send(r.clone())
+                self.tx
+                    .send(r.clone())
                     .expect("Unable to send response to main thread!");
             }
         }
 
         // Check for serial output
         let mut char_vec = Vec::new();
-        while let Some(w) = state.dev_serial_io.borrow_mut().pop_output() {
+        while let Some(w) = self.state.dev_serial_io.borrow_mut().pop_output() {
             let c = match jib::text::byte_to_character(w) {
                 Ok(v) => v,
                 Err(e) => {
-                    tx.send(ThreadToUi::LogMessage(format!("{e}"))).unwrap();
+                    self.tx
+                        .send(ThreadToUi::LogMessage(format!("{e}")))
+                        .unwrap();
                     '?'
                 }
             };
@@ -380,66 +405,86 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
         }
 
         if !char_vec.is_empty() {
-            tx.send(ThreadToUi::SerialOutput(
-                char_vec.into_iter().collect::<String>(),
-            ))
-            .unwrap();
+            self.tx
+                .send(ThreadToUi::SerialOutput(
+                    char_vec.into_iter().collect::<String>(),
+                ))
+                .unwrap();
         }
 
         // Step if required
-        if state.running {
-            let step_repeat_count = state.multiplier as i64;
+        if self.state.running {
+            let step_repeat_count = self.state.multiplier as i64;
 
             for _ in 0..step_repeat_count {
-                if let Err(msg) = state.step_cpu(true) {
-                    state.running = false;
-                    tx.send(msg).unwrap();
+                if let Err(msg) = self.state.step_cpu(true) {
+                    self.state.running = false;
+                    self.tx.send(msg).unwrap();
                     break;
                 }
 
-                if !state.running {
+                if !self.state.running {
                     break;
                 }
             }
         }
 
         // Send Registers
-        tx.send(ThreadToUi::RegisterState(Box::new(
-            state.cpu.get_register_state(),
-        )))
-        .unwrap();
+        self.tx
+            .send(ThreadToUi::RegisterState(Box::new(
+                self.state.cpu.get_register_state(),
+            )))
+            .unwrap();
 
-        let pc = state
+        let pc = self
+            .state
             .cpu
             .get_register_state()
             .get(jib::cpu::Register::ProgramCounter)
             .unwrap_or(0);
-        let mem = state.cpu.memory_inspect_u32(pc).unwrap_or(0);
+        let mem = self.state.cpu.memory_inspect_u32(pc).unwrap_or(0);
 
-        tx.send(ThreadToUi::ProgramCounterValue(pc, mem)).unwrap();
+        self.tx
+            .send(ThreadToUi::ProgramCounterValue(pc, mem))
+            .unwrap();
 
         // Send memory if needed
-        let (base, size) = state.memory_request;
+        let (base, size) = self.state.memory_request;
         let mut resp_memory = Vec::new();
         for i in 0..size {
-            resp_memory.push(state.cpu.memory_inspect(base + i).unwrap_or_default());
+            resp_memory.push(self.state.cpu.memory_inspect(base + i).unwrap_or_default());
         }
-        tx.send(ThreadToUi::ResponseMemory(base, resp_memory))
+        self.tx
+            .send(ThreadToUi::ResponseMemory(base, resp_memory))
             .unwrap();
 
         // Send CPU state
-        if last_state_running != state.running {
-            last_state_running = state.running;
-            tx.send(ThreadToUi::CpuRunning(state.running)).unwrap();
+        if self.last_state_running != self.state.running {
+            self.last_state_running = self.state.running;
+            self.tx
+                .send(ThreadToUi::CpuRunning(self.state.running))
+                .unwrap();
         }
 
-        // Final sleep
-        if state.running {
-            std::thread::sleep(std::time::Duration::from_millis(THREAD_LOOP_MS));
+        true
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
+    let mut cpu = CpuThread::new(rx, tx.clone());
+
+    while cpu.state.run_thread {
+        if cpu.step(true) {
+            if cpu.state.running {
+                std::thread::sleep(core::time::Duration::from_millis(CpuThread::THREAD_LOOP_MS));
+            }
+        } else {
+            break;
         }
     }
 
-    let _ = tx.send(ThreadToUi::ThreadExit);
+    tx.send(ThreadToUi::ThreadExit).unwrap();
 }
 
 #[cfg(test)]

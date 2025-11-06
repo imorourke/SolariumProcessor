@@ -1,8 +1,16 @@
-use std::{io::Cursor, sync::LazyLock, thread::JoinHandle};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Cursor;
+
+use std::sync::LazyLock;
+
+#[cfg(feature = "nothread")]
+use visual_jib_lib::cpu_thread::CpuThread;
 
 use cbuoy::CodeGenerationOptions;
+#[cfg(not(target_arch = "wasm32"))]
+use eframe::egui::IconData;
 use eframe::egui::{
-    self, CentralPanel, Grid, IconData, ScrollArea, TextBuffer, TextEdit, Vec2, Visuals,
+    self, CentralPanel, Grid, Layout, ScrollArea, Slider, TextBuffer, TextEdit, Vec2, Visuals,
 };
 use jib::cpu::RegisterManager;
 use jib_asm::InstructionList;
@@ -65,17 +73,24 @@ struct VisualJib {
     log_serial: String,
     log_text: String,
     text_serial_input: String,
+    text_debug_location: String,
     cpu_run_requested: bool,
-    cpu_thread: Option<JoinHandle<()>>,
+    #[cfg(not(feature = "nothread"))]
+    cpu_thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(feature = "nothread")]
+    cpu_thread: visual_jib_lib::cpu_thread::CpuThread,
     tx_ui: std::sync::mpsc::Sender<UiToThread>,
     tx_thread: std::sync::mpsc::Sender<ThreadToUi>,
     rx_ui: std::sync::mpsc::Receiver<ThreadToUi>,
     registers: RegisterManager,
     memory_view: MemoryView,
     program_counter: ProgramCounterView,
+    current_cpu_speed: i32,
+    last_cpu_speed: i32,
 }
 
 impl VisualJib {
+    #[cfg(not(target_arch = "wasm32"))]
     fn name() -> &'static str {
         "V/Jib"
     }
@@ -161,9 +176,12 @@ impl Default for VisualJib {
         let (tx_thread, rx_ui) = std::sync::mpsc::channel::<ThreadToUi>();
         let tx_thread_local = tx_thread.clone();
 
-        let t = std::thread::spawn(move || {
+        #[cfg(not(feature = "nothread"))]
+        let cpu_thread = Some(std::thread::spawn(move || {
             visual_jib_lib::cpu_thread::cpu_thread(rx_thread, tx_thread)
-        });
+        }));
+        #[cfg(feature = "nothread")]
+        let cpu_thread = CpuThread::new(rx_thread, tx_thread);
 
         let memory_view = MemoryView::default();
 
@@ -179,22 +197,26 @@ impl Default for VisualJib {
             code_asm: include_str!("../../jib-asm/examples/thread_test.jsm").into(),
             code_selection: CodeSelection::CBuoy,
             cpu_run_requested: false,
-            cpu_thread: Some(t),
+            cpu_thread,
             log_serial: String::default(),
             log_text: String::default(),
             text_serial_input: String::default(),
+            text_debug_location: String::default(),
             tx_ui,
             rx_ui,
             tx_thread: tx_thread_local,
             registers: RegisterManager::default(),
             memory_view,
             program_counter: ProgramCounterView::default(),
+            current_cpu_speed: 0,
+            last_cpu_speed: 0,
         }
     }
 }
 
 impl eframe::App for VisualJib {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        #[cfg(not(feature = "nothread"))]
         if self.tx_ui.send(UiToThread::Exit).is_ok() {
             self.cpu_thread.take().map(|x| x.join());
         } else {
@@ -203,9 +225,10 @@ impl eframe::App for VisualJib {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_visuals(Visuals::light());
+        #[cfg(feature = "nothread")]
+        self.cpu_thread.step(false);
 
-        while let Ok(msg) = self.rx_ui.recv_timeout(std::time::Duration::from_millis(0)) {
+        while let Ok(msg) = self.rx_ui.try_recv() {
             match msg {
                 ThreadToUi::ProcessorReset => {
                     self.log_serial.clear();
@@ -251,7 +274,7 @@ impl eframe::App for VisualJib {
         CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("CPU");
+                    ui.heading("CPU Registers");
                     Grid::new("cpu_registers").show(ui, |ui| {
                         for (i, r) in self.registers.registers.iter().enumerate() {
                             if i > 0 && i % 2 == 0 {
@@ -262,46 +285,68 @@ impl eframe::App for VisualJib {
                         ui.end_row();
                     });
 
-                    if ui.button("Step").clicked() {
-                        self.tx_ui.send(UiToThread::CpuStep).unwrap();
-                    }
+                    ui.heading("Commands");
+                    Grid::new("cpu_commands").show(ui, |ui| {
+                        if ui.button("Step").clicked() {
+                            self.tx_ui.send(UiToThread::CpuStep).unwrap();
+                        }
 
-                    if ui.button("Start").clicked() {
-                        self.tx_ui.send(UiToThread::CpuStart).unwrap();
-                    }
+                        if ui.button("Start").clicked() {
+                            self.tx_ui.send(UiToThread::CpuStart).unwrap();
+                        }
 
-                    if ui.button("Stop").clicked() {
-                        self.tx_ui.send(UiToThread::CpuStop).unwrap();
-                    }
+                        if ui.button("Stop").clicked() {
+                            self.tx_ui.send(UiToThread::CpuStop).unwrap();
+                        }
 
-                    if ui.button("Reset").clicked() {
-                        self.tx_ui.send(UiToThread::CpuReset).unwrap();
-                    }
+                        ui.end_row();
 
-                    if ui.button("IRQ1").clicked() {
-                        self.tx_ui.send(UiToThread::CpuIrq(1)).unwrap();
+                        if ui.button("Reset").clicked() {
+                            self.tx_ui.send(UiToThread::CpuReset).unwrap();
+                        }
+
+                        if ui.button("IRQ1").clicked() {
+                            self.tx_ui.send(UiToThread::CpuIrq(1)).unwrap();
+                        }
+                    });
+
+                    ui.label("Speed Multiplier");
+                    ui.add(
+                        Slider::new(&mut self.current_cpu_speed, 1..=100)
+                            .step_by(5.0)
+                            .show_value(true),
+                    );
+
+                    if self.current_cpu_speed != self.last_cpu_speed {
+                        self.last_cpu_speed = self.current_cpu_speed;
+                        self.tx_ui
+                            .send(UiToThread::SetMultiplier(self.current_cpu_speed as f64))
+                            .unwrap();
                     }
                 });
 
                 ui.vertical(|ui| {
                     ui.heading("Memory");
-                    Grid::new("memory_view").show(ui, |ui| {
-                        for (i, v) in self.memory_view.values.iter().enumerate() {
-                            if i % MemoryView::COLUMNS == 0 {
-                                if i > 0 {
-                                    ui.end_row();
+                    Grid::new("memory_view")
+                        .spacing(Vec2 { x: 0.0, y: 0.0 })
+                        .show(ui, |ui| {
+                            for (i, v) in self.memory_view.values.iter().enumerate() {
+                                if i % MemoryView::COLUMNS == 0 {
+                                    if i > 0 {
+                                        ui.end_row();
+                                    }
+
+                                    ui.label(format!("L{:08x}", self.memory_view.base + i as u32));
                                 }
 
-                                ui.label(format!("L{:08x}", self.memory_view.base + i as u32));
+                                if let Some(b) = v {
+                                    ui.label(format!("{b:02x}"));
+                                } else {
+                                    ui.label("??");
+                                }
                             }
-
-                            if let Some(b) = v {
-                                ui.label(format!("{b:02x}"));
-                            } else {
-                                ui.label("??");
-                            }
-                        }
-                    });
+                        });
+                    ui.heading("Program Counter");
                     ui.label(format!(
                         "PC[0x{:08x}] = 0x{:08x}",
                         self.program_counter.pc, self.program_counter.val
@@ -311,16 +356,44 @@ impl eframe::App for VisualJib {
                         self.program_counter.get_instruction_string()
                     ));
 
+                    ui.heading("Breakpoint Location");
+                    if ui
+                        .text_edit_singleline(&mut self.text_debug_location)
+                        .lost_focus()
+                    {
+                        let (radix, s) =
+                            if let Some(rest) = self.text_debug_location.strip_prefix("0x") {
+                                (16, rest)
+                            } else {
+                                (10, self.text_debug_location.as_str())
+                            };
+
+                        let loc = if let Ok(v) = u32::from_str_radix(s, radix) {
+                            v
+                        } else {
+                            self.tx_thread
+                                .send(ThreadToUi::LogMessage(format!(
+                                    "unable to convert '{}' to program location",
+                                    self.text_debug_location
+                                )))
+                                .unwrap();
+                            0
+                        };
+
+                        self.tx_ui.send(UiToThread::SetBreakpoint(loc)).unwrap();
+                    }
+
+                    ui.heading("Serial Input");
                     TextEdit::singleline(&mut self.text_serial_input)
                         .return_key(None)
                         .show(ui);
-
                     if ui.button("Submit").clicked() {
                         self.tx_ui
                             .send(UiToThread::SerialInput(self.text_serial_input.take()))
                             .unwrap();
                     }
 
+                    ui.heading("Serial Log");
                     ScrollArea::vertical()
                         .id_salt("serial_log")
                         .stick_to_bottom(true)
@@ -331,9 +404,10 @@ impl eframe::App for VisualJib {
                         });
                 });
 
-                ui.vertical(|ui| {
+                ui.with_layout(Layout::top_down_justified(egui::Align::Center), |ui| {
+                    //ui.vertical(|ui| {
                     ui.heading("Code Entry");
-                    ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
                         if ui.button("Assembly").clicked() {
                             self.code_selection = CodeSelection::Asm;
                         }
@@ -343,28 +417,32 @@ impl eframe::App for VisualJib {
                         }
                     });
 
-                    ScrollArea::both().show(ui, |ui| {
-                        let widget = if self.code_selection == CodeSelection::Asm {
-                            TextEdit::multiline(&mut self.code_asm)
-                        } else if self.code_selection == CodeSelection::CBuoy {
-                            TextEdit::multiline(&mut self.code_cbuoy)
-                        } else {
-                            panic!()
-                        }
-                        .code_editor();
+                    ScrollArea::both()
+                        .auto_shrink(false)
+                        .stick_to_bottom(true)
+                        .stick_to_right(true)
+                        .show(ui, |ui| {
+                            let widget = if self.code_selection == CodeSelection::Asm {
+                                TextEdit::multiline(&mut self.code_asm)
+                            } else if self.code_selection == CodeSelection::CBuoy {
+                                TextEdit::multiline(&mut self.code_cbuoy)
+                            } else {
+                                panic!()
+                            }
+                            .code_editor();
 
-                        if false {
-                            ui.add_sized(
-                                Vec2 {
-                                    x: 200.0,
-                                    y: ui.available_height(),
-                                },
-                                widget,
-                            );
-                        } else {
-                            ui.add(widget);
-                        }
-                    });
+                            if false {
+                                ui.add_sized(
+                                    Vec2 {
+                                        x: 200.0,
+                                        y: ui.available_height(),
+                                    },
+                                    widget,
+                                );
+                            } else {
+                                ui.add(widget);
+                            }
+                        });
 
                     if ui.button("Compile").clicked() {
                         if self.code_selection == CodeSelection::Asm {
@@ -377,12 +455,14 @@ impl eframe::App for VisualJib {
             });
         });
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(
+        #[cfg(not(target_arch = "wasm32"))]
+        ctx.request_repaint_after(core::time::Duration::from_millis(
             if self.cpu_run_requested { 10 } else { 100 },
         ));
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     let mut icon_bytes = Vec::new();
     let img = image::load_from_memory(include_bytes!("../../doc/images/logo.png")).unwrap();
@@ -404,6 +484,58 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         VisualJib::name(),
         native_options,
-        Box::new(|_| Ok(Box::<VisualJib>::default())),
+        Box::new(|cc| {
+            cc.egui_ctx.set_visuals(Visuals::light());
+            Ok(Box::<VisualJib>::default())
+        }),
     )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+
+    let web_options = eframe::WebOptions::default();
+
+    wasm_bindgen_futures::spawn_local(async {
+        let document = web_sys::window()
+            .expect("No window")
+            .document()
+            .expect("No document");
+
+        let canvas = document
+            .get_element_by_id("the_canvas_id")
+            .expect("Failed to find the_canvas_id")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("the_canvas_id was not a HtmlCanvasElement");
+
+        let start_result = eframe::WebRunner::new()
+            .start(
+                canvas,
+                web_options,
+                Box::new(|cc| {
+                    cc.egui_ctx.set_visuals(Visuals::light());
+                    Ok(Box::<VisualJib>::default())
+                }),
+            )
+            .await;
+
+        // Remove the loading text and spinner:
+        if let Some(loading_text) = document.get_element_by_id("loading_text") {
+            match start_result {
+                Ok(_) => {
+                    loading_text.remove();
+                }
+                Err(e) => {
+                    loading_text.set_inner_html(
+                        "<p> The app has crashed. See the developer console for details. </p>",
+                    );
+                    panic!("Failed to start eframe: {e:?}");
+                }
+            }
+        }
+    });
 }
