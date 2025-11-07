@@ -156,7 +156,7 @@ impl VisualJib {
         }
     }
 
-    fn step_cpu(&mut self) {
+    fn read_cpu_responses(&mut self) {
         while let Ok(msg) = self.rx_ui.try_recv() {
             match msg {
                 ThreadToUi::ProcessorReset => {
@@ -255,7 +255,7 @@ impl eframe::App for VisualJib {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.step_cpu();
+        self.read_cpu_responses();
 
         CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
