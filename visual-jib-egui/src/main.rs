@@ -1,4 +1,4 @@
-use std::{io::Cursor, sync::LazyLock, thread::JoinHandle};
+use std::{io::Cursor, sync::LazyLock, thread::JoinHandle, time::Duration};
 
 use cbuoy::CodeGenerationOptions;
 use eframe::egui::{
@@ -157,6 +157,53 @@ impl VisualJib {
             }
         }
     }
+
+    fn step_cpu(&mut self) {
+        while let Ok(msg) = self.rx_ui.try_recv() {
+            match msg {
+                ThreadToUi::ProcessorReset => {
+                    self.log_serial.clear();
+                }
+                ThreadToUi::RegisterState(regs) => {
+                    self.registers = *regs;
+                }
+                ThreadToUi::ProgramCounterValue(pc, val) => {
+                    self.program_counter.pc = pc;
+                    self.program_counter.val = val;
+                }
+                ThreadToUi::LogMessage(msg) => {
+                    if self.log_text.len() > 0 {
+                        self.log_text = format!("{}\n{}", self.log_text, msg);
+                    } else {
+                        self.log_text = msg;
+                    }
+                }
+                ThreadToUi::SerialOutput(msg) => {
+                    self.log_serial = format!("{}{}", self.log_serial, msg);
+                }
+                ThreadToUi::ResponseMemory(base, vals) => {
+                    self.memory_view.base = base;
+                    for (i, v) in self.memory_view.values.iter_mut().enumerate() {
+                        if i < vals.len() {
+                            *v = Some(vals[i]);
+                        } else {
+                            *v = None;
+                        }
+                    }
+                }
+                ThreadToUi::CpuRunning(running) => self.cpu_run_requested = running,
+                ThreadToUi::ThreadExit => std::process::exit(1),
+            };
+        }
+    }
+
+    fn update_interval(&self) -> Option<Duration> {
+        Some(Duration::from_millis(if self.cpu_run_requested {
+            10
+        } else {
+            100
+        }))
+    }
 }
 
 impl Default for VisualJib {
@@ -210,50 +257,7 @@ impl eframe::App for VisualJib {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_visuals(Visuals::light());
-
-        while let Ok(msg) = self.rx_ui.recv_timeout(std::time::Duration::from_millis(0)) {
-            match msg {
-                ThreadToUi::ProcessorReset => {
-                    self.log_serial.clear();
-                    ctx.request_repaint();
-                }
-                ThreadToUi::RegisterState(regs) => {
-                    self.registers = *regs;
-                    ctx.request_repaint();
-                }
-                ThreadToUi::ProgramCounterValue(pc, val) => {
-                    self.program_counter.pc = pc;
-                    self.program_counter.val = val;
-                    ctx.request_repaint();
-                }
-                ThreadToUi::LogMessage(msg) => {
-                    if self.log_text.len() > 0 {
-                        self.log_text = format!("{}\n{}", self.log_text, msg);
-                    } else {
-                        self.log_text = msg;
-                    }
-                    ctx.request_repaint();
-                }
-                ThreadToUi::SerialOutput(msg) => {
-                    self.log_serial = format!("{}{}", self.log_serial, msg);
-                    ctx.request_repaint();
-                }
-                ThreadToUi::ResponseMemory(base, vals) => {
-                    self.memory_view.base = base;
-                    for (i, v) in self.memory_view.values.iter_mut().enumerate() {
-                        if i < vals.len() {
-                            *v = Some(vals[i]);
-                        } else {
-                            *v = None;
-                        }
-                    }
-                    ctx.request_repaint();
-                }
-                ThreadToUi::CpuRunning(running) => self.cpu_run_requested = running,
-                ThreadToUi::ThreadExit => std::process::exit(1),
-            };
-        }
+        self.step_cpu();
 
         CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -439,9 +443,9 @@ impl eframe::App for VisualJib {
             });
         });
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(
-            if self.cpu_run_requested { 10 } else { 100 },
-        ));
+        if let Some(int) = self.update_interval() {
+            ctx.request_repaint_after(int);
+        }
     }
 }
 
@@ -466,6 +470,9 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         VisualJib::name(),
         native_options,
-        Box::new(|_| Ok(Box::<VisualJib>::default())),
+        Box::new(|cc| {
+            cc.egui_ctx.set_visuals(Visuals::light());
+            Ok(Box::<VisualJib>::default())
+        }),
     )
 }
