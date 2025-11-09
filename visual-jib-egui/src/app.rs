@@ -10,13 +10,6 @@ use visual_jib_lib::{
     messages::{ThreadToUi, UiToThread},
 };
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-enum CodeSelection {
-    Asm,
-    #[default]
-    CBuoy,
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ProgramCounterView {
     pc: u32,
@@ -60,7 +53,6 @@ impl Default for MemoryView {
 pub struct VisualJib {
     code_cbuoy: String,
     code_asm: String,
-    code_selection: CodeSelection,
     log_serial: String,
     log_text: String,
     text_serial_input: String,
@@ -226,7 +218,6 @@ impl Default for VisualJib {
         Self {
             code_cbuoy: EXAMPLE_CB_THREADING.into(),
             code_asm: include_str!("../../jib-asm/examples/thread_test.jsm").into(),
-            code_selection: CodeSelection::CBuoy,
             cpu_run_requested: false,
             cpu_thread: Some(t),
             log_serial: String::default(),
@@ -389,56 +380,38 @@ impl eframe::App for VisualJib {
                                 .show(ui);
                         });
                 });
+            });
 
-                ui.with_layout(Layout::top_down_justified(egui::Align::Center), |ui| {
-                    //ui.vertical(|ui| {
-                    ui.heading("Code Entry");
-                    ui.horizontal(|ui| {
-                        if ui.button("Assembly").clicked() {
-                            self.code_selection = CodeSelection::Asm;
-                        }
+            let code_values = [
+                ("C/Buoy Code", "Compile", true),
+                ("ASM Code", "Assemble", false),
+            ];
 
-                        if ui.button("C/Buoy").clicked() {
-                            self.code_selection = CodeSelection::CBuoy;
-                        }
-                    });
-
-                    ScrollArea::both()
-                        .auto_shrink(false)
-                        .stick_to_bottom(true)
-                        .stick_to_right(true)
-                        .show(ui, |ui| {
-                            let widget = if self.code_selection == CodeSelection::Asm {
-                                TextEdit::multiline(&mut self.code_asm)
-                            } else if self.code_selection == CodeSelection::CBuoy {
-                                TextEdit::multiline(&mut self.code_cbuoy)
-                            } else {
-                                panic!()
-                            }
-                            .code_editor();
-
-                            if false {
-                                ui.add_sized(
-                                    Vec2 {
-                                        x: 200.0,
-                                        y: ui.available_height(),
-                                    },
-                                    widget,
-                                );
-                            } else {
-                                ui.add(widget);
-                            }
-                        });
-
-                    if ui.button("Compile").clicked() {
-                        if self.code_selection == CodeSelection::Asm {
+            for (name, button_text, compiled) in code_values {
+                egui::Window::new(name).show(ctx, |ui| {
+                    if ui.button(button_text).clicked() {
+                        if !compiled {
                             self.compile_asm();
-                        } else if self.code_selection == CodeSelection::CBuoy {
+                        } else {
                             self.compile_cbuoy();
                         }
                     }
+
+                    ScrollArea::both()
+                        .stick_to_bottom(true)
+                        .stick_to_right(true)
+                        .show(ui, |ui| {
+                            let widget = if !compiled {
+                                TextEdit::multiline(&mut self.code_asm)
+                            } else {
+                                TextEdit::multiline(&mut self.code_cbuoy)
+                            }
+                            .code_editor();
+
+                            ui.add(widget);
+                        });
                 });
-            });
+            }
         });
 
         if let Some(int) = self.update_interval() {
