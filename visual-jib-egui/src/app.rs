@@ -1,6 +1,6 @@
 use cbuoy::CodeGenerationOptions;
 use eframe::egui::{
-    self, CentralPanel, Grid, Layout, ScrollArea, Slider, TextBuffer, TextEdit, Vec2,
+    self, CentralPanel, Grid, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit, Vec2,
 };
 use jib::cpu::RegisterManager;
 use jib_asm::InstructionList;
@@ -55,6 +55,8 @@ pub struct VisualJib {
     code_asm: String,
     log_serial: String,
     log_text: String,
+    window_code_asm_shown: bool,
+    window_code_cbuoy_shown: bool,
     text_serial_input: String,
     text_debug_location: String,
     cpu_run_requested: bool,
@@ -224,6 +226,8 @@ impl Default for VisualJib {
             log_text: String::default(),
             text_serial_input: String::default(),
             text_debug_location: String::default(),
+            window_code_asm_shown: false,
+            window_code_cbuoy_shown: false,
             tx_ui,
             rx_ui,
             tx_thread: tx_thread_local,
@@ -249,6 +253,24 @@ impl eframe::App for VisualJib {
         self.read_cpu_responses();
 
         CentralPanel::default().show(ctx, |ui| {
+            MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Quit").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+
+                ui.menu_button("Code", |ui| {
+                    if ui.button("ASM").clicked() {
+                        self.window_code_asm_shown = !self.window_code_asm_shown;
+                    }
+
+                    if ui.button("C/Buoy").clicked() {
+                        self.window_code_cbuoy_shown = !self.window_code_cbuoy_shown;
+                    }
+                });
+            });
+
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("CPU Registers");
@@ -388,29 +410,44 @@ impl eframe::App for VisualJib {
             ];
 
             for (name, button_text, compiled) in code_values {
-                egui::Window::new(name).show(ctx, |ui| {
-                    if ui.button(button_text).clicked() {
-                        if !compiled {
-                            self.compile_asm();
-                        } else {
-                            self.compile_cbuoy();
-                        }
-                    }
+                let mut opened = if compiled {
+                    self.window_code_cbuoy_shown
+                } else {
+                    self.window_code_asm_shown
+                };
 
-                    ScrollArea::both()
-                        .stick_to_bottom(true)
-                        .stick_to_right(true)
-                        .show(ui, |ui| {
-                            let widget = if !compiled {
-                                TextEdit::multiline(&mut self.code_asm)
+                egui::Window::new(name)
+                    .resizable(true)
+                    .open(&mut opened)
+                    .show(ctx, |ui| {
+                        if ui.button(button_text).clicked() {
+                            if !compiled {
+                                self.compile_asm();
                             } else {
-                                TextEdit::multiline(&mut self.code_cbuoy)
+                                self.compile_cbuoy();
                             }
-                            .code_editor();
+                        }
 
-                            ui.add(widget);
-                        });
-                });
+                        ScrollArea::vertical()
+                            .stick_to_bottom(true)
+                            .stick_to_right(true)
+                            .show(ui, |ui| {
+                                let text = if !compiled {
+                                    &mut self.code_asm
+                                } else {
+                                    &mut self.code_cbuoy
+                                };
+
+                                TextEdit::multiline(text).code_editor().show(ui);
+                                ui.allocate_space(ui.available_size());
+                            });
+                    });
+
+                if compiled {
+                    self.window_code_cbuoy_shown = opened;
+                } else {
+                    self.window_code_asm_shown = opened;
+                }
             }
         });
 
