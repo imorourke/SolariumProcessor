@@ -7,7 +7,7 @@ use crate::{
 };
 use cbuoy::CodeGenerationOptions;
 use eframe::egui::{
-    self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit, Vec2,
+    self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit,
 };
 use jib::cpu::RegisterManager;
 use jib_asm::{AssemblerOutput, InstructionList};
@@ -21,8 +21,7 @@ struct ProgramCounterView {
 
 impl ProgramCounterView {
     fn get_instruction_string(&self) -> String {
-        static INSTRUCTIONS: LazyLock<InstructionList> =
-            LazyLock::new(|| InstructionList::default());
+        static INSTRUCTIONS: LazyLock<InstructionList> = LazyLock::new(InstructionList::default);
 
         if let Some(disp_val) = INSTRUCTIONS.get_display_inst(self.val.into()) {
             disp_val
@@ -80,7 +79,8 @@ impl MemoryViewWindow {
                     }
                 }
                 Grid::new("memory_view")
-                    .spacing(Vec2 { x: 0.0, y: 0.0 })
+                    .striped(true)
+                    .num_columns(Self::COLUMNS)
                     .show(ui, |ui| {
                         for (i, v) in self.values.iter().enumerate() {
                             if i % MemoryViewWindow::COLUMNS == 0 {
@@ -88,7 +88,7 @@ impl MemoryViewWindow {
                                     ui.end_row();
                                 }
 
-                                ui.label(format!("L{:08x}", self.base + i as u32));
+                                ui.label(format!("{:#010x}", self.base + i as u32));
                             }
 
                             if let Some(b) = v {
@@ -144,7 +144,7 @@ impl VisualJib {
                     self.program_counter.val = val;
                 }
                 ThreadToUi::LogMessage(msg) => {
-                    if self.log_text.len() > 0 {
+                    if !self.log_text.is_empty() {
                         self.log_text = format!("{}\n{}", self.log_text, msg);
                     } else {
                         self.log_text = msg;
@@ -356,19 +356,23 @@ impl eframe::App for VisualJib {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("CPU Registers");
-                    Grid::new("cpu_registers").show(ui, |ui| {
-                        const NUM_ROWS: usize = RegisterManager::REGISTER_COUNT / 2;
+                    const NUM_COLS: usize = 2;
+                    Grid::new("cpu_registers")
+                        .striped(true)
+                        .num_columns(NUM_COLS)
+                        .show(ui, |ui| {
+                            const NUM_ROWS: usize = RegisterManager::REGISTER_COUNT / NUM_COLS;
 
-                        for i in 0..NUM_ROWS {
-                            ui.label(format!("R{:02}: {:08x}", i, self.registers.registers[i]));
-                            ui.label(format!(
-                                "R{:02}: {:08x}",
-                                i + NUM_ROWS,
-                                self.registers.registers[i + NUM_ROWS]
-                            ));
-                            ui.end_row();
-                        }
-                    });
+                            for i in 0..NUM_ROWS {
+                                ui.label(format!("R{:02}: {:08x}", i, self.registers.registers[i]));
+                                ui.label(format!(
+                                    "R{:02}: {:08x}",
+                                    i + NUM_ROWS,
+                                    self.registers.registers[i + NUM_ROWS]
+                                ));
+                                ui.end_row();
+                            }
+                        });
 
                     ui.heading("Commands");
                     Grid::new("cpu_commands").show(ui, |ui| {
