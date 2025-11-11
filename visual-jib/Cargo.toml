@@ -1,19 +1,22 @@
 [package]
-name = "visual-jib-gtk"
+name = "visual-jib"
 version = "0.1.0"
 edition = "2024"
 
 [features]
-#default = ["write_history"]
-#write_history = []
+nothread = []
 
 [dependencies]
-async-channel = "2"
-gtk = { version = "0.10", package = "gtk4", features = ["v4_6"] }
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
-visual-jib-lib = { path = "../visual-jib-lib", version = "*" }
+eframe = "0.32"
+image = "0.25"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+log = "0.4"
 
 [build-dependencies]
 cbuoy = { path = "../cbuoy", version = "*" }

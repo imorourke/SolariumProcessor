@@ -11,6 +11,7 @@
 :start
 ldn $sp:u16
 .u16 0x2000
+.align
 
 ; Load the string location into memory
 ldn 14:u32
@@ -33,6 +34,7 @@ jmpri loop
 :func_print_str
     ldn 13:u16
     .u16 0xA000
+    .align
 
     ; Mark the location to write serial values to
     ldi 15:u16 5

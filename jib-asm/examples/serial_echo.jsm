@@ -17,7 +17,7 @@ ldn 13:u32
 ldi 14:u16 3
 add 14:u32 14 13
 
-; Mark the location to write serial values from
+; Mark the location to write serial values to
 ldi 15:u16 5
 add 15:u32 15 13
 

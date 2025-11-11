@@ -1,6 +1,3 @@
-pub mod cpu_thread;
-pub mod messages;
-
 pub const EXAMPLE_CB_OS: &str = include_str!(concat!(env!("OUT_DIR"), "/os.cb"));
 pub const EXAMPLE_CB_DEFAULT: &str = include_str!(concat!(env!("OUT_DIR"), "/default.cb"));
 pub const EXAMPLE_CB_THREADING: &str = include_str!(concat!(env!("OUT_DIR"), "/threading.cb"));

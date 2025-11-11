@@ -1,13 +1,15 @@
 use crate::messages::{ThreadToUi, UiToThread};
-use jib::cpu::{Processor, ProcessorError};
-use jib::device::{InterruptClockDevice, SerialInputOutputDevice};
-use jib::memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment};
+use jib::{
+    cpu::{Processor, ProcessorError},
+    device::{InterruptClockDevice, SerialInputOutputDevice},
+    memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
+};
 use jib_asm::InstructionList;
-use std::io::Write;
-use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
-
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
+};
 
 struct CircularBuffer<T, const S: usize> {
     history: [Option<T>; S],
@@ -60,11 +62,11 @@ impl<T: Clone + PartialEq + Eq, const S: usize> Default for CircularBuffer<T, S>
     }
 }
 
-struct ThreadState {
+pub struct CpuState {
     running: bool,
+    running_prev: bool,
     multiplier: f64,
     run_thread: bool,
-    memory_request: (u32, u32),
     cpu: Processor,
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
     last_code: Vec<u8>,
@@ -72,26 +74,30 @@ struct ThreadState {
     inst_map: InstructionList,
     breakpoint: Option<u32>,
     step_count: u128,
-    history_file: Option<std::fs::File>,
+    rx: Receiver<UiToThread>,
+    tx: Sender<ThreadToUi>,
 }
 
-impl ThreadState {
+impl CpuState {
     const DEVICE_START_IND: u32 = 0xA000;
+    const THREAD_LOOP_MS: u64 = 50;
+    const MSGS_PER_LOOP: u64 = 1000;
 
-    fn new() -> Result<Self, ProcessorError> {
+    pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Result<Self, ProcessorError> {
         let mut s = Self {
             run_thread: true,
             running: false,
+            running_prev: false,
             multiplier: 1.0,
             cpu: Processor::default(),
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
             last_code: Vec::new(),
-            memory_request: (0, 0),
             inst_history: Default::default(),
             inst_map: InstructionList::default(),
             breakpoint: None,
             step_count: 0,
-            history_file: None,
+            rx,
+            tx,
         };
 
         s.reset()?;
@@ -138,8 +144,6 @@ impl ThreadState {
         self.step_count += 1;
         let res = self.cpu.step();
 
-        self.write_cpu_state();
-
         if let Err(e) = res {
             let msg = format!(
                 "{}\n{}",
@@ -151,10 +155,6 @@ impl ThreadState {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-
-            if let Some(h) = self.history_file.as_mut() {
-                writeln!(h, "{msg}").unwrap();
-            }
 
             Err(ThreadToUi::LogMessage(msg))
         } else {
@@ -221,41 +221,12 @@ impl ThreadState {
             self.cpu.memory_set(i as u32, *val)?;
         }
 
-        if let Some(h) = self.history_file.as_mut() {
-            write!(h, "#Step,Instruction").unwrap();
-            for (i, _) in self.cpu.get_register_state().registers.iter().enumerate() {
-                write!(h, ",R{:02}", i).unwrap();
-            }
-            writeln!(h).unwrap();
-        }
-        self.write_cpu_state();
-
         Ok(())
-    }
-
-    fn write_cpu_state(&mut self) {
-        if let Some(h) = self.history_file.as_mut() {
-            let inst_details = if let Ok(inst) = self.cpu.get_current_inst()
-                && let Some(disp_val) = self.inst_map.get_display_inst(inst)
-            {
-                disp_val
-            } else {
-                format!("{}", self.cpu.get_current_op().unwrap())
-            };
-
-            write!(h, "{},{}", self.step_count, inst_details).unwrap();
-
-            for r in self.cpu.get_register_state().registers {
-                write!(h, ",{r:#010x}").unwrap();
-            }
-
-            writeln!(h).unwrap();
-        }
     }
 
     fn handle_msg(&mut self, msg: UiToThread) -> Option<ThreadToUi> {
         fn inner_handler(
-            state: &mut ThreadState,
+            state: &mut CpuState,
             msg: UiToThread,
         ) -> Result<Option<ThreadToUi>, ProcessorError> {
             match msg {
@@ -318,7 +289,17 @@ impl ThreadState {
                         }
                     }
                 }
-                UiToThread::RequestMemory(base, size) => state.memory_request = (base, size),
+                UiToThread::RequestMemory(base, size) => {
+                    // Send memory if needed
+                    let mut resp_memory = Vec::new();
+                    for i in 0..size {
+                        resp_memory.push(state.cpu.memory_inspect(base + i).unwrap_or_default());
+                    }
+                    state
+                        .tx
+                        .send(ThreadToUi::ResponseMemory(base, resp_memory))
+                        .unwrap();
+                }
             }
 
             Ok(None)
@@ -329,35 +310,13 @@ impl ThreadState {
             Err(e) => Some(ThreadToUi::LogMessage(format!("error: {e}"))),
         }
     }
-}
 
-pub struct CpuThread {
-    rx: Receiver<UiToThread>,
-    tx: Sender<ThreadToUi>,
-    state: ThreadState,
-    last_state_running: bool,
-}
-
-impl CpuThread {
-    #[cfg(not(target_arch = "wasm32"))]
-    const THREAD_LOOP_MS: u64 = 50;
-    const MSGS_PER_LOOP: u64 = 1000;
-
-    pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Self {
-        Self {
-            rx,
-            tx,
-            state: ThreadState::new().unwrap(),
-            last_state_running: false,
-        }
-    }
-
-    pub fn step(&mut self, allow_wait: bool) -> bool {
-        if self.state.running {
+    pub fn process_messages(&mut self, blocking: bool) -> Result<(), ()> {
+        if self.running {
             for _ in 0..Self::MSGS_PER_LOOP {
                 let resp = match self.rx.try_recv() {
-                    Ok(msg) => self.state.handle_msg(msg),
-                    Err(TryRecvError::Disconnected) => return false,
+                    Ok(msg) => self.handle_msg(msg),
+                    Err(TryRecvError::Disconnected) => return Err(()),
                     Err(TryRecvError::Empty) => break,
                 };
 
@@ -368,16 +327,16 @@ impl CpuThread {
                 }
             }
         } else {
-            let resp = if allow_wait {
+            let resp = if blocking {
                 match self.rx.recv() {
-                    Ok(msg) => self.state.handle_msg(msg),
-                    Err(RecvError) => return false,
+                    Ok(msg) => self.handle_msg(msg),
+                    Err(RecvError) => return Err(()),
                 }
             } else {
                 match self.rx.try_recv() {
-                    Ok(msg) => self.state.handle_msg(msg),
-                    Err(TryRecvError::Disconnected) => return false,
-                    Err(TryRecvError::Empty) => return true,
+                    Ok(msg) => self.handle_msg(msg),
+                    Err(TryRecvError::Empty) => return Ok(()),
+                    Err(TryRecvError::Disconnected) => return Err(()),
                 }
             };
 
@@ -390,7 +349,7 @@ impl CpuThread {
 
         // Check for serial output
         let mut char_vec = Vec::new();
-        while let Some(w) = self.state.dev_serial_io.borrow_mut().pop_output() {
+        while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
             let c = match jib::text::byte_to_character(w) {
                 Ok(v) => v,
                 Err(e) => {
@@ -413,17 +372,17 @@ impl CpuThread {
         }
 
         // Step if required
-        if self.state.running {
-            let step_repeat_count = self.state.multiplier as i64;
+        if self.running {
+            let step_repeat_count = self.multiplier as i64;
 
             for _ in 0..step_repeat_count {
-                if let Err(msg) = self.state.step_cpu(true) {
-                    self.state.running = false;
+                if let Err(msg) = self.step_cpu(true) {
+                    self.running = false;
                     self.tx.send(msg).unwrap();
                     break;
                 }
 
-                if !self.state.running {
+                if !self.running {
                     break;
                 }
             }
@@ -432,55 +391,42 @@ impl CpuThread {
         // Send Registers
         self.tx
             .send(ThreadToUi::RegisterState(Box::new(
-                self.state.cpu.get_register_state(),
+                self.cpu.get_register_state(),
             )))
             .unwrap();
 
         let pc = self
-            .state
             .cpu
             .get_register_state()
             .get(jib::cpu::Register::ProgramCounter)
             .unwrap_or(0);
-        let mem = self.state.cpu.memory_inspect_u32(pc).unwrap_or(0);
+        let mem = self.cpu.memory_inspect_u32(pc).unwrap_or(0);
 
         self.tx
             .send(ThreadToUi::ProgramCounterValue(pc, mem))
             .unwrap();
 
-        // Send memory if needed
-        let (base, size) = self.state.memory_request;
-        let mut resp_memory = Vec::new();
-        for i in 0..size {
-            resp_memory.push(self.state.cpu.memory_inspect(base + i).unwrap_or_default());
-        }
-        self.tx
-            .send(ThreadToUi::ResponseMemory(base, resp_memory))
-            .unwrap();
-
         // Send CPU state
-        if self.last_state_running != self.state.running {
-            self.last_state_running = self.state.running;
-            self.tx
-                .send(ThreadToUi::CpuRunning(self.state.running))
-                .unwrap();
+        if self.running_prev != self.running {
+            self.running_prev = self.running;
+            self.tx.send(ThreadToUi::CpuRunning(self.running)).unwrap();
         }
 
-        true
+        Ok(())
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
-    let mut cpu = CpuThread::new(rx, tx.clone());
+    let mut state = CpuState::new(rx, tx.clone()).unwrap();
 
-    while cpu.state.run_thread {
-        if cpu.step(true) {
-            if cpu.state.running {
-                std::thread::sleep(core::time::Duration::from_millis(CpuThread::THREAD_LOOP_MS));
-            }
-        } else {
+    while state.run_thread {
+        if state.process_messages(true).is_err() {
             break;
+        }
+
+        if state.running {
+            std::thread::sleep(std::time::Duration::from_millis(CpuState::THREAD_LOOP_MS));
         }
     }
 
@@ -492,7 +438,10 @@ mod test {
     use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
 
-    use crate::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR, cpu_thread::ThreadState};
+    use crate::{
+        cpu_thread::CpuState,
+        examples::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR},
+    };
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
         let tokens = cbuoy::parse_str(
@@ -506,7 +455,10 @@ mod test {
         .unwrap();
         let asm = jib_asm::assemble_tokens(tokens).unwrap();
 
-        let mut cpu = ThreadState::new().unwrap();
+        let (tx_thread, _rx_thread) = std::sync::mpsc::channel();
+        let (_tx_ui, rx_ui) = std::sync::mpsc::channel();
+
+        let mut cpu = CpuState::new(rx_ui, tx_thread).unwrap();
         cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
 
         let mut serial_output = Vec::new();

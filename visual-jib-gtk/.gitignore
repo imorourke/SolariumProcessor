@@ -1,6 +1,0 @@
-# IDE Items
-/.idea/
-/.vscode/
-
-# Cargo/Rust Items
-/target
