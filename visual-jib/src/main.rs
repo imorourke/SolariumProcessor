@@ -1,4 +1,7 @@
 mod app;
+mod cpu_thread;
+mod examples;
+mod messages;
 
 use app::VisualJib;
 use eframe::egui::{self, IconData, Visuals};

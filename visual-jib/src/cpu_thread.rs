@@ -67,7 +67,6 @@ struct CpuState {
     running_prev: bool,
     multiplier: f64,
     run_thread: bool,
-    memory_request: (u32, u32),
     cpu: Processor,
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
     last_code: Vec<u8>,
@@ -93,7 +92,6 @@ impl CpuState {
             cpu: Processor::default(),
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
             last_code: Vec::new(),
-            memory_request: (0, 0),
             inst_history: Default::default(),
             inst_map: InstructionList::default(),
             breakpoint: None,
@@ -291,7 +289,17 @@ impl CpuState {
                         }
                     }
                 }
-                UiToThread::RequestMemory(base, size) => state.memory_request = (base, size),
+                UiToThread::RequestMemory(base, size) => {
+                    // Send memory if needed
+                    let mut resp_memory = Vec::new();
+                    for i in 0..size {
+                        resp_memory.push(state.cpu.memory_inspect(base + i).unwrap_or_default());
+                    }
+                    state
+                        .tx
+                        .send(ThreadToUi::ResponseMemory(base, resp_memory))
+                        .unwrap();
+                }
             }
 
             Ok(None)
@@ -396,16 +404,6 @@ impl CpuState {
 
         self.tx
             .send(ThreadToUi::ProgramCounterValue(pc, mem))
-            .unwrap();
-
-        // Send memory if needed
-        let (base, size) = self.memory_request;
-        let mut resp_memory = Vec::new();
-        for i in 0..size {
-            resp_memory.push(self.cpu.memory_inspect(base + i).unwrap_or_default());
-        }
-        self.tx
-            .send(ThreadToUi::ResponseMemory(base, resp_memory))
             .unwrap();
 
         // Send CPU state

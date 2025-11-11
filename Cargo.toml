@@ -5,11 +5,9 @@ members = [
     "cbc",
     "jib-asm",
     "jib",
-    "visual-jib-gtk",
-    "visual-jib-egui",
-    "visual-jib-lib",
+    "visual-jib",
 ]
-default-members = ["visual-jib-egui"]
+default-members = ["visual-jib"]
 resolver = "2"
 
 [profile.release]
