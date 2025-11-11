@@ -438,7 +438,10 @@ mod test {
     use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
 
-    use crate::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR, cpu_thread::CpuState};
+    use crate::{
+        cpu_thread::CpuState,
+        examples::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR},
+    };
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
         let tokens = cbuoy::parse_str(
