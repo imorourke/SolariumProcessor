@@ -355,25 +355,6 @@ impl eframe::App for VisualJib {
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("CPU Registers");
-                    const NUM_COLS: usize = 2;
-                    Grid::new("cpu_registers")
-                        .striped(true)
-                        .num_columns(NUM_COLS)
-                        .show(ui, |ui| {
-                            const NUM_ROWS: usize = RegisterManager::REGISTER_COUNT / NUM_COLS;
-
-                            for i in 0..NUM_ROWS {
-                                ui.label(format!("R{:02}: {:08x}", i, self.registers.registers[i]));
-                                ui.label(format!(
-                                    "R{:02}: {:08x}",
-                                    i + NUM_ROWS,
-                                    self.registers.registers[i + NUM_ROWS]
-                                ));
-                                ui.end_row();
-                            }
-                        });
-
                     ui.heading("Commands");
                     Grid::new("cpu_commands").show(ui, |ui| {
                         if ui.button("Step").clicked() {
@@ -412,6 +393,34 @@ impl eframe::App for VisualJib {
                             .send(UiToThread::SetMultiplier(self.current_cpu_speed as f64))
                             .unwrap();
                     }
+
+                    ui.heading("CPU Registers");
+                    const NUM_COLS: usize = 2;
+                    Grid::new("cpu_registers")
+                        .striped(true)
+                        .num_columns(NUM_COLS)
+                        .show(ui, |ui| {
+                            const NUM_ROWS: usize = RegisterManager::REGISTER_COUNT / NUM_COLS;
+
+                            for i in 0..NUM_ROWS {
+                                ui.label(format!("R{:02}: {:08x}", i, self.registers.registers[i]));
+                                ui.label(format!(
+                                    "R{:02}: {:08x}",
+                                    i + NUM_ROWS,
+                                    self.registers.registers[i + NUM_ROWS]
+                                ));
+                                ui.end_row();
+                            }
+                        });
+
+                    ui.heading("Program Log");
+
+                    ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                        TextEdit::multiline(&mut self.log_text)
+                            .cursor_at_end(true)
+                            .interactive(false)
+                            .show(ui);
+                    });
                 });
 
                 ui.vertical(|ui| {
