@@ -25,8 +25,7 @@ pub fn tokenize_str(s: &str) -> Result<Vec<Token>, TokenError> {
 }
 
 pub fn tokenize_file(file: &Path) -> Result<Vec<Token>, TokenError> {
-    let preproc = read_and_preprocess(file, [].into_iter())?;
-    tokenize(preproc.into_iter().map(|l| (l.text, Some(l.loc))))
+    read_and_preprocess(file, [].into_iter())?.tokenize()
 }
 
 pub fn tokenize<T: IntoIterator<Item = (String, Option<PreprocessorLocation>)>>(

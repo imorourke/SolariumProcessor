@@ -1,6 +1,5 @@
 mod app;
 mod cpu_thread;
-mod examples;
 mod messages;
 
 use app::VisualJib;

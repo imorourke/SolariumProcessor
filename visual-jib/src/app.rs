@@ -1,17 +1,11 @@
-use crate::{
-    examples::{
-        EXAMPLE_CB_DEFAULT, EXAMPLE_CB_OS, EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR,
-        EXAMPLE_CB_THREADING,
-    },
-    messages::{ThreadToUi, UiToThread},
-};
+use crate::messages::{ThreadToUi, UiToThread};
 use cbuoy::CodeGenerationOptions;
 use eframe::egui::{
     self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit,
 };
 use jib::cpu::RegisterManager;
 use jib_asm::{AssemblerOutput, InstructionList};
-use std::{sync::LazyLock, thread::JoinHandle, time::Duration};
+use std::{path::PathBuf, sync::LazyLock, thread::JoinHandle, time::Duration};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ProgramCounterView {
@@ -74,9 +68,9 @@ impl MemoryViewWindow {
                         self.base = num;
                     } else if let Ok(num) = self.base_str.parse::<u32>() {
                         self.base = num;
-                    } else {
-                        self.base_str = format!("{}", self.base);
                     }
+
+                    self.base_str = format!("{:#x}", self.base);
                 }
                 Grid::new("memory_view")
                     .striped(true)
@@ -107,7 +101,6 @@ pub struct VisualJib {
     log_serial: String,
     log_text: String,
     text_serial_input: String,
-    text_debug_location: String,
     cpu_run_requested: bool,
     cpu_thread: Option<JoinHandle<()>>,
     tx_ui: std::sync::mpsc::Sender<UiToThread>,
@@ -123,6 +116,39 @@ pub struct VisualJib {
     code_window_id: usize,
     memory_windows: Vec<MemoryViewWindow>,
     memory_window_id: usize,
+}
+
+impl Default for VisualJib {
+    fn default() -> Self {
+        let (tx_ui, rx_thread) = std::sync::mpsc::channel::<UiToThread>();
+        let (tx_thread, rx_ui) = std::sync::mpsc::channel::<ThreadToUi>();
+        let tx_thread_local = tx_thread.clone();
+
+        let t = std::thread::spawn(move || crate::cpu_thread::cpu_thread(rx_thread, tx_thread));
+
+        let (tx_window, rx_window) = std::sync::mpsc::channel::<CodeWindowAction>();
+
+        Self {
+            cpu_run_requested: false,
+            cpu_thread: Some(t),
+            log_serial: String::default(),
+            log_text: String::default(),
+            text_serial_input: String::default(),
+            tx_ui,
+            rx_ui,
+            tx_thread: tx_thread_local,
+            tx_window,
+            rx_window,
+            registers: RegisterManager::default(),
+            program_counter: ProgramCounterView::default(),
+            current_cpu_speed: 0,
+            last_cpu_speed: 0,
+            code_windows: Vec::new(),
+            code_window_id: 0,
+            memory_windows: Vec::new(),
+            memory_window_id: 0,
+        }
+    }
 }
 
 impl VisualJib {
@@ -186,7 +212,12 @@ impl VisualJib {
         }))
     }
 
-    fn open_code_window(&mut self, code_type: CodeWindowType, code: String) {
+    fn open_code_window(
+        &mut self,
+        code_type: CodeWindowType,
+        code: String,
+        filepath: Option<&'static str>,
+    ) {
         self.code_windows.push(CodeWindow::new(
             self.code_window_id,
             self.tx_ui.clone(),
@@ -194,6 +225,7 @@ impl VisualJib {
             self.tx_window.clone(),
             code,
             code_type,
+            filepath,
         ));
         self.code_window_id += 1;
     }
@@ -202,40 +234,6 @@ impl VisualJib {
         self.memory_windows
             .push(MemoryViewWindow::new(self.memory_window_id));
         self.memory_window_id += 1;
-    }
-}
-
-impl Default for VisualJib {
-    fn default() -> Self {
-        let (tx_ui, rx_thread) = std::sync::mpsc::channel::<UiToThread>();
-        let (tx_thread, rx_ui) = std::sync::mpsc::channel::<ThreadToUi>();
-        let tx_thread_local = tx_thread.clone();
-
-        let t = std::thread::spawn(move || crate::cpu_thread::cpu_thread(rx_thread, tx_thread));
-
-        let (tx_window, rx_window) = std::sync::mpsc::channel::<CodeWindowAction>();
-
-        Self {
-            cpu_run_requested: false,
-            cpu_thread: Some(t),
-            log_serial: String::default(),
-            log_text: String::default(),
-            text_serial_input: String::default(),
-            text_debug_location: String::default(),
-            tx_ui,
-            rx_ui,
-            tx_thread: tx_thread_local,
-            tx_window,
-            rx_window,
-            registers: RegisterManager::default(),
-            program_counter: ProgramCounterView::default(),
-            current_cpu_speed: 0,
-            last_cpu_speed: 0,
-            code_windows: Vec::new(),
-            code_window_id: 0,
-            memory_windows: Vec::new(),
-            memory_window_id: 0,
-        }
     }
 }
 
@@ -276,8 +274,8 @@ impl eframe::App for VisualJib {
 
         while let Ok(msg) = self.rx_window.try_recv() {
             match msg {
-                CodeWindowAction::NewAssemblyWindow(code) => {
-                    self.open_code_window(CodeWindowType::Assembly, code);
+                CodeWindowAction::NewAssemblyWindow(code, filename) => {
+                    self.open_code_window(CodeWindowType::Assembly, code, filename);
                 }
             }
         }
@@ -292,21 +290,41 @@ impl eframe::App for VisualJib {
 
                 ui.menu_button("C/Buoy", |ui| {
                     if ui.button("New").clicked() {
-                        self.open_code_window(CodeWindowType::Cbuoy, String::new());
+                        self.open_code_window(CodeWindowType::Cbuoy, String::new(), None);
                     }
 
                     ui.menu_button("Examples", |ui| {
-                        static CB_CODES: &[(&str, &str)] = &[
-                            ("Default", EXAMPLE_CB_DEFAULT),
-                            ("OS", EXAMPLE_CB_OS),
-                            ("Threading", EXAMPLE_CB_THREADING),
-                            ("kmalloc", EXAMPLE_CB_TEST_KMALLOC),
-                            ("Structures", EXAMPLE_CB_TEST_STRUCT_PTR),
+                        static CB_CODES: &[(&str, &str, &str)] = &[
+                            (
+                                "Default",
+                                include_str!("../../cbuoy/examples/default.cb"),
+                                "default.cb",
+                            ),
+                            ("OS", include_str!("../../cbuoy/examples/os.cb"), "os.cb"),
+                            (
+                                "Threading",
+                                include_str!("../../cbuoy/examples/threading.cb"),
+                                "threading.cb",
+                            ),
+                            (
+                                "kmalloc",
+                                include_str!("../../cbuoy/examples/tests/test_kmalloc.cb"),
+                                "test/kmalloc.cb",
+                            ),
+                            (
+                                "Structures",
+                                include_str!("../../cbuoy/examples/tests/test_struct_ptr.cb"),
+                                "test/structures.cb",
+                            ),
                         ];
 
-                        for (name, code) in CB_CODES.iter().cloned() {
+                        for (name, code, path) in CB_CODES.iter().cloned() {
                             if ui.button(name).clicked() {
-                                self.open_code_window(CodeWindowType::Cbuoy, code.into());
+                                self.open_code_window(
+                                    CodeWindowType::Cbuoy,
+                                    code.into(),
+                                    Some(path),
+                                );
                             }
                         }
                     });
@@ -314,33 +332,40 @@ impl eframe::App for VisualJib {
 
                 ui.menu_button("J/ASM", |ui| {
                     if ui.button("New").clicked() {
-                        self.open_code_window(CodeWindowType::Assembly, String::new());
+                        self.open_code_window(CodeWindowType::Assembly, String::new(), None);
                     }
 
                     ui.menu_button("Examples", |ui| {
-                        static ASM_CODES: &[(&str, &str)] = &[
-                            ("Empty", ""),
+                        static ASM_CODES: &[(&str, &str, &str)] = &[
                             (
                                 "Hello World",
                                 include_str!("../../jib-asm/examples/hello_world.jsm"),
+                                "hello_world.jsm",
                             ),
                             (
                                 "Thread Test",
                                 include_str!("../../jib-asm/examples/thread_test.jsm"),
+                                "thread_test.jsm",
                             ),
                             (
                                 "Serial Echo",
                                 include_str!("../../jib-asm/examples/serial_echo.jsm"),
+                                "serial_echo.jsm",
                             ),
                             (
                                 "Infinite Counter",
                                 include_str!("../../jib-asm/examples/infinite_counter.jsm"),
+                                "infinite_counter.jsm",
                             ),
                         ];
 
-                        for (name, code) in ASM_CODES.iter().cloned() {
+                        for (name, code, filename) in ASM_CODES.iter().cloned() {
                             if ui.button(name).clicked() {
-                                self.open_code_window(CodeWindowType::Assembly, code.into());
+                                self.open_code_window(
+                                    CodeWindowType::Assembly,
+                                    code.into(),
+                                    Some(filename),
+                                );
                             }
                         }
                     });
@@ -369,14 +394,8 @@ impl eframe::App for VisualJib {
                             self.tx_ui.send(UiToThread::CpuStop).unwrap();
                         }
 
-                        ui.end_row();
-
                         if ui.button("Reset").clicked() {
                             self.tx_ui.send(UiToThread::CpuReset).unwrap();
-                        }
-
-                        if ui.button("IRQ1").clicked() {
-                            self.tx_ui.send(UiToThread::CpuIrq(1)).unwrap();
                         }
                     });
 
@@ -434,38 +453,18 @@ impl eframe::App for VisualJib {
                         self.program_counter.get_instruction_string()
                     ));
 
-                    ui.heading("Breakpoint Location");
-                    if ui
-                        .text_edit_singleline(&mut self.text_debug_location)
-                        .lost_focus()
-                    {
-                        let (radix, s) =
-                            if let Some(rest) = self.text_debug_location.strip_prefix("0x") {
-                                (16, rest)
-                            } else {
-                                (10, self.text_debug_location.as_str())
-                            };
-
-                        let loc = if let Ok(v) = u32::from_str_radix(s, radix) {
-                            v
-                        } else {
-                            self.tx_thread
-                                .send(ThreadToUi::LogMessage(format!(
-                                    "unable to convert '{}' to program location",
-                                    self.text_debug_location
-                                )))
-                                .unwrap();
-                            0
-                        };
-
-                        self.tx_ui.send(UiToThread::SetBreakpoint(loc)).unwrap();
-                    }
-
                     ui.heading("Serial Input");
-                    TextEdit::singleline(&mut self.text_serial_input)
-                        .return_key(None)
-                        .show(ui);
-                    if ui.button("Submit").clicked() {
+                    const RETURN_KEY: egui::Key = egui::Key::Enter;
+                    const RETURN_SHORTCUT: egui::KeyboardShortcut =
+                        egui::KeyboardShortcut::new(egui::Modifiers::NONE, RETURN_KEY);
+                    if TextEdit::singleline(&mut self.text_serial_input)
+                        .desired_width(ui.available_width())
+                        .return_key(Some(RETURN_SHORTCUT))
+                        .show(ui)
+                        .response
+                        .lost_focus()
+                        && ctx.input(|x| x.key_pressed(RETURN_KEY))
+                    {
                         self.tx_ui
                             .send(UiToThread::SerialInput(self.text_serial_input.take()))
                             .unwrap();
@@ -475,9 +474,11 @@ impl eframe::App for VisualJib {
                     ScrollArea::vertical()
                         .id_salt("serial_log")
                         .stick_to_bottom(true)
+                        .stick_to_right(true)
                         .show(ui, |ui| {
                             TextEdit::multiline(&mut self.log_serial)
                                 .interactive(false)
+                                .desired_width(ui.available_width())
                                 .show(ui);
                         });
                 });
@@ -506,7 +507,7 @@ enum CodeWindowType {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum CodeWindowAction {
-    NewAssemblyWindow(String),
+    NewAssemblyWindow(String, Option<&'static str>),
 }
 
 struct CodeWindow {
@@ -517,6 +518,7 @@ struct CodeWindow {
     shown: bool,
     id: String,
     compiled: CodeWindowType,
+    filename: Option<&'static str>,
 }
 
 impl CodeWindow {
@@ -530,6 +532,7 @@ impl CodeWindow {
         tx_window: std::sync::mpsc::Sender<CodeWindowAction>,
         code: String,
         code_type: CodeWindowType,
+        filename: Option<&'static str>,
     ) -> Self {
         Self {
             tx_ui,
@@ -538,13 +541,19 @@ impl CodeWindow {
             code,
             shown: true,
             id: format!(
-                "{} {id}",
+                "{} {id}{}",
                 match code_type {
                     CodeWindowType::Assembly => "ASM",
                     CodeWindowType::Cbuoy => "C/Buoy",
+                },
+                if let Some(t) = &filename {
+                    format!(" ({t})")
+                } else {
+                    String::new()
                 }
             ),
             compiled: code_type,
+            filename,
         }
     }
 
@@ -568,9 +577,30 @@ impl CodeWindow {
     }
 
     fn compile_cbuoy_to_asm(&self) -> Option<AssemblerOutput> {
+        let preprocessed = match cbuoy::preprocess_code_as_file(
+            &self.code,
+            &if let Some(f) = &self.filename {
+                PathBuf::from(f)
+            } else {
+                PathBuf::from("code.cb")
+            },
+            [].into_iter(),
+        ) {
+            Ok(txt) => txt.full_string(),
+            Err(err) => {
+                self.tx_thread
+                    .send(ThreadToUi::LogMessage(format!(
+                        "{} Preprocessor: {err}",
+                        Self::CB_NAME
+                    )))
+                    .unwrap();
+                return None;
+            }
+        };
+
         let options = CodeGenerationOptions::default();
 
-        match cbuoy::parse_str(&self.code, options).and_then(|x| x.get_assembler()) {
+        match cbuoy::parse_str(&preprocessed, options).and_then(|x| x.get_assembler()) {
             Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
                 Ok(asm) => Some(asm),
                 Err(err) => {
@@ -654,7 +684,7 @@ impl CodeWindow {
                     );
 
                     self.tx_window
-                        .send(CodeWindowAction::NewAssemblyWindow(asm))
+                        .send(CodeWindowAction::NewAssemblyWindow(asm, self.filename))
                         .unwrap();
                 }
 

@@ -230,15 +230,6 @@ impl CpuState {
             msg: UiToThread,
         ) -> Result<Option<ThreadToUi>, ProcessorError> {
             match msg {
-                UiToThread::SetBreakpoint(brk) => {
-                    state.breakpoint = if brk == 0 { None } else { Some(brk) };
-                    let msg = if brk == 0 {
-                        "Disabling Breakpoint".into()
-                    } else {
-                        format!("Setting Breakpoint to 0x{brk:08x}")
-                    };
-                    return Ok(Some(ThreadToUi::LogMessage(msg)));
-                }
                 UiToThread::CpuStep => {
                     if let Err(e) = state.step_cpu(false) {
                         return Ok(Some(e));
@@ -435,17 +426,22 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
     use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
 
-    use crate::{
-        cpu_thread::CpuState,
-        examples::{EXAMPLE_CB_TEST_KMALLOC, EXAMPLE_CB_TEST_STRUCT_PTR},
-    };
+    use crate::cpu_thread::CpuState;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let tokens = cbuoy::parse_str(
-            in_code,
+        let tokens =
+            cbuoy::preprocess_code_as_file(in_code, Path::new("test/test.cb"), [].into_iter())
+                .unwrap()
+                .tokenize()
+                .unwrap();
+
+        let tokens = cbuoy::parse(
+            tokens,
             CodeGenerationOptions {
                 debug_locations: true,
                 ..Default::default()
@@ -509,7 +505,10 @@ mod test {
             No Heap Allocations\n\
             Heap Test Pass\n";
 
-        run_cpu_serial_out_test(EXAMPLE_CB_TEST_KMALLOC, EXPECTED);
+        run_cpu_serial_out_test(
+            include_str!("../../cbuoy/examples/tests/test_kmalloc.cb"),
+            EXPECTED,
+        );
     }
 
     #[test]
@@ -527,6 +526,9 @@ mod test {
             Hello, world!\n\
             7\n\
             7\n";
-        run_cpu_serial_out_test(EXAMPLE_CB_TEST_STRUCT_PTR, EXPECTED);
+        run_cpu_serial_out_test(
+            include_str!("../../cbuoy/examples/tests/test_struct_ptr.cb"),
+            EXPECTED,
+        );
     }
 }
