@@ -434,11 +434,12 @@ impl eframe::App for VisualJib {
 
                     ui.heading("Program Log");
 
-                    ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                    ScrollArea::both().stick_to_bottom(true).show(ui, |ui| {
                         TextEdit::multiline(&mut self.log_text)
-                            .cursor_at_end(true)
                             .code_editor()
+                            .cursor_at_end(true)
                             .interactive(false)
+                            .clip_text(false)
                             .show(ui);
                     });
                 });
