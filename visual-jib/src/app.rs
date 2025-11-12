@@ -437,6 +437,7 @@ impl eframe::App for VisualJib {
                     ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
                         TextEdit::multiline(&mut self.log_text)
                             .cursor_at_end(true)
+                            .code_editor()
                             .interactive(false)
                             .show(ui);
                     });
@@ -586,7 +587,7 @@ impl CodeWindow {
             },
             [].into_iter(),
         ) {
-            Ok(txt) => txt.full_string(),
+            Ok(val) => val,
             Err(err) => {
                 self.tx_thread
                     .send(ThreadToUi::LogMessage(format!(
@@ -598,9 +599,22 @@ impl CodeWindow {
             }
         };
 
+        let tokens = match preprocessed.tokenize() {
+            Ok(val) => val,
+            Err(e) => {
+                self.tx_thread
+                    .send(ThreadToUi::LogMessage(format!(
+                        "{}: Tokenize error {e}",
+                        Self::CB_NAME
+                    )))
+                    .unwrap();
+                return None;
+            }
+        };
+
         let options = CodeGenerationOptions::default();
 
-        match cbuoy::parse_str(&preprocessed, options).and_then(|x| x.get_assembler()) {
+        match cbuoy::parse(tokens, options).and_then(|x| x.get_assembler()) {
             Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
                 Ok(asm) => Some(asm),
                 Err(err) => {
@@ -616,24 +630,26 @@ impl CodeWindow {
                     .unwrap();
 
                 if let Some(t) = &err.token {
-                    let line_num = t.get_loc().line;
-                    let display_num = line_num + 1;
-                    let line = self.code.lines().nth(line_num).unwrap();
-                    self.tx_thread
-                        .send(ThreadToUi::LogMessage(format!("> {display_num} >> {line}")))
-                        .unwrap();
+                    for l in preprocessed.get_lines().iter() {
+                        if l.loc.line == t.get_loc().line
+                            && Some(&l.loc.file) == t.get_loc().file.as_ref()
+                        {
+                            let line = &l.text;
 
-                    let mut err_msg = format!("> {display_num}    ");
-                    for _ in 0..t.get_loc().column {
-                        err_msg += " ";
+                            let mut err_msg = format!("{} >> {line}\n", l.loc);
+                            err_msg += &format!("{}    ", l.loc);
+                            for _ in 0..t.get_loc().column {
+                                err_msg += " ";
+                            }
+                            for _ in 0..t.get_value().len() {
+                                err_msg += "^";
+                            }
+                            self.tx_thread
+                                .send(ThreadToUi::LogMessage(err_msg))
+                                .unwrap();
+                            break;
+                        }
                     }
-                    for _ in 0..t.get_value().len() {
-                        err_msg += "^";
-                    }
-
-                    self.tx_thread
-                        .send(ThreadToUi::LogMessage(err_msg))
-                        .unwrap();
                 }
 
                 None
