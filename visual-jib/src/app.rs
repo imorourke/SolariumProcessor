@@ -141,7 +141,7 @@ impl Default for VisualJib {
             rx_window,
             registers: RegisterManager::default(),
             program_counter: ProgramCounterView::default(),
-            current_cpu_speed: 0,
+            current_cpu_speed: Self::SPEED_MAX / 2,
             last_cpu_speed: 0,
             code_windows: Vec::new(),
             code_window_id: 0,
@@ -152,6 +152,9 @@ impl Default for VisualJib {
 }
 
 impl VisualJib {
+    const SPEED_MIN: i32 = 1;
+    const SPEED_MAX: i32 = 100;
+
     pub fn name() -> &'static str {
         "V/Jib"
     }
@@ -397,13 +400,19 @@ impl eframe::App for VisualJib {
                         if ui.button("Reset").clicked() {
                             self.tx_ui.send(UiToThread::CpuReset).unwrap();
                         }
+
+                        if ui.button("IRQ1").clicked() {
+                            self.tx_ui.send(UiToThread::CpuIrq(1)).unwrap();
+                        }
                     });
 
                     ui.label("Speed Multiplier");
                     ui.add(
-                        Slider::new(&mut self.current_cpu_speed, 1..=100)
-                            .step_by(5.0)
-                            .show_value(true),
+                        Slider::new(
+                            &mut self.current_cpu_speed,
+                            VisualJib::SPEED_MIN..=VisualJib::SPEED_MAX,
+                        )
+                        .show_value(true),
                     );
 
                     if self.current_cpu_speed != self.last_cpu_speed {
