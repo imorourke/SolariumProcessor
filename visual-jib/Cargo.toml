@@ -7,7 +7,7 @@ edition = "2024"
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
-eframe = "0.32"
+eframe = "0.33"
 image = "0.25"
 
 [build-dependencies]
