@@ -11,8 +11,8 @@ pub enum UiToThread {
     SetCode(AssemblerOutput),
     SerialInput(String),
     RequestMemory(u32, u32),
-    SetBreakpoint(u32),
     SetMultiplier(f64),
+    #[cfg(not(target_arch = "wasm32"))]
     Exit,
 }
 
@@ -24,6 +24,7 @@ pub enum ThreadToUi {
     RegisterState(Box<RegisterManager>),
     ProgramCounterValue(u32, u32),
     ProcessorReset,
+    #[cfg(not(target_arch = "wasm32"))]
     ThreadExit,
     CpuRunning(bool),
 }

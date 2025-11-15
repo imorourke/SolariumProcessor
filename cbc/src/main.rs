@@ -1,6 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
-use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preprocess, tokenize};
+use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preprocess};
 use clap::Parser;
 use jib_asm::assemble_tokens;
 
@@ -71,17 +71,16 @@ struct CompilerArguments {
 fn main() -> std::process::ExitCode {
     let args = CompilerArguments::parse();
 
-    let input_preprocessor =
-        match read_and_preprocess(&args.input_file, args.definitions.into_iter()) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return 1.into();
-            }
-        };
+    let preprocessed = match read_and_preprocess(&args.input_file, args.definitions.into_iter()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1.into();
+        }
+    };
 
     if args.print_preproc {
-        for l in input_preprocessor.iter() {
+        for l in preprocessed.get_lines() {
             println!("{}", l.text);
         }
     }
@@ -89,7 +88,7 @@ fn main() -> std::process::ExitCode {
     if let Some(file) = &args.output_preproc {
         match std::fs::File::create(file) {
             Ok(mut f) => {
-                for l in input_preprocessor.iter() {
+                for l in preprocessed.get_lines() {
                     writeln!(f, "{}", l.text).unwrap();
                 }
             }
@@ -104,11 +103,7 @@ fn main() -> std::process::ExitCode {
     }
 
     let input_tokens = {
-        match tokenize(
-            input_preprocessor
-                .iter()
-                .map(|x| (x.text.clone(), Some(x.loc.clone()))),
-        ) {
+        match preprocessed.tokenize() {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e}");
@@ -130,7 +125,7 @@ fn main() -> std::process::ExitCode {
     ) {
         Ok(asm) => asm,
         Err(e) => {
-            print_error(&input_preprocessor, &e);
+            print_error(preprocessed.get_lines(), &e);
             return 1.into();
         }
     };
@@ -142,7 +137,7 @@ fn main() -> std::process::ExitCode {
     let asm = match cbstate.get_assembler() {
         Ok(v) => v,
         Err(e) => {
-            print_error(&input_preprocessor, &e);
+            print_error(preprocessed.get_lines(), &e);
             return 1.into();
         }
     };

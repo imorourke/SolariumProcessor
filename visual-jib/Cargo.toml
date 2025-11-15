@@ -10,7 +10,7 @@ nothread = []
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
-eframe = "0.32"
+eframe = "0.33"
 image = "0.25"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

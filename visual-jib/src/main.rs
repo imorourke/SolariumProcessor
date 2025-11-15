@@ -1,14 +1,15 @@
 mod app;
 mod cpu_thread;
-mod examples;
 mod messages;
 
 use app::VisualJib;
-use eframe::egui::{self, IconData, Visuals};
-use std::io::Cursor;
+use eframe::egui::Visuals;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    use eframe::egui::{self, IconData};
+    use std::io::Cursor;
+
     let mut icon_bytes = Vec::new();
     let img = image::load_from_memory(include_bytes!("../../doc/images/logo.png")).unwrap();
     img.write_to(&mut Cursor::new(&mut icon_bytes), image::ImageFormat::Png)
