@@ -100,10 +100,9 @@ impl PreprocessorState {
                         if c.as_os_str() == "." {
                             // Do Nothing
                         } else if c.as_os_str() == ".." {
-                            current =
-                                current.map_or(None, |x| Path::parent(&x).map(|x| x.to_path_buf()));
+                            current = current.and_then(|x| x.parent().map(|x| x.to_path_buf()));
                         } else {
-                            current = current.map(|x| x.join(&c));
+                            current = current.map(|x| x.join(c));
                         }
                     }
 
@@ -344,7 +343,7 @@ pub fn preprocess_code_as_file<I: Iterator<Item = String>>(
     for d in defs.into_iter() {
         state.definitions.insert(d);
     }
-    Ok(state.read_file(&file_path)?)
+    state.read_file(file_path)
 }
 
 pub fn read_and_preprocess<I: Iterator<Item = String>>(
@@ -355,5 +354,5 @@ pub fn read_and_preprocess<I: Iterator<Item = String>>(
     for d in defs.into_iter() {
         state.definitions.insert(d);
     }
-    Ok(state.read_file(file)?)
+    state.read_file(file)
 }
