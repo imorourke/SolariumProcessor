@@ -324,12 +324,12 @@ impl eframe::App for VisualJib {
                             ),
                             (
                                 "kmalloc",
-                                include_str!("../../cbuoy/examples/tests/test_kmalloc.cb"),
+                                include_str!("../../cbuoy/tests/test_kmalloc.cb"),
                                 "test/kmalloc.cb",
                             ),
                             (
                                 "Structures",
-                                include_str!("../../cbuoy/examples/tests/test_struct_ptr.cb"),
+                                include_str!("../../cbuoy/tests/test_struct_ptr.cb"),
                                 "test/structures.cb",
                             ),
                         ];
@@ -345,50 +345,8 @@ impl eframe::App for VisualJib {
                         }
                     });
                     ui.menu_button("Components", |ui| {
-                        static CB_CODES: &[(&str, &str, &str)] = &[
-                            (
-                                "kclock.cb",
-                                include_str!("../../cbuoy/examples/components/kclock.cb"),
-                                "components/kclock.cb",
-                            ),
-                            (
-                                "kcpu.cb",
-                                include_str!("../../cbuoy/examples/components/kcpu.cb"),
-                                "components/kcpu.cb",
-                            ),
-                            (
-                                "kirq.cb",
-                                include_str!("../../cbuoy/examples/components/kirq.cb"),
-                                "components/kirq.cb",
-                            ),
-                            (
-                                "kmalloc.cb",
-                                include_str!("../../cbuoy/examples/components/kmalloc.cb"),
-                                "components/kmalloc.cb",
-                            ),
-                            (
-                                "kserialio.cb",
-                                include_str!("../../cbuoy/examples/components/kserialio.cb"),
-                                "components/kserialio.cb",
-                            ),
-                            (
-                                "ktsk.cb",
-                                include_str!("../../cbuoy/examples/components/ktsk.cb"),
-                                "components/ktsk.cb",
-                            ),
-                            (
-                                "std_list.cb",
-                                include_str!("../../cbuoy/examples/components/std_list.cb"),
-                                "components/std_list.cb",
-                            ),
-                            (
-                                "std_string.cb",
-                                include_str!("../../cbuoy/examples/components/std_string.cb"),
-                                "components/std_string.cb",
-                            ),
-                        ];
-
-                        for (name, code, path) in CB_CODES.iter().cloned() {
+                        for (path, code) in cbuoy::DEFAULT_FILES.iter().cloned() {
+                            let name = path.split('/').next_back().unwrap_or(path);
                             if ui.button(name).clicked() {
                                 self.open_code_window(
                                     CodeWindowType::Cbuoy,

@@ -12,8 +12,8 @@ mod variables;
 pub use compiler::{CodeGenerationOptions, ProgramType};
 pub use parser::{parse, parse_str};
 pub use preprocessor::{
-    PreprocessorError, PreprocessorLine, preprocess_code_as_file, preprocess_code_std,
-    read_and_preprocess,
+    DEFAULT_FILES, PreprocessorError, PreprocessorLine, preprocess_code_as_file,
+    preprocess_code_std, read_and_preprocess,
 };
 pub use tokenizer::{TokenError, tokenize, tokenize_file, tokenize_str};
 
@@ -28,8 +28,11 @@ mod test {
     static EXAMPLE_FILES: &[&str] = &[
         "examples/array_test.cb",
         "examples/default.cb",
+        "examples/os.cb",
         "examples/printing.cb",
         "examples/threading.cb",
+        "tests/test_kmalloc.cb",
+        "tests/test_struct_ptr.cb",
     ];
 
     #[test]

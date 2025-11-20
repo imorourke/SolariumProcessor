@@ -4,7 +4,7 @@
 #include kcpu.cb
 #include kirq.cb
 #include kserialio.cb
-#include std_list.cb
+#include <std/list.cb>
 
 struct k_tsk_thread_frame_t {
     last_ptr: u32;

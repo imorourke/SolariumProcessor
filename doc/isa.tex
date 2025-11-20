@@ -233,7 +233,8 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			A & 4 & 0 & \texttt{inton} & Turn Interrupts On, set \texttt{\$STAT} \\
 			A & 4 & 1 & \texttt{intoff} & Turn Interrupts Off, set \texttt{\$STAT} \\
 
-			A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware if supported; otherwise, acts as a \texttt{noop}) \\
+			A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware if supported; \\
+			{} & {} & {} & {} & otherwise, acts as a \texttt{noop}) \\
 
 			I & 10 & 0 & \texttt{add [dst] [a] [b]} & \texttt{R[dst] = R[a] + R[b]} \\
 			I & 10 & 1 & \texttt{sub [dst] [a] [b]} & \texttt{R[dst] = R[a] - R[b]} \\
@@ -574,7 +575,7 @@ To allow for additional optimization, Jib assembly code can also be mixed in wit
 
 For example, the above listing could have the print function replaced by the print function in List \ref{listing:example-cbuoy-print-asm} and be considerably more efficient.
 
-\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/examples/components/kserialio.cb}
+\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/components/kernel/kserialio.cb}
 
 The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 1320 CPU cycles. After replacing the print function with the one in Listing \ref{listing:example-cbuoy-print-asm}, the same program completes to a halt in 1010 CPU cycles. Used appropriately, similar optimizations can be made throughout program code to target and improve execution time for different functions as-needed. This also the programmer to slowly learn assembly language by starting with a higher-level programming language as an entry-point, and then working to the lower-level functionality gradually over time as they get familiar with the system. Assembly language is required for several key pieces of functionality, including setting up things to manage the stack directly - such as creating threads - and for interfacing more efficiently with hardware input/output devices.
 
@@ -582,7 +583,7 @@ The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 13
 
 Through direct modification of the stack, we can create a set of utilities to swap between different threads at runtime. Listing \ref{listing:cbuoy-threading-utils} provides several functions. \texttt{k\_tsk\_init} provides means to register a new thread. \texttt{k\_tsk\_main} is a function that is called to transition from the main thread into the inner executing threads. \texttt{k\_tsk\_yield} is both an interrupt handler (for a periodic device like a timer) and also a function that may be called by threaded functions to yield their execution to the next thread. This is simple round-robin threading, so there is no scheduler implemented in this example.
 
-\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and swich between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/examples/components/ktsk.cb}
+\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and swich between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/components/kernel/ktsk.cb}
 
 \pagebreak
 

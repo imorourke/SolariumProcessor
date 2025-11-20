@@ -435,11 +435,10 @@ mod test {
     use std::path::Path;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let tokens =
-            cbuoy::preprocess_code_as_file(in_code, Path::new("test/test.cb"), [].into_iter())
-                .unwrap()
-                .tokenize()
-                .unwrap();
+        let tokens = cbuoy::preprocess_code_as_file(in_code, Path::new("test.cb"), [].into_iter())
+            .unwrap()
+            .tokenize()
+            .unwrap();
 
         let tokens = cbuoy::parse(
             tokens,
@@ -506,10 +505,7 @@ mod test {
             No Heap Allocations\n\
             Heap Test Pass\n";
 
-        run_cpu_serial_out_test(
-            include_str!("../../cbuoy/examples/tests/test_kmalloc.cb"),
-            EXPECTED,
-        );
+        run_cpu_serial_out_test(include_str!("../../cbuoy/tests/test_kmalloc.cb"), EXPECTED);
     }
 
     #[test]
@@ -528,7 +524,7 @@ mod test {
             7\n\
             7\n";
         run_cpu_serial_out_test(
-            include_str!("../../cbuoy/examples/tests/test_struct_ptr.cb"),
+            include_str!("../../cbuoy/tests/test_struct_ptr.cb"),
             EXPECTED,
         );
     }

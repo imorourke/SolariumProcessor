@@ -1,7 +1,7 @@
 #ifndef STD_LIST
 #define STD_LIST
 
-#include kmalloc.cb
+#include <kernel/kmalloc.cb>
 
 struct std_list_node_t {
     data: *u8;

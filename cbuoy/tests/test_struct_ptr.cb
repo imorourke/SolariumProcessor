@@ -1,4 +1,4 @@
-#include ../components/kserialio.cb
+#include <kernel/kserialio.cb>
 
 global a: u16 = 255 + 5;
 global b: u32;

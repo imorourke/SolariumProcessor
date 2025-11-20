@@ -1,10 +1,10 @@
-#include components/kmalloc.cb
-#include components/kserialio.cb
-#include components/ktsk.cb
-#include components/kirq.cb
-#include components/kclock.cb
-#include components/std_list.cb
-#include components/std_string.cb
+#include <kernel/kmalloc.cb>
+#include <kernel/kserialio.cb>
+#include <kernel/ktsk.cb>
+#include <kernel/kirq.cb>
+#include <kernel/kclock.cb>
+#include <std/list.cb>
+#include <std/string.cb>
 
 const FD_SIZE_TABLE: u32 = 1024;
 const FD_THREAD: u32 = 1;
