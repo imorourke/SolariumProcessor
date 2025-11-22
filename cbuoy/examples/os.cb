@@ -14,47 +14,81 @@ struct fd_type_t {
 }
 global FD_TABLE: [FD_SIZE_TABLE]fd_type_t;
 
-fn main_tsk_a() void {
-    def i_val: u32 = 0;
-    while (1) {
-        i_val = (i_val + 1) % 10;
-        if (i_val == 0) {
-            k_io_print("TSK_A\n");
+const OS_INPUT_BUFFER_SIZE: u32 = 128;
+const OS_ARG_SIZE: u32 = 128;
+
+fn os_split_args(input: *u8, args: **u8) i32 {
+    def count: i32 = 0;
+    def c: *u8 = input;
+
+    while (*c != '\0') {
+        // Skip any leading spaces
+        while (*c == ' ') {
+            c = c + 1;
+        }
+
+        // Add the argument if it is not the end
+        if (*c == '\0') {
+            break;
+        }
+
+        args[count] = c;
+        count = count + 1;
+
+        while ((*c != '\0') && (*c != ' ')) {
+            c = c + 1;
+        }
+
+        if (*c != '\0') {
+            *c = '\0';
+            c = c + 1;
         }
     }
-}
 
-fn main_tsk_b() void {
-    while (1) {
-        //k_io_print("TSK_B\n");
-        k_tsk_yield();
-    }
+    return count;
 }
-
-const OS_INPUT_BUFFER_SIZE: u32 = 128;
 
 fn os_main() void {
     k_io_print("Starting C/Buoy OS\n");
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
+    def arg_buffer: [OS_ARG_SIZE]*u8;
     def valid: u8 = 1;
     while (valid) {
         k_io_print("~> ");
         if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
             k_io_print(input_buffer);
-            def cmd: *u8 = strtrim(input_buffer);
+            def count: i32 = os_split_args(input_buffer, &arg_buffer);
 
-            if (strcmp(cmd, "ls") == 0) {
-                k_io_print("No files found\n");
-            } else if (strcmp(cmd, "pwd") == 0) {
-                k_io_print("/root\n");
-            } else if (strcmp(cmd, "reset") == 0) {
-                k_cpu_reset();
-            } else {
-                k_io_print("^! Unknown Command: ");
-                k_io_print(cmd);
+            k_io_print("Arg Count: ");
+            k_io_print_uint(count);
+            k_io_print("\n");
+
+            def i: i32 = 0;
+            while (i < count) {
+                k_io_print("  [");
+                k_io_print_uint(i);
+                k_io_print("] = ");
+                k_io_print(arg_buffer[i]);
+                k_io_print("\n");
+                i = i + 1;
+            }
+
+            if (count > 0) {
+                def cmd: *u8 = arg_buffer[0];
+
+                if (strcmp(cmd, "ls") == 0) {
+                    k_io_print("No files found\n");
+                } else if (strcmp(cmd, "pwd") == 0) {
+                    k_io_print("/root\n");
+                } else if (strcmp(cmd, "reset") == 0) {
+                    k_cpu_reset();
+                } else {
+                    k_io_print("^! Unknown Command: ");
+                    k_io_print(cmd);
+                    k_io_print("\n");
+                }
             }
         }
-        k_io_print("\n");
     }
 }
 
