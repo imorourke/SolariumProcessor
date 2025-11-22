@@ -275,25 +275,30 @@ impl Display for Literal {
 impl TryFrom<Token> for Literal {
     type Error = TokenError;
     fn try_from(value: Token) -> Result<Self, Self::Error> {
-        static LITERAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"^(((?<inum>(0x)?[a-fA-F\d]+)(?<itype>[ui](8|(16)|(32)))?)|((?<fnum>(\d+(\.\d*))|(\.\d+))f32)|(?<f32>\d*\.\d+))$").unwrap()
+        static LITERAL_REGEX_INTEGER: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^(?<inum>(0x)?[a-fA-F\d]+)(?<itype>[ui](8|(16)|(32)))?$").unwrap()
+        });
+        static LITERAL_REGEX_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^((?<fnum>(\d+(\.\d*))|(\.\d+))f32)|(?<f32>\d*\.\d+)$").unwrap()
         });
         static CHAR_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^'(?<num>\\?[\w,\s\!\.\*\(\)\[\]\{\}\?])'$").unwrap());
+            LazyLock::new(|| Regex::new(r"^'(?<num>\\?[\w,\s!\.\*\(\)\[\]\{\}\?])'$").unwrap());
 
-        let res = if let Some(m) = LITERAL_REGEX.captures(value.get_value()) {
-            if let Some(inum) = m.name("inum") {
-                let mut num = inum.as_str();
+        let res = if let Some(m) = LITERAL_REGEX_INTEGER.captures(value.get_value())
+            && let Some(inum) = m.name("inum")
+        {
+            let mut num = inum.as_str();
 
-                let radix = if let Some(n) = num.strip_prefix("0x") {
-                    num = n;
-                    16
-                } else {
-                    10
-                };
+            let radix = if let Some(n) = num.strip_prefix("0x") {
+                num = n;
+                16
+            } else {
+                10
+            };
 
-                if let Some(itype) = m.name("itype") {
-                    let val = match itype.as_str() {
+            if let Some(itype) = m.name("itype") {
+                let val =
+                    match itype.as_str() {
                         "u8" => u8::from_str_radix(num, radix)
                             .map_or(None, |x| Some(LiteralValue::U8(x))),
                         "u16" => u16::from_str_radix(num, radix)
@@ -313,25 +318,26 @@ impl TryFrom<Token> for Literal {
                         }
                     };
 
-                    match val {
-                        Some(v) => Ok(v),
-                        None => {
-                            return Err(value.clone().into_err(format!(
-                                "unable to convert {} as {} literal",
-                                num,
-                                itype.as_str()
-                            )));
-                        }
-                    }
-                } else {
-                    match i32::from_str_radix(num, radix) {
-                        Ok(x) => Ok(LiteralValue::I32(x)),
-                        Err(_) => Err(value
-                            .clone()
-                            .into_err(format!("unable to get i32 value from {}", inum.as_str()))),
+                match val {
+                    Some(v) => Ok(v),
+                    None => {
+                        return Err(value.clone().into_err(format!(
+                            "unable to convert {} as {} literal",
+                            num,
+                            itype.as_str()
+                        )));
                     }
                 }
-            } else if let Some(fnum) = m.name("fnum") {
+            } else {
+                match i32::from_str_radix(num, radix) {
+                    Ok(x) => Ok(LiteralValue::I32(x)),
+                    Err(_) => Err(value
+                        .clone()
+                        .into_err(format!("unable to get i32 value from {}", inum.as_str()))),
+                }
+            }
+        } else if let Some(m) = LITERAL_REGEX_FLOAT.captures(value.get_value()) {
+            if let Some(fnum) = m.name("fnum") {
                 if let Ok(fv) = fnum.as_str().parse::<f32>() {
                     Ok(LiteralValue::F32(fv))
                 } else {
@@ -371,6 +377,8 @@ impl TryFrom<Token> for Literal {
                     .clone()
                     .into_err("unable to convert '{jib_char}' into byte"))
             }
+        } else if value.get_value() == "'\0'" {
+            Ok(LiteralValue::U8(0))
         } else {
             Err(value.clone().into_err("cannot parse as a literal"))
         }?;

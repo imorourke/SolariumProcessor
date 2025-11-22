@@ -119,6 +119,7 @@ pub fn tokenize<T: IntoIterator<Item = (String, Option<PreprocessorLocation>)>>(
                     let res = match c {
                         'n' => '\n',
                         '\\' => '\\',
+                        '0' => '\0',
                         '\'' if string_char == '\'' => '\'',
                         '"' if string_char == '"' => '"',
                         _ => {
