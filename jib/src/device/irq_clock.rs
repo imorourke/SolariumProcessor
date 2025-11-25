@@ -5,6 +5,10 @@ use crate::{
 
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, DeviceAction, ProcessorDevice};
 
+/// The interrupt clock device provides a way to trigger an interrupt at specified clock intervals.
+/// The user provides a clock interval and an interrupt number. When these are non-zero, the count will
+/// trigger the interrupt when the number of cycles % the interval == 0
+#[derive(Default)]
 pub struct InterruptClockDevice {
     clock_interval: u32,
     current_count: u32,
@@ -82,6 +86,7 @@ impl MemorySegment for InterruptClockDevice {
     fn reset(&mut self) {
         self.clock_interval = 0;
         self.current_count = 0;
+        self.interrupt = 0;
     }
 
     /// Provides the length of the memory segment
@@ -91,6 +96,7 @@ impl MemorySegment for InterruptClockDevice {
 }
 
 impl ProcessorDevice for InterruptClockDevice {
+    /// Increments the CPU count cycle, and triggers the specified interrupt when required
     fn on_step(&mut self) -> Option<DeviceAction> {
         if self.clock_interval != 0 && self.interrupt != 0 {
             self.current_count = (self.current_count + 1) % self.clock_interval;
@@ -105,6 +111,7 @@ impl ProcessorDevice for InterruptClockDevice {
         }
     }
 
+    /// Provides the device ID
     fn device_id(&self) -> u16 {
         Self::DEVICE_ID
     }

@@ -1,7 +1,7 @@
 use crate::messages::{ThreadToUi, UiToThread};
 use jib::{
     cpu::{Processor, ProcessorError},
-    device::{InterruptClockDevice, SerialInputOutputDevice},
+    device::{InterruptClockDevice, ProcessorDevice, RtcClockDevice, SerialInputOutputDevice},
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
 use jib_asm::InstructionList;
@@ -200,18 +200,19 @@ impl CpuState {
                 (Self::DEVICE_START_IND - INIT_RO_LEN) as usize,
             ))),
         )?;
-        self.cpu
-            .memory_add_segment(Self::DEVICE_START_IND, self.dev_serial_io.clone())?;
 
-        self.cpu.device_add(self.dev_serial_io.clone())?;
+        let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
+            self.dev_serial_io.clone(),
+            Rc::new(RefCell::new(InterruptClockDevice::default())),
+            Rc::new(RefCell::new(RtcClockDevice::default())),
+        ];
+        let mut dev_loc = Self::DEVICE_START_IND;
 
-        let dev_timer = Rc::new(RefCell::new(InterruptClockDevice::new(0)));
-
-        self.cpu.device_add(dev_timer.clone())?;
-        self.cpu.memory_add_segment(
-            Self::DEVICE_START_IND + self.dev_serial_io.borrow().len(),
-            dev_timer,
-        )?;
+        for d in devices {
+            self.cpu.memory_add_segment(dev_loc, d.clone())?;
+            dev_loc += d.borrow().len();
+            self.cpu.device_add(d)?;
+        }
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 

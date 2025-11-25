@@ -28,6 +28,10 @@ pub static DEFAULT_FILES: &[(&str, &str)] = &[
         include_str!("../components/kernel/kmalloc.cb"),
     ),
     (
+        "kernel/krtc.cb",
+        include_str!("../components/kernel/krtc.cb"),
+    ),
+    (
         ("kernel/kserialio.cb"),
         include_str!("../components/kernel/kserialio.cb"),
     ),

@@ -6,3 +6,6 @@ pub mod memory;
 pub mod text;
 
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;

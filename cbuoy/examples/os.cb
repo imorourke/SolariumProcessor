@@ -3,6 +3,7 @@
 #include <kernel/ktsk.cb>
 #include <kernel/kirq.cb>
 #include <kernel/kclock.cb>
+#include <kernel/krtc.cb>
 #include <std/list.cb>
 #include <std/string.cb>
 
@@ -23,7 +24,7 @@ fn os_split_args(input: *u8, args: **u8) i32 {
 
     while (*c != '\0') {
         // Skip any leading spaces
-        while (*c == ' ') {
+        while ((*c == ' ') || (*c == '\n')) {
             c = c + 1;
         }
 
@@ -35,7 +36,7 @@ fn os_split_args(input: *u8, args: **u8) i32 {
         args[count] = c;
         count = count + 1;
 
-        while ((*c != '\0') && (*c != ' ')) {
+        while ((*c != '\0') && (*c != ' ') && (*c != '\n')) {
             c = c + 1;
         }
 
@@ -75,6 +76,9 @@ fn os_main() void {
 
             if (count > 0) {
                 def cmd: *u8 = arg_buffer[0];
+                k_io_print("CMD: ");
+                k_io_print(cmd);
+                k_io_print("\n");
 
                 if (strcmp(cmd, "ls") == 0) {
                     k_io_print("No files found\n");
@@ -82,6 +86,20 @@ fn os_main() void {
                     k_io_print("/root\n");
                 } else if (strcmp(cmd, "reset") == 0) {
                     k_cpu_reset();
+                } else if (strcmp(cmd, "date") == 0) {
+                    def dt: k_datetime_t = k_rtc_current();
+                    k_io_print_uint(dt.year + 1980);
+                    k_io_print("-");
+                    k_io_print_uint(dt.month);
+                    k_io_print("-");
+                    k_io_print_uint(dt.day + 1);
+                    k_io_print(" ");
+                    k_io_print_uint(dt.hour);
+                    k_io_print(":");
+                    k_io_print_uint(dt.minute);
+                    k_io_print(":");
+                    k_io_print_uint(dt.second);
+                    k_io_print("\n");
                 } else {
                     k_io_print("^! Unknown Command: ");
                     k_io_print(cmd);

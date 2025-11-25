@@ -1,0 +1,21 @@
+#ifndef K_RTC_DEV
+#define K_RTC_DEV
+
+struct k_datetime_t {
+    year: u8;
+    month: u8;
+    day: u8;
+    hour: u8;
+    minute: u8;
+    second: u8;
+    hundredths: u8;
+}
+
+global K_RTC_BASE: *u32 = 0xA040u32;
+global K_RTC_LOC: *k_datetime_t = (K_RTC_BASE : u32) + 2;
+
+fn k_rtc_current() k_datetime_t {
+    return *K_RTC_LOC;
+}
+
+#endif // K_RTC_DEV
