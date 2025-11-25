@@ -155,6 +155,10 @@ impl LiteralValue {
             BinaryArithmeticOperation::BitAnd => OPERATIONS.get_bitwise(dt)?.band(a, b)?.val,
             BinaryArithmeticOperation::BitOr => OPERATIONS.get_bitwise(dt)?.bor(a, b)?.val,
             BinaryArithmeticOperation::BitXor => OPERATIONS.get_bitwise(dt)?.bxor(a, b)?.val,
+            BinaryArithmeticOperation::BitShiftRight => {
+                OPERATIONS.get_bitwise(dt)?.bsftr(a, b)?.val
+            }
+            BinaryArithmeticOperation::BitShiftLeft => OPERATIONS.get_bitwise(dt)?.bsftl(a, b)?.val,
         };
 
         Ok(Self::from_u32(res, dt))

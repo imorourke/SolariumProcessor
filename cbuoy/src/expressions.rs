@@ -7,9 +7,9 @@ use std::{
 
 use jib::cpu::{DataType, Register, convert_types};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBxor,
-    OpCall, OpConv, OpCopy, OpDiv, OpLd, OpLdi, OpLdn, OpMul, OpNeg, OpNot, OpPopr, OpPush, OpRem,
-    OpSav, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle, OpTneq,
+    ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBshl,
+    OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpLd, OpLdi, OpLdn, OpMul, OpNeg, OpNot, OpPopr,
+    OpPush, OpRem, OpSav, OpSub, OpTeq, OpTg, OpTge, OpTl, OpTle, OpTneq,
 };
 
 use crate::{
@@ -395,6 +395,7 @@ impl BinaryOperation {
 
     const LEN_VAL: usize =
         BinaryArithmeticOperation::ALL.len() + BinaryOperation::DISTINCT_VALS.len();
+
     const fn get_all() -> [Self; Self::LEN_VAL] {
         let mut vals = [Self::Assignment; Self::LEN_VAL];
 
@@ -439,6 +440,8 @@ pub enum BinaryArithmeticOperation {
     BitAnd,
     BitOr,
     BitXor,
+    BitShiftLeft,
+    BitShiftRight,
 }
 
 impl BinaryArithmeticOperation {
@@ -459,6 +462,8 @@ impl BinaryArithmeticOperation {
         Self::BitAnd,
         Self::BitOr,
         Self::BitXor,
+        Self::BitShiftLeft,
+        Self::BitShiftRight,
     ];
 
     pub const fn get_priority(&self) -> i32 {
@@ -468,17 +473,19 @@ impl BinaryArithmeticOperation {
             Self::Product => -10,
             Self::Divide => -10,
             Self::Mod => -10,
-            Self::And => 0,
-            Self::Or => 0,
+            Self::And => 5,
+            Self::Or => 10,
             Self::Equals => 0,
             Self::NotEquals => 0,
             Self::Greater => 0,
             Self::GreaterEqual => 0,
             Self::Less => 0,
             Self::LessEqual => 0,
-            Self::BitAnd => 0,
-            Self::BitOr => 0,
-            Self::BitXor => 0,
+            Self::BitAnd => -3,
+            Self::BitOr => -3,
+            Self::BitXor => -3,
+            Self::BitShiftLeft => -4,
+            Self::BitShiftRight => -4,
         }
     }
 }
@@ -502,6 +509,8 @@ impl Display for BinaryArithmeticOperation {
             Self::BitAnd => "&",
             Self::BitOr => "|",
             Self::BitXor => "^",
+            Self::BitShiftLeft => "<<",
+            Self::BitShiftRight => ">>",
         };
 
         write!(f, "{s}")
@@ -786,6 +795,12 @@ impl Expression for BinaryArithmeticExpression {
                 }
                 BinaryArithmeticOperation::BitXor => {
                     vec![Box::new(OpBxor::new(reg_type, reg_a.into(), reg_b.into()))]
+                }
+                BinaryArithmeticOperation::BitShiftLeft => {
+                    vec![Box::new(OpBshl::new(reg_type, reg_a.into(), reg_b.into()))]
+                }
+                BinaryArithmeticOperation::BitShiftRight => {
+                    vec![Box::new(OpBshr::new(reg_type, reg_a.into(), reg_b.into()))]
                 }
             };
 
