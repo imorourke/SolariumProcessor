@@ -1,5 +1,8 @@
+//! Provides an IRQ clock device that will call the specified interrupt value at a given number of clock cycles
+
 use crate::{
     cpu::Processor,
+    device::DeviceType,
     memory::{MemorySegment, MemorySegmentError},
 };
 
@@ -16,8 +19,7 @@ pub struct InterruptClockDevice {
 }
 
 impl InterruptClockDevice {
-    pub const DEVICE_ID: u16 = 2;
-
+    /// Creates a new device ID
     pub fn new(interrupt: u32) -> Self {
         Self {
             clock_interval: 0,
@@ -36,7 +38,7 @@ impl MemorySegment for InterruptClockDevice {
     /// Provides the word at the requested memory location without affecting the device state
     fn inspect(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         if offset < DEVICE_ID_SIZE {
-            Ok(Self::DEVICE_ID.to_be_bytes()[offset as usize])
+            Ok(self.device_type().get_device_id().to_be_bytes()[offset as usize])
         } else {
             let offset = offset - DEVICE_ID_SIZE;
 
@@ -112,7 +114,7 @@ impl ProcessorDevice for InterruptClockDevice {
     }
 
     /// Provides the device ID
-    fn device_id(&self) -> u16 {
-        Self::DEVICE_ID
+    fn device_type(&self) -> DeviceType {
+        DeviceType::IrqClock
     }
 }

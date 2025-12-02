@@ -1,7 +1,7 @@
 use chrono::{Datelike, Timelike};
 
 use crate::{
-    device::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice},
+    device::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, DeviceType, ProcessorDevice},
     memory::{MemorySegment, MemorySegmentError},
 };
 
@@ -10,10 +10,6 @@ extern crate std;
 #[derive(Default)]
 pub struct RtcClockDevice;
 
-impl RtcClockDevice {
-    const DEVICE_ID: u16 = 3;
-}
-
 impl MemorySegment for RtcClockDevice {
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         self.inspect(offset)
@@ -21,7 +17,7 @@ impl MemorySegment for RtcClockDevice {
 
     fn inspect(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         if offset < DEVICE_ID_SIZE {
-            Ok(Self::DEVICE_ID.to_be_bytes()[offset as usize])
+            Ok(self.device_type().get_device_id().to_be_bytes()[offset as usize])
         } else {
             let index = offset - DEVICE_ID_SIZE;
             let time = chrono::Utc::now();
@@ -52,7 +48,7 @@ impl MemorySegment for RtcClockDevice {
 }
 
 impl ProcessorDevice for RtcClockDevice {
-    fn device_id(&self) -> u16 {
-        Self::DEVICE_ID
+    fn device_type(&self) -> DeviceType {
+        DeviceType::RtcClock
     }
 }

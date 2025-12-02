@@ -3,7 +3,10 @@ use core::cell::RefCell;
 
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice};
 
-use crate::memory::{MemorySegment, MemorySegmentError};
+use crate::{
+    device::DeviceType,
+    memory::{MemorySegment, MemorySegmentError},
+};
 
 /// Provides a memory serial I/O memory-mapped device
 pub struct SerialInputOutputDevice {
@@ -22,8 +25,6 @@ impl SerialInputOutputDevice {
     const OFFSET_OUTPUT_SET: u32 = 5;
     const OFFSET_INPUT_RESET_IN: u32 = 6;
     const OFFSET_INPUT_RESET_OUT: u32 = 7;
-
-    const DEVICE_ID: u16 = 1;
 
     /// Constructs a new serial device
     pub fn new(buffer_size: usize) -> SerialInputOutputDevice {
@@ -63,7 +64,9 @@ impl SerialInputOutputDevice {
     fn common_get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         // Use the offset values to determine the action to take
         match offset {
-            n if n < DEVICE_ID_SIZE => Ok(Self::DEVICE_ID.to_be_bytes()[offset as usize]),
+            n if n < DEVICE_ID_SIZE => {
+                Ok(self.device_type().get_device_id().to_be_bytes()[offset as usize])
+            }
             Self::OFFSET_INPUT_SIZE => {
                 Ok((u8::MAX as usize).min(self.input_queue.borrow().len()) as u8)
             }
@@ -146,7 +149,7 @@ impl MemorySegment for SerialInputOutputDevice {
 }
 
 impl ProcessorDevice for SerialInputOutputDevice {
-    fn device_id(&self) -> u16 {
-        Self::DEVICE_ID
+    fn device_type(&self) -> DeviceType {
+        DeviceType::SerialIO
     }
 }

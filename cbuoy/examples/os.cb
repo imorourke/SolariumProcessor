@@ -1,5 +1,6 @@
 #include <kernel/kmalloc.cb>
 #include <kernel/kserialio.cb>
+#include <kernel/kdevice.cb>
 #include <kernel/ktsk.cb>
 #include <kernel/kirq.cb>
 #include <kernel/kclock.cb>

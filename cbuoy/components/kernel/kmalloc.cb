@@ -13,6 +13,31 @@ const K_MEM_START: *u8 = 0x9000;
 const K_MEM_TOP: *u8 = 0xA000;
 global K_MEM_ROOT: *mem_val_t = 0;
 
+asmfn k_memset(dst: *u8, val: u8, size: u32) void {
+    // Load Arguments
+    "copy 8 $arg";
+    "ld 8:u32 8"; // [8] = dst
+    "ldi 9:u16 #{dst}#";
+    "add 9:u32 9 $arg";
+    "ldi 10:u16 #{val}#";
+    "add 10:u32 10 9";
+    "ldi 9:u8 9"; // [9] = val
+    "ldi 10:u32 10"; // [10] = size
+    "add 10:u32 10 8";
+    "ldi 11:u16 1"; // [11] = 1
+
+    // Loop through to set each value
+    "tl 12:u32 8 10";
+    "jmpri 8";
+    "jmpri 16";
+    "sav 8:u8 9";
+    "add 8:u32 8 1";
+    "jmpri -20";
+
+    // Return the result
+    "ret";
+}
+
 fn k_malloc(size: u32) *u8 {
     def val: *mem_val_t = K_MEM_ROOT;
     if (val == 0) {
