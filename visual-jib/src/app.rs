@@ -493,17 +493,18 @@ impl eframe::App for VisualJib {
                     const RETURN_KEY: egui::Key = egui::Key::Enter;
                     const RETURN_SHORTCUT: egui::KeyboardShortcut =
                         egui::KeyboardShortcut::new(egui::Modifiers::NONE, RETURN_KEY);
-                    if TextEdit::singleline(&mut self.text_serial_input)
+
+                    let serial_txt = TextEdit::singleline(&mut self.text_serial_input)
                         .desired_width(ui.available_width())
                         .return_key(Some(RETURN_SHORTCUT))
                         .show(ui)
-                        .response
-                        .lost_focus()
-                        && ctx.input(|x| x.key_pressed(RETURN_KEY))
-                    {
+                        .response;
+
+                    if serial_txt.lost_focus() && ctx.input(|x| x.key_pressed(RETURN_KEY)) {
                         self.tx_ui
                             .send(UiToThread::SerialInput(self.text_serial_input.take()))
                             .unwrap();
+                        serial_txt.request_focus();
                     }
 
                     ui.heading("Serial Log");
