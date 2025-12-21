@@ -1,0 +1,4 @@
+#ifndef KFS
+#define KFS
+
+#endif // KFS

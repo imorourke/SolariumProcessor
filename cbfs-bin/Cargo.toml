@@ -1,0 +1,8 @@
+[package]
+name = "cbfs-bin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fuser = { git = "https://github.com/imorourke/fuser.git", branch = "dev/fuset" }
+cbfs = { version = "*", path = "../cbfs" }
