@@ -123,6 +123,7 @@ impl fuser::Filesystem for CbfsFuse {
         lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
+        println!("read(ino={ino})");
     }
 
     fn create(
@@ -135,6 +136,7 @@ impl fuser::Filesystem for CbfsFuse {
         flags: i32,
         reply: fuser::ReplyCreate,
     ) {
+        println!("create(parent={parent}, name={})", name.to_str().unwrap());
     }
 
     fn unlink(
@@ -144,6 +146,7 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
     ) {
+        println!("unlink(parent={parent}, name={})", name.to_str().unwrap());
     }
 
     fn write(
@@ -158,6 +161,7 @@ impl fuser::Filesystem for CbfsFuse {
         lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
+        println!("write(ino={ino})");
     }
 
     fn mkdir(
@@ -186,7 +190,8 @@ impl fuser::Filesystem for CbfsFuse {
         }
     }
 
-    fn open(&mut self, _req: &fuser::Request<'_>, _ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
+    fn open(&mut self, _req: &fuser::Request<'_>, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
+        println!("open(ino={ino})");
     }
 
     fn rmdir(
@@ -196,6 +201,7 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
     ) {
+        println!("rmdir(ino={parent}, name={})", name.to_str().unwrap());
     }
 
     fn readdir(
