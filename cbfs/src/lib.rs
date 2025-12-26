@@ -14,9 +14,8 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-pub use crate::entries::CbEntryType;
-use crate::{
-    entries::CbEntryHeader,
+pub use crate::{
+    entries::{CbEntryHeader, CbEntryType},
     names::{StringArrayError, string_to_array},
 };
 
@@ -129,11 +128,24 @@ impl CbFileSystem {
 
         nodes[header.root_sector.get() as usize] = Self::NODE_END;
 
-        Ok(Self {
+        let root_entry = CbEntryHeader {
+            attributes: 0,
+            entry_type: CbEntryType::Directory as u8,
+            modification_time: U32::new(0),
+            name: string_to_array("")?,
+            parent: U16::new(0),
+            payload_size: U32::new(0),
+        };
+
+        let mut fs = Self {
             data,
             nodes,
             header,
-        })
+        };
+
+        fs.set_node_data_header(fs.header.root_sector.get(), &root_entry, &[])?;
+
+        Ok(fs)
     }
 
     const fn is_node_end(node: u16) -> bool {
@@ -246,7 +258,7 @@ impl CbFileSystem {
         };
         let hdr_size = hdr.get_header_size();
 
-        Ok((hdr, raw_data[hdr_size..].to_vec()))
+        Ok((hdr, raw_data[hdr_size..hdr.get_total_size()].to_vec()))
     }
 
     pub fn num_sectors_for_node(&self, node: u16) -> usize {
@@ -268,9 +280,10 @@ impl CbFileSystem {
     fn get_next_free_node(&self) -> Result<u16, CbfsError> {
         self.nodes[(self.header.root_sector.get() as usize)..]
             .iter()
-            .filter(|x| **x == 0)
+            .enumerate()
+            .filter(|(i, x)| **x == 0)
             .next()
-            .map_or(Err(CbfsError::TableFull), |x| Ok(*x))
+            .map_or(Err(CbfsError::TableFull), |(i, _)| Ok(i as u16))
     }
 
     pub fn set_num_sectors(&mut self, mut node: u16, count: u16) -> Result<(), CbfsError> {
@@ -356,6 +369,7 @@ impl CbFileSystem {
     ) -> Result<u16, CbfsError> {
         if self.is_node_directory(parent)? {
             let new_node = self.get_next_free_node()?;
+            println!("NEW NODE: {new_node}");
             self.nodes[new_node as usize] = Self::NODE_END;
 
             let new_hdr = match entry_type {
