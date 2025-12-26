@@ -281,7 +281,7 @@ impl CbFileSystem {
         self.nodes[(self.header.root_sector.get() as usize)..]
             .iter()
             .enumerate()
-            .filter(|(i, x)| **x == 0)
+            .filter(|(_, x)| **x == 0)
             .next()
             .map_or(Err(CbfsError::TableFull), |(i, _)| Ok(i as u16))
     }
