@@ -82,6 +82,7 @@ impl CbVolumeHeader {
 pub enum CbfsError {
     InvalidNode(u16),
     InvalidPath(String),
+    DuplicateName(String),
     PathNotFound(String),
     UnknownEntryId(u8),
     InvalidName,
@@ -126,7 +127,9 @@ impl CbFileSystem {
         let data = vec![0u8; header.data_sector_size() as usize];
         let mut nodes = vec![0u16; sector_count as usize];
 
-        nodes[header.root_sector.get() as usize] = Self::NODE_END;
+        for i in 0..=header.root_sector.get() as usize {
+            nodes[i] = Self::NODE_END;
+        }
 
         let root_entry = CbEntryHeader {
             attributes: 0,
@@ -143,7 +146,7 @@ impl CbFileSystem {
             header,
         };
 
-        fs.set_node_data_header(fs.header.root_sector.get(), &root_entry, &[])?;
+        fs.set_node_data_header(fs.header.root_sector.get(), root_entry, &[])?;
 
         Ok(fs)
     }
@@ -214,6 +217,17 @@ impl CbFileSystem {
         })
     }
 
+    pub fn set_node_header(&mut self, node: u16, hdr: &CbEntryHeader) -> Result<(), CbfsError> {
+        let idx = self.get_data_start_idx(node)?;
+        for (dst, src) in self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())]
+            .iter_mut()
+            .zip(hdr.as_bytes())
+        {
+            *dst = *src;
+        }
+        Ok(())
+    }
+
     pub fn get_directory_listing(&self, dir: u16) -> Result<Vec<u16>, CbfsError> {
         if !self.is_node_directory(dir)? {
             return Err(CbfsError::NodeNotDirectory);
@@ -236,6 +250,9 @@ impl CbFileSystem {
 
     pub fn get_node_data_raw(&self, mut node: u16) -> Result<Vec<u8>, CbfsError> {
         let mut data = Vec::new();
+        if self.nodes[self.get_node_valid(node)? as usize] == 0 {
+            return Err(CbfsError::NodeNotFile);
+        }
 
         while node != Self::NODE_END {
             assert_ne!(node, 0);
@@ -249,13 +266,8 @@ impl CbFileSystem {
 
     pub fn get_node_data(&self, node: u16) -> Result<(CbEntryHeader, Vec<u8>), CbfsError> {
         let raw_data = self.get_node_data_raw(node)?;
-        let hdr = match CbEntryType::from(raw_data[0]) {
-            CbEntryType::File | CbEntryType::Directory => {
-                CbEntryHeader::read_from_bytes(&self.data[..std::mem::size_of::<CbEntryHeader>()])
-                    .unwrap()
-            }
-            _ => return Err(CbfsError::UnknownEntryId(raw_data[0])),
-        };
+        let hdr = CbEntryHeader::read_from_bytes(&raw_data[..std::mem::size_of::<CbEntryHeader>()])
+            .unwrap();
         let hdr_size = hdr.get_header_size();
 
         Ok((hdr, raw_data[hdr_size..hdr.get_total_size()].to_vec()))
@@ -278,12 +290,14 @@ impl CbFileSystem {
     }
 
     fn get_next_free_node(&self) -> Result<u16, CbfsError> {
-        self.nodes[(self.header.root_sector.get() as usize)..]
-            .iter()
-            .enumerate()
-            .filter(|(_, x)| **x == 0)
-            .next()
-            .map_or(Err(CbfsError::TableFull), |(i, _)| Ok(i as u16))
+        for (i, x) in self.nodes.iter().enumerate() {
+            println!("n[{i}] = {x}");
+            if *x == 0 {
+                return Ok(i as u16);
+            }
+        }
+
+        Err(CbfsError::TableFull)
     }
 
     pub fn set_num_sectors(&mut self, mut node: u16, count: u16) -> Result<(), CbfsError> {
@@ -352,9 +366,11 @@ impl CbFileSystem {
     pub fn set_node_data_header(
         &mut self,
         node: u16,
-        header: &CbEntryHeader,
+        mut header: CbEntryHeader,
         data: &[u8],
     ) -> Result<(), CbfsError> {
+        header.payload_size = U32::new(data.len() as u32);
+        println!("Node data set {node} size to {}", data.len());
         let mut new_data = header.as_bytes().to_vec();
         new_data.extend(data);
         self.set_node_data(node, &new_data)
@@ -368,25 +384,40 @@ impl CbFileSystem {
         data: &[u8],
     ) -> Result<u16, CbfsError> {
         if self.is_node_directory(parent)? {
-            let new_node = self.get_next_free_node()?;
-            println!("NEW NODE: {new_node}");
-            self.nodes[new_node as usize] = Self::NODE_END;
+            for d in self.get_directory_listing(parent)? {
+                if self.get_node_header(d)?.get_name() == name {
+                    return Err(CbfsError::DuplicateName(name.into()));
+                }
+            }
 
-            let new_hdr = match entry_type {
-                CbEntryType::File | CbEntryType::Directory => Box::new(CbEntryHeader {
-                    attributes: 0,
-                    entry_type: entry_type as u8,
-                    modification_time: U32::new(0),
-                    name: string_to_array(name)?,
-                    parent: U16::new(parent),
-                    payload_size: U32::new(data.len() as u32),
-                }),
-                _ => return Err(CbfsError::UnknownEntryId(entry_type as u8)),
+            let new_node = self.get_next_free_node()?;
+            println!("NEW 1: {new_node} = {}", self.nodes[new_node as usize]);
+            self.nodes[new_node as usize] = Self::NODE_END;
+            println!("NEW 2: {new_node} = {}", self.nodes[new_node as usize]);
+
+            let new_hdr = CbEntryHeader {
+                attributes: 0,
+                entry_type: entry_type as u8,
+                modification_time: U32::new(0),
+                name: string_to_array(name)?,
+                parent: U16::new(parent),
+                payload_size: U32::new(data.len() as u32),
             };
 
-            self.add_node_to_directory(parent, new_node)?;
+            println!(
+                "Node {} set size to {} with parent {}",
+                new_node,
+                new_hdr.payload_size.get(),
+                parent,
+            );
 
-            self.set_node_data_header(new_node, &new_hdr, data)?;
+            self.add_node_to_directory(parent, new_node)?;
+            self.set_node_data_header(new_node, new_hdr, data)?;
+
+            println!(
+                "NEW NODE AFTER: {new_node} = {}",
+                self.nodes[new_node as usize]
+            );
 
             Ok(new_node)
         } else {
@@ -422,7 +453,7 @@ impl CbFileSystem {
             }
         }
 
-        self.set_node_data_header(node, &hdr, &data)?;
+        self.set_node_data_header(node, hdr, &data)?;
         Ok(())
     }
 
@@ -446,7 +477,7 @@ impl CbFileSystem {
             hdr.set_payload_size(hdr.get_payload_size() + std::mem::size_of::<u16>());
             data.extend_from_slice(U16::new(new_node).as_bytes());
         }
-        self.set_node_data_header(node, &hdr, &data)?;
+        self.set_node_data_header(node, hdr, &data)?;
 
         Ok(())
     }
@@ -458,11 +489,14 @@ impl CbFileSystem {
             return Err(CbfsError::InvalidNode(node));
         }
 
-        let hdr = self.get_node_header(node)?;
+        let mut hdr = self.get_node_header(node)?;
 
         let pnode = hdr.parent.get();
+        hdr.parent = new_parent.into();
         self.remove_node_from_directory(pnode, node)?;
         self.add_node_to_directory(new_parent, node)?;
+        self.set_node_header(node, &hdr)?;
+
         Ok(())
     }
 
@@ -500,8 +534,60 @@ impl CbFileSystem {
 
 #[cfg(test)]
 mod test {
+    use crate::{CbEntryType, CbFileSystem};
+
     #[test]
     fn test_file_nodes() {
-        panic!()
+        // Do Nothing
+    }
+
+    #[test]
+    fn test_directory_create() {
+        let mut fs = CbFileSystem::new("test", 1024, 512).unwrap();
+        let dir_abc = fs
+            .mkentryn(
+                fs.header.root_sector.get(),
+                "abc",
+                CbEntryType::Directory,
+                &[],
+            )
+            .unwrap();
+        let dir_defg = fs
+            .mkentryn(
+                fs.header.root_sector.get(),
+                "defg",
+                CbEntryType::Directory,
+                &[],
+            )
+            .unwrap();
+
+        let file_a_data_in = "Hello, world!\n".bytes().collect::<Vec<_>>();
+
+        let file_a = fs
+            .mkentryn(
+                fs.header.root_sector.get(),
+                "a.txt",
+                CbEntryType::File,
+                &file_a_data_in,
+            )
+            .unwrap();
+
+        let file_b_data_in = "Hello, ABC!\n".bytes().collect::<Vec<_>>();
+        let file_b = fs
+            .mkentryn(dir_abc, "a.txt", CbEntryType::File, &file_b_data_in)
+            .unwrap();
+
+        println!("File A = {file_a}");
+        println!("File B = {file_b}");
+
+        let (file_a_hdr, file_a_data) = fs.get_node_data(file_a).unwrap();
+        assert_eq!(file_a_hdr.payload_size.get() as usize, file_a_data.len());
+        assert_eq!(file_a_hdr.payload_size.get() as usize, file_a_data_in.len());
+        assert_eq!(file_a_data, file_a_data_in);
+
+        let (file_b_hdr, file_b_data) = fs.get_node_data(file_b).unwrap();
+        assert_eq!(file_b_hdr.payload_size.get() as usize, file_b_data.len());
+        assert_eq!(file_b_hdr.payload_size.get() as usize, file_b_data_in.len());
+        assert_eq!(file_b_data, file_b_data_in);
     }
 }
