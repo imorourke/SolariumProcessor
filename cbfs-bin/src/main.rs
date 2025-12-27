@@ -79,14 +79,18 @@ impl CbfsFuse {
             None
         }
     }
+
+    fn save_fs(&self) {
+        if let Some(base) = &self.base_file {
+            self.fs.write_to_file(base).unwrap();
+        }
+    }
 }
 
 impl Drop for CbfsFuse {
     fn drop(&mut self) {
         println!("Dropping!");
-        if let Some(base) = &self.base_file {
-            self.fs.write_to_file(base).unwrap();
-        }
+        self.save_fs();
     }
 }
 
@@ -163,6 +167,77 @@ impl fuser::Filesystem for CbfsFuse {
         reply: fuser::ReplyWrite,
     ) {
         println!("write(ino={ino})");
+    }
+
+    fn setxattr(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        name: &std::ffi::OsStr,
+        _value: &[u8],
+        flags: i32,
+        position: u32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        println!("setxattr(ino={ino})");
+    }
+
+    fn flush(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        fh: u64,
+        lock_owner: u64,
+        reply: fuser::ReplyEmpty,
+    ) {
+        println!("flush(ino={ino})");
+    }
+
+    fn forget(&mut self, _req: &fuser::Request<'_>, ino: u64, _nlookup: u64) {
+        println!("forget(ino={ino}");
+    }
+
+    fn fsync(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        fh: u64,
+        datasync: bool,
+        reply: fuser::ReplyEmpty,
+    ) {
+        println!("fsync(ino={ino})");
+        self.save_fs();
+        reply.ok();
+    }
+
+    fn fsyncdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        fh: u64,
+        datasync: bool,
+        reply: fuser::ReplyEmpty,
+    ) {
+        println!("fsyncdir(ino={ino})");
+        self.save_fs();
+        reply.ok();
+    }
+
+    fn mknod(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: fuser::ReplyEntry,
+    ) {
+        println!("mknod(parent={parent})");
+    }
+
+    fn statfs(&mut self, _req: &fuser::Request<'_>, ino: u64, reply: fuser::ReplyStatfs) {
+        println!("stat(ino={ino}");
     }
 
     fn mkdir(
