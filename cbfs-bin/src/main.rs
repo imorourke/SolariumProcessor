@@ -83,6 +83,7 @@ impl CbfsFuse {
 
 impl Drop for CbfsFuse {
     fn drop(&mut self) {
+        println!("Dropping!");
         if let Some(base) = &self.base_file {
             self.fs.write_to_file(base).unwrap();
         }
@@ -255,6 +256,10 @@ impl fuser::Filesystem for CbfsFuse {
                 .chain(dirs.into_iter())
                 .collect::<Vec<_>>();
 
+            for (i, (n, d)) in all_dirs.iter().enumerate() {
+                println!("  {i} => [{n}] :: {}", d.get_name());
+            }
+
             if offset == 0 {
                 for (i, (node, hdr)) in all_dirs.into_iter().enumerate() {
                     if reply.add(
@@ -279,9 +284,18 @@ impl fuser::Filesystem for CbfsFuse {
 fn main() {
     let args = Args::parse();
 
-    let fs = CbfsFuse {
-        fs: CbFileSystem::new("test", 1024, 512).unwrap(),
-        base_file: None,
+    let fs = if let Some(orig) = &args.base_file
+        && orig.exists()
+    {
+        CbfsFuse {
+            fs: CbFileSystem::open(orig).unwrap(),
+            base_file: Some(orig.to_path_buf()),
+        }
+    } else {
+        CbfsFuse {
+            fs: CbFileSystem::new("test", 1024, 512).unwrap(),
+            base_file: args.base_file,
+        }
     };
 
     fuser::mount2(fs, args.mount_point, &[]).unwrap();

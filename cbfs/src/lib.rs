@@ -5,7 +5,7 @@ mod names;
 use std::{
     fmt::Debug,
     fs::OpenOptions,
-    io::{Seek, Write},
+    io::{Seek, SeekFrom, Write},
     path::Path,
 };
 
@@ -33,6 +33,7 @@ pub struct CbVolumeHeader {
 
 impl CbVolumeHeader {
     const CURRENT_VERSION: u16 = 1;
+    const NODE_TABLE_ENTRY_SIZE: usize = std::mem::size_of::<u16>();
 
     pub fn new(sector_size: u16, sector_count: u16) -> Result<Self, CbfsError> {
         let min_sector_size = std::mem::size_of::<Self>().min(std::mem::size_of::<CbEntryHeader>());
@@ -52,9 +53,9 @@ impl CbVolumeHeader {
             reserved: [0; _],
         };
 
-        const TABLE_ENTRY_SIZE: u16 = std::mem::size_of::<u16>() as u16;
-        let table_size = header.sector_count.get() * TABLE_ENTRY_SIZE;
-        header.root_sector = U16::new(table_size.div_ceil(header.sector_size.get()));
+        let table_size = header.sector_count.get() * Self::NODE_TABLE_ENTRY_SIZE as u16;
+        header.root_sector = U16::new(table_size.div_ceil(header.sector_size.get()) + 1);
+        println!("Root Sector: {}", header.root_sector.get());
 
         if header.root_sector.get() >= sector_count {
             return Err(CbfsError::InvalidSectorOption);
@@ -151,6 +152,30 @@ impl CbFileSystem {
         Ok(fs)
     }
 
+    pub fn open(path: &Path) -> Result<Self, CbfsError> {
+        let all_data = std::fs::read(path).unwrap();
+
+        let hdr =
+            CbVolumeHeader::read_from_bytes(&all_data[..std::mem::size_of::<CbVolumeHeader>()])
+                .unwrap();
+
+        let sect_size = hdr.sector_size.get() as usize;
+        let sect_count = hdr.sector_count.get() as usize;
+
+        let node_table = all_data[sect_size..(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE * sect_count)]
+            .chunks(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)
+            .map(|x| U16::read_from_bytes(x).unwrap().get())
+            .collect();
+
+        let node_data = all_data[(sect_size * hdr.root_sector.get() as usize)..].to_vec();
+
+        Ok(Self {
+            header: hdr,
+            nodes: node_table,
+            data: node_data,
+        })
+    }
+
     const fn is_node_end(node: u16) -> bool {
         node & Self::NODE_END == Self::NODE_END
     }
@@ -236,10 +261,11 @@ impl CbFileSystem {
         let (hdr, data) = self.get_node_data(dir)?;
         let mut dirs = Vec::new();
 
-        for i in (0..hdr.get_payload_size()).step_by(std::mem::size_of::<u16>()) {
-            let node_val = U16::read_from_bytes(&data[i..(i + std::mem::size_of::<u16>())])
-                .unwrap()
-                .get();
+        for i in (0..hdr.get_payload_size()).step_by(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE) {
+            let node_val =
+                U16::read_from_bytes(&data[i..(i + CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)])
+                    .unwrap()
+                    .get();
             if node_val != 0 {
                 dirs.push(node_val);
             }
@@ -428,7 +454,10 @@ impl CbFileSystem {
     pub fn rmnode(&mut self, node: u16) -> Result<(), CbfsError> {
         let (hdr, data) = self.get_node_data(node)?;
         if self.is_node_directory(node)? {
-            for d in data.chunks(2).map(|x| U16::read_from_bytes(x).unwrap()) {
+            for d in data
+                .chunks(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)
+                .map(|x| U16::read_from_bytes(x).unwrap())
+            {
                 self.rmnode(d.get())?;
             }
         }
@@ -447,7 +476,10 @@ impl CbFileSystem {
         let (hdr, mut data) = self.get_node_data(node)?;
         assert_eq!(hdr.get_payload_size(), data.len());
 
-        for d in data.chunks_mut(2).map(|x| U16::mut_from_bytes(x).unwrap()) {
+        for d in data
+            .chunks_mut(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)
+            .map(|x| U16::mut_from_bytes(x).unwrap())
+        {
             if d.get() == target_node {
                 *d = U16::new(0);
             }
@@ -462,7 +494,7 @@ impl CbFileSystem {
         assert_eq!(hdr.get_payload_size(), data.len());
         let mut found = false;
 
-        for i in (0..data.len()).step_by(std::mem::size_of::<u16>()) {
+        for i in (0..data.len()).step_by(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE) {
             let val = U16::from_bytes([data[i], data[i + 1]]).get();
             if val == 0 {
                 let node_data = U16::new(new_node).to_bytes();
@@ -474,7 +506,7 @@ impl CbFileSystem {
         }
 
         if !found {
-            hdr.set_payload_size(hdr.get_payload_size() + std::mem::size_of::<u16>());
+            hdr.set_payload_size(hdr.get_payload_size() + CbVolumeHeader::NODE_TABLE_ENTRY_SIZE);
             data.extend_from_slice(U16::new(new_node).as_bytes());
         }
         self.set_node_data_header(node, hdr, &data)?;
@@ -506,23 +538,22 @@ impl CbFileSystem {
             .truncate(true)
             .write(true)
             .open(file)?;
-        f.set_len(self.header.volume_byte_size())?;
-        f.write(self.header.as_bytes())?;
-        f.seek(std::io::SeekFrom::Start(
-            self.header.sector_size.get() as u64
-        ))?;
 
-        let node_data = self
-            .nodes
-            .iter()
-            .flat_map(|x| x.to_be_bytes())
-            .collect::<Vec<_>>();
-        f.write_all(&node_data)?;
+        let sect_size = self.header.sector_size.get() as u64;
+
+        f.set_len(self.header.volume_byte_size())?;
+        f.seek(SeekFrom::Start(0))?;
+        f.write_all(self.header.as_bytes())?;
+        f.seek(SeekFrom::Start(sect_size))?;
+
+        for n in self.nodes.iter().copied() {
+            f.write_all(&U16::new(n).to_bytes()).unwrap();
+        }
 
         assert_eq!(self.data.len() as u64, self.header.data_sector_size());
 
-        f.seek(std::io::SeekFrom::Start(
-            (self.header.sector_size.get() as u64) * (self.header.root_sector.get() as u64),
+        f.seek(SeekFrom::Start(
+            sect_size * (self.header.root_sector.get() as u64),
         ))?;
         f.write_all(&self.data).unwrap();
 
@@ -534,6 +565,8 @@ impl CbFileSystem {
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
     use crate::{CbEntryType, CbFileSystem};
 
     #[test]
@@ -589,5 +622,7 @@ mod test {
         assert_eq!(file_b_hdr.payload_size.get() as usize, file_b_data.len());
         assert_eq!(file_b_hdr.payload_size.get() as usize, file_b_data_in.len());
         assert_eq!(file_b_data, file_b_data_in);
+
+        assert_eq!(fs.get_directory_listing(dir_defg).unwrap().len(), 0);
     }
 }
