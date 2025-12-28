@@ -23,6 +23,8 @@ struct Args {
 struct CbfsFuse {
     fs: CbFileSystem,
     base_file: Option<PathBuf>,
+    uid: u32,
+    gid: u32,
 }
 
 impl CbfsFuse {
@@ -67,10 +69,10 @@ impl CbfsFuse {
                 ctime: ts,
                 crtime: ts,
                 kind: fstype,
-                perm: 0o777,
+                perm: 0o755,
                 nlink: 0,
-                uid: 0,
-                gid: 0,
+                uid: self.uid,
+                gid: self.gid,
                 rdev: 0,
                 flags: 0,
                 blksize: self.fs.header.sector_size.get() as u32,
@@ -95,6 +97,16 @@ impl Drop for CbfsFuse {
 }
 
 impl fuser::Filesystem for CbfsFuse {
+    fn init(
+        &mut self,
+        req: &fuser::Request<'_>,
+        _config: &mut fuser::KernelConfig,
+    ) -> Result<(), libc::c_int> {
+        self.uid = req.uid();
+        self.gid = req.gid();
+        Ok(())
+    }
+
     fn getattr(
         &mut self,
         _req: &fuser::Request<'_>,
@@ -151,8 +163,8 @@ impl fuser::Filesystem for CbfsFuse {
         &mut self,
         _req: &fuser::Request<'_>,
         ino: u64,
-        fh: u64,
-        datasync: bool,
+        _fh: u64,
+        _datasync: bool,
         reply: fuser::ReplyEmpty,
     ) {
         println!("fsync(ino={ino})");
@@ -164,8 +176,8 @@ impl fuser::Filesystem for CbfsFuse {
         &mut self,
         _req: &fuser::Request<'_>,
         ino: u64,
-        fh: u64,
-        datasync: bool,
+        _fh: u64,
+        _datasync: bool,
         reply: fuser::ReplyEmpty,
     ) {
         println!("fsyncdir(ino={ino})");
@@ -178,8 +190,8 @@ impl fuser::Filesystem for CbfsFuse {
         _req: &fuser::Request<'_>,
         parent: u64,
         name: &std::ffi::OsStr,
-        mode: u32,
-        umask: u32,
+        _mode: u32,
+        _umask: u32,
         reply: fuser::ReplyEntry,
     ) {
         println!("mkdir(parent={}, name={})", parent, name.to_str().unwrap());
@@ -286,11 +298,15 @@ fn main() {
         CbfsFuse {
             fs: CbFileSystem::open(orig).unwrap(),
             base_file: Some(orig.to_path_buf()),
+            uid: 0,
+            gid: 0,
         }
     } else {
         CbfsFuse {
             fs: CbFileSystem::new("test", 1024, 512).unwrap(),
             base_file: args.base_file,
+            uid: 0,
+            gid: 0,
         }
     };
 
