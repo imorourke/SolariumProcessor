@@ -246,6 +246,17 @@ impl fuser::Filesystem for CbfsFuse {
         reply.ok();
     }
 
+    fn flush(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        reply: fuser::ReplyEmpty,
+    ) {
+        reply.ok();
+    }
+
     fn mknod(
         &mut self,
         _req: &fuser::Request<'_>,
@@ -256,7 +267,8 @@ impl fuser::Filesystem for CbfsFuse {
         _rdev: u32,
         reply: fuser::ReplyEntry,
     ) {
-        if (mode & S_IFREG) == S_IFREG {
+        const FILE_MODE_VAL: u32 = S_IFREG as u32;
+        if (mode & FILE_MODE_VAL) == FILE_MODE_VAL {
             match self.fs.mkentryn(
                 self.get_node(parent),
                 name.to_str().unwrap(),
