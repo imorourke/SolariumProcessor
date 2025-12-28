@@ -240,6 +240,54 @@ impl fuser::Filesystem for CbfsFuse {
         println!("stat(ino={ino}");
     }
 
+    fn opendir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        _flags: i32,
+        reply: fuser::ReplyOpen,
+    ) {
+        println!("opendir(ino={ino})");
+    }
+
+    fn setattr(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
+        _atime: Option<fuser::TimeOrNow>,
+        _mtime: Option<fuser::TimeOrNow>,
+        _ctime: Option<SystemTime>,
+        fh: Option<u64>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
+        flags: Option<u32>,
+        reply: fuser::ReplyAttr,
+    ) {
+        println!("setattr(ino={ino})");
+    }
+
+    fn rename(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        newparent: u64,
+        newname: &std::ffi::OsStr,
+        flags: u32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        println!(
+            "rename(parent={parent},name={},newparent={newparent},newname={})",
+            name.to_str().unwrap(),
+            newname.to_str().unwrap()
+        );
+    }
+
     fn mkdir(
         &mut self,
         _req: &fuser::Request<'_>,
