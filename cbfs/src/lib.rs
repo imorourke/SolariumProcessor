@@ -344,6 +344,18 @@ impl CbFileSystem {
     }
 
     pub fn set_num_sectors(&mut self, mut node: u16, count: u16) -> Result<(), CbfsError> {
+        // Check that there is enough space left in the table
+        let num_free = self.nodes.iter().copied().filter(|x| *x == 0).count();
+
+        let num_current = self.num_sectors_for_node(node);
+        let num_required = self.required_sectors_for_size(count as usize);
+        let num_new = num_required as i64 - num_current as i64;
+
+        if num_new > 0 && num_new > num_free as i64 {
+            return Err(CbfsError::TableFull);
+        }
+
+        // Set the required nodes
         let mut current_count = 0;
 
         while !Self::is_node_end(node) {
