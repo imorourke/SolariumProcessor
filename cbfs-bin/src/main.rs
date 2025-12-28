@@ -6,7 +6,7 @@ use std::{
 use cbfs::{self, CbEntryHeader, CbEntryType, CbFileSystem, CbfsError, string_to_array};
 use clap::Parser;
 use fuser::{self, FileAttr, FileType};
-use libc::{ENOENT, ENOSYS, ENOTDIR};
+use libc::{ENOENT, ENOSYS, ENOTDIR, S_IFREG};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -132,7 +132,7 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         _mode: u32,
         _umask: u32,
-        flags: i32,
+        _flags: i32,
         reply: fuser::ReplyCreate,
     ) {
         match self.fs.mkentryn(
@@ -143,13 +143,7 @@ impl fuser::Filesystem for CbfsFuse {
         ) {
             Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
                 Ok(attr) => {
-                    reply.created(
-                        &Duration::from_secs(5),
-                        &attr,
-                        0,
-                        self.get_ino(new_node),
-                        flags as u32,
-                    );
+                    reply.created(&Duration::from_secs(5), &attr, 0, 0, 0);
                 }
                 Err(err) => {
                     reply.error(err.get_code());
@@ -251,6 +245,40 @@ impl fuser::Filesystem for CbfsFuse {
     ) {
         self.save_fs();
         reply.ok();
+    }
+
+    fn mknod(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        mode: u32,
+        _umask: u32,
+        _rdev: u32,
+        reply: fuser::ReplyEntry,
+    ) {
+        if (mode & S_IFREG) == S_IFREG {
+            match self.fs.mkentryn(
+                self.get_node(parent),
+                name.to_str().unwrap(),
+                CbEntryType::File,
+                &[],
+            ) {
+                Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+                    Ok(attr) => {
+                        reply.entry(&Duration::from_secs(5), &attr, 0);
+                    }
+                    Err(err) => {
+                        reply.error(err.get_code());
+                    }
+                },
+                Err(err) => {
+                    reply.error(CbFuseErr::from(err).get_code());
+                }
+            }
+        } else {
+            reply.error(ENOSYS);
+        }
     }
 
     fn mkdir(
