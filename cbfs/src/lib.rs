@@ -162,12 +162,19 @@ impl CbFileSystem {
         let sect_size = hdr.sector_size.get() as usize;
         let sect_count = hdr.sector_count.get() as usize;
 
-        let node_table = all_data[sect_size..(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE * sect_count)]
+        let node_table = all_data
+            [sect_size..(sect_size + CbVolumeHeader::NODE_TABLE_ENTRY_SIZE * sect_count)]
             .chunks(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)
             .map(|x| U16::read_from_bytes(x).unwrap().get())
-            .collect();
+            .collect::<Vec<_>>();
 
         let node_data = all_data[(sect_size * hdr.root_sector.get() as usize)..].to_vec();
+
+        assert_eq!(sect_count, node_table.len());
+        assert_eq!(
+            node_data.len(),
+            sect_size * (sect_count - hdr.root_sector.get() as usize)
+        );
 
         Ok(Self {
             header: hdr,
@@ -297,6 +304,16 @@ impl CbFileSystem {
         let hdr_size = hdr.get_header_size();
 
         Ok((hdr, raw_data[hdr_size..hdr.get_total_size()].to_vec()))
+    }
+
+    pub fn set_node_byte_size(&mut self, node: u16, size: u32) -> Result<(), CbfsError> {
+        let (hdr, mut data) = self.get_node_data(node)?;
+        if hdr.get_entry_type() == CbEntryType::File {
+            data.resize(size as usize, 0);
+            self.set_node_data_header(node, hdr, &data)
+        } else {
+            Err(CbfsError::NodeNotFile)
+        }
     }
 
     pub fn num_sectors_for_node(&self, node: u16) -> usize {
@@ -565,8 +582,6 @@ impl CbFileSystem {
 
 #[cfg(test)]
 mod test {
-    use std::path::Path;
-
     use crate::{CbEntryType, CbFileSystem};
 
     #[test]

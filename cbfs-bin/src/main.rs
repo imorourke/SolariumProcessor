@@ -6,7 +6,7 @@ use std::{
 use cbfs::{self, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array};
 use clap::Parser;
 use fuser::{self, FileAttr, FileType};
-use libc::{ENOENT, ENOSYS, ENOTDIR};
+use libc::{ENOENT, ENOSYS, ENOTDIR, IW_ENCODING_TOKEN_MAX};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -54,7 +54,7 @@ impl CbfsFuse {
         }
     }
 
-    fn get_attr(&self, ino: u64) -> Option<FileAttr> {
+    fn get_fs_attr_ino(&self, ino: u64) -> Option<FileAttr> {
         let n = self.get_node(ino);
         if let Ok(hdr) = self.fs.get_node_header(n)
             && let Some(fstype) = Self::fs_type(hdr.get_entry_type())
@@ -122,7 +122,7 @@ impl fuser::Filesystem for CbfsFuse {
             name.to_str().unwrap(),
             CbEntryType::File,
             &[],
-        ) && let Some(attr) = self.get_attr(self.get_ino(new_node))
+        ) && let Some(attr) = self.get_fs_attr_ino(self.get_ino(new_node))
         {
             reply.created(
                 &Duration::from_secs(5),
@@ -144,18 +144,46 @@ impl fuser::Filesystem for CbfsFuse {
         reply: fuser::ReplyAttr,
     ) {
         let n = self.get_node(ino);
-        if let Some(attr) = self.get_attr(ino) {
+        if let Some(attr) = self.get_fs_attr_ino(ino) {
             println!("getattr(ino={} -> {})", ino, n);
             let ttl = Duration::from_secs(1);
-            if ino == 1 {
-                reply.attr(&ttl, &attr);
-            } else {
-                reply.error(ENOSYS);
-            }
+            reply.attr(&ttl, &attr);
         } else {
             println!("getattr(ino={})", ino);
             reply.error(ENOSYS);
         }
+    }
+
+    fn setattr(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        _mode: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+        size: Option<u64>,
+        _atime: Option<fuser::TimeOrNow>,
+        _mtime: Option<fuser::TimeOrNow>,
+        _ctime: Option<SystemTime>,
+        _fh: Option<u64>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
+        _flags: Option<u32>,
+        reply: fuser::ReplyAttr,
+    ) {
+        if let Some(new_size) = size {
+            if self
+                .fs
+                .set_node_byte_size(self.get_node(ino), new_size as u32)
+                .is_err()
+            {
+                reply.error(ENOSYS);
+                return;
+            }
+        }
+
+        reply.attr(&Duration::from_secs(5), &self.get_fs_attr_ino(ino).unwrap());
     }
 
     fn lookup(
@@ -171,7 +199,7 @@ impl fuser::Filesystem for CbfsFuse {
             for dnode in dirs {
                 if let Ok(f) = self.fs.get_node_header(dnode) {
                     if f.get_name() == name.to_str().unwrap()
-                        && let Some(attr) = self.get_attr(self.get_ino(dnode))
+                        && let Some(attr) = self.get_fs_attr_ino(self.get_ino(dnode))
                     {
                         reply.entry(&Duration::from_secs(10), &attr, 0);
                         return;
@@ -231,7 +259,7 @@ impl fuser::Filesystem for CbfsFuse {
         if let Ok(new_node) = val {
             reply.entry(
                 &Duration::from_secs(1),
-                &self.get_attr(self.get_ino(new_node)).unwrap(),
+                &self.get_fs_attr_ino(self.get_ino(new_node)).unwrap(),
                 0,
             );
         } else if let Err(err) = val {
@@ -312,6 +340,135 @@ impl fuser::Filesystem for CbfsFuse {
             reply.ok();
         } else {
             reply.error(ENOENT);
+        }
+    }
+
+    fn unlink(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
+        if let Ok(entries) = self.fs.get_directory_listing(self.get_node(parent)) {
+            for e in entries {
+                if let Ok(hdr) = self.fs.get_node_header(e)
+                    && hdr.get_entry_type() == CbEntryType::File
+                    && name.to_str().unwrap() == hdr.get_name()
+                {
+                    if self.fs.rmnode(e).is_ok() {
+                        reply.ok();
+                    } else {
+                        reply.error(ENOSYS);
+                    }
+                    return;
+                }
+            }
+
+            reply.error(ENOENT);
+        } else {
+            reply.error(ENOTDIR);
+        }
+    }
+
+    fn rmdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
+        if let Ok(entries) = self.fs.get_directory_listing(self.get_node(parent)) {
+            for e in entries {
+                if let Ok(hdr) = self.fs.get_node_header(e)
+                    && hdr.get_entry_type() == CbEntryType::Directory
+                    && name.to_str().unwrap() == hdr.get_name()
+                {
+                    if self.fs.rmnode(e).is_ok() {
+                        reply.ok();
+                    } else {
+                        reply.error(ENOSYS);
+                    }
+                    return;
+                }
+            }
+
+            reply.error(ENOENT);
+        } else {
+            reply.error(ENOTDIR);
+        }
+    }
+
+    fn read(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        size: u32,
+        flags: i32,
+        lock_owner: Option<u64>,
+        reply: fuser::ReplyData,
+    ) {
+        if let Ok((hdr, data)) = self.fs.get_node_data(self.get_node(ino))
+            && hdr.get_entry_type() == CbEntryType::File
+        {
+            if offset < 0 {
+                eprintln!("offset < 0 for read {offset}");
+                reply.error(ENOSYS);
+            } else {
+                reply.data(
+                    &data[(offset as usize)..(offset as usize + size as usize).min(data.len())],
+                );
+            }
+        } else {
+            reply.error(ENOENT);
+        }
+    }
+
+    fn write(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        data: &[u8],
+        write_flags: u32,
+        flags: i32,
+        lock_owner: Option<u64>,
+        reply: fuser::ReplyWrite,
+    ) {
+        if let Ok((hdr, mut fdata)) = self.fs.get_node_data(self.get_node(ino)) {
+            if offset < 0 {
+                eprintln!("UNKNOWN OFFSET PROVIDED TO WRITE {offset}");
+                reply.error(ENOSYS);
+            } else {
+                let req_size = (offset as u32 + data.len() as u32) as usize;
+                if hdr.get_payload_size() < req_size {
+                    fdata.resize(req_size, 0);
+                }
+
+                for (dst, src) in fdata
+                    .iter_mut()
+                    .skip(offset as usize)
+                    .take(data.len())
+                    .zip(data.iter())
+                {
+                    *dst = *src
+                }
+
+                if self
+                    .fs
+                    .set_node_data_header(self.get_node(ino), hdr, &fdata)
+                    .is_ok()
+                {
+                    reply.written(data.len() as u32);
+                } else {
+                    reply.error(ENOSYS);
+                }
+            }
+        } else {
+            reply.error(ENOSYS);
         }
     }
 }
