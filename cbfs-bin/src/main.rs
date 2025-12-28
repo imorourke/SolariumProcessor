@@ -117,86 +117,6 @@ impl fuser::Filesystem for CbfsFuse {
         }
     }
 
-    fn read(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        fh: u64,
-        offset: i64,
-        size: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
-        reply: fuser::ReplyData,
-    ) {
-        println!("read(ino={ino})");
-    }
-
-    fn create(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        mode: u32,
-        umask: u32,
-        flags: i32,
-        reply: fuser::ReplyCreate,
-    ) {
-        println!("create(parent={parent}, name={})", name.to_str().unwrap());
-    }
-
-    fn unlink(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEmpty,
-    ) {
-        println!("unlink(parent={parent}, name={})", name.to_str().unwrap());
-    }
-
-    fn write(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        fh: u64,
-        offset: i64,
-        data: &[u8],
-        write_flags: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
-        reply: fuser::ReplyWrite,
-    ) {
-        println!("write(ino={ino})");
-    }
-
-    fn setxattr(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        name: &std::ffi::OsStr,
-        _value: &[u8],
-        flags: i32,
-        position: u32,
-        reply: fuser::ReplyEmpty,
-    ) {
-        println!("setxattr(ino={ino})");
-    }
-
-    fn flush(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        fh: u64,
-        lock_owner: u64,
-        reply: fuser::ReplyEmpty,
-    ) {
-        println!("flush(ino={ino})");
-    }
-
-    fn forget(&mut self, _req: &fuser::Request<'_>, ino: u64, _nlookup: u64) {
-        println!("forget(ino={ino}");
-    }
-
     fn fsync(
         &mut self,
         _req: &fuser::Request<'_>,
@@ -223,71 +143,6 @@ impl fuser::Filesystem for CbfsFuse {
         reply.ok();
     }
 
-    fn mknod(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        mode: u32,
-        umask: u32,
-        rdev: u32,
-        reply: fuser::ReplyEntry,
-    ) {
-        println!("mknod(parent={parent})");
-    }
-
-    fn statfs(&mut self, _req: &fuser::Request<'_>, ino: u64, reply: fuser::ReplyStatfs) {
-        println!("stat(ino={ino}");
-    }
-
-    fn opendir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        _flags: i32,
-        reply: fuser::ReplyOpen,
-    ) {
-        println!("opendir(ino={ino})");
-    }
-
-    fn setattr(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        mode: Option<u32>,
-        uid: Option<u32>,
-        gid: Option<u32>,
-        size: Option<u64>,
-        _atime: Option<fuser::TimeOrNow>,
-        _mtime: Option<fuser::TimeOrNow>,
-        _ctime: Option<SystemTime>,
-        fh: Option<u64>,
-        _crtime: Option<SystemTime>,
-        _chgtime: Option<SystemTime>,
-        _bkuptime: Option<SystemTime>,
-        flags: Option<u32>,
-        reply: fuser::ReplyAttr,
-    ) {
-        println!("setattr(ino={ino})");
-    }
-
-    fn rename(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        newparent: u64,
-        newname: &std::ffi::OsStr,
-        flags: u32,
-        reply: fuser::ReplyEmpty,
-    ) {
-        println!(
-            "rename(parent={parent},name={},newparent={newparent},newname={})",
-            name.to_str().unwrap(),
-            newname.to_str().unwrap()
-        );
-    }
-
     fn mkdir(
         &mut self,
         _req: &fuser::Request<'_>,
@@ -312,20 +167,6 @@ impl fuser::Filesystem for CbfsFuse {
             eprintln!("  mkdir error {err:?}");
             reply.error(ENOSYS);
         }
-    }
-
-    fn open(&mut self, _req: &fuser::Request<'_>, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
-        println!("open(ino={ino})");
-    }
-
-    fn rmdir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEmpty,
-    ) {
-        println!("rmdir(ino={parent}, name={})", name.to_str().unwrap());
     }
 
     fn readdir(
