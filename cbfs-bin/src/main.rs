@@ -107,6 +107,35 @@ impl fuser::Filesystem for CbfsFuse {
         Ok(())
     }
 
+    fn create(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        mode: u32,
+        umask: u32,
+        flags: i32,
+        reply: fuser::ReplyCreate,
+    ) {
+        if let Ok(new_node) = self.fs.mkentryn(
+            self.get_node(parent),
+            name.to_str().unwrap(),
+            CbEntryType::File,
+            &[],
+        ) && let Some(attr) = self.get_attr(self.get_ino(new_node))
+        {
+            reply.created(
+                &Duration::from_secs(5),
+                &attr,
+                0,
+                self.get_ino(new_node),
+                flags as u32,
+            );
+        } else {
+            reply.error(ENOENT);
+        }
+    }
+
     fn getattr(
         &mut self,
         _req: &fuser::Request<'_>,
