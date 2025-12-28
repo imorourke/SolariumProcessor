@@ -55,7 +55,6 @@ impl CbVolumeHeader {
 
         let table_size = header.sector_count.get() * Self::NODE_TABLE_ENTRY_SIZE as u16;
         header.root_sector = U16::new(table_size.div_ceil(header.sector_size.get()) + 1);
-        println!("Root Sector: {}", header.root_sector.get());
 
         if header.root_sector.get() >= sector_count {
             return Err(CbfsError::InvalidSectorOption);
@@ -334,7 +333,6 @@ impl CbFileSystem {
 
     fn get_next_free_node(&self) -> Result<u16, CbfsError> {
         for (i, x) in self.nodes.iter().enumerate() {
-            println!("n[{i}] = {x}");
             if *x == 0 {
                 return Ok(i as u16);
             }
@@ -425,7 +423,6 @@ impl CbFileSystem {
         data: &[u8],
     ) -> Result<(), CbfsError> {
         header.payload_size = U32::new(data.len() as u32);
-        println!("Node data set {node} size to {}", data.len());
         let mut new_data = header.as_bytes().to_vec();
         new_data.extend(data);
         self.set_node_data(node, &new_data)
@@ -446,9 +443,7 @@ impl CbFileSystem {
             }
 
             let new_node = self.get_next_free_node()?;
-            println!("NEW 1: {new_node} = {}", self.nodes[new_node as usize]);
             self.nodes[new_node as usize] = Self::NODE_END;
-            println!("NEW 2: {new_node} = {}", self.nodes[new_node as usize]);
 
             let new_hdr = CbEntryHeader {
                 attributes: 0,
@@ -459,20 +454,8 @@ impl CbFileSystem {
                 payload_size: U32::new(data.len() as u32),
             };
 
-            println!(
-                "Node {} set size to {} with parent {}",
-                new_node,
-                new_hdr.payload_size.get(),
-                parent,
-            );
-
             self.add_node_to_directory(parent, new_node)?;
             self.set_node_data_header(new_node, new_hdr, data)?;
-
-            println!(
-                "NEW NODE AFTER: {new_node} = {}",
-                self.nodes[new_node as usize]
-            );
 
             Ok(new_node)
         } else {
@@ -481,16 +464,13 @@ impl CbFileSystem {
     }
 
     pub fn rmnode(&mut self, node: u16) -> Result<(), CbfsError> {
-        let (hdr, data) = self.get_node_data(node)?;
         if self.is_node_directory(node)? {
-            for d in data
-                .chunks(CbVolumeHeader::NODE_TABLE_ENTRY_SIZE)
-                .map(|x| U16::read_from_bytes(x).unwrap())
-            {
-                self.rmnode(d.get())?;
+            for n in self.get_directory_listing(node)? {
+                self.rmnode(n)?;
             }
         }
 
+        let hdr = self.get_node_header(node)?;
         let pnode = hdr.parent.get();
         if pnode != 0 {
             self.remove_node_from_directory(pnode, node)?;

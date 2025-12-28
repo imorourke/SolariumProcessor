@@ -168,7 +168,6 @@ impl fuser::Filesystem for CbfsFuse {
         _fh: Option<u64>,
         reply: fuser::ReplyAttr,
     ) {
-        let n = self.get_node(ino);
         match self.get_fs_attr_ino(ino) {
             Ok(attr) => {
                 let ttl = Duration::from_secs(1);
@@ -233,7 +232,7 @@ impl fuser::Filesystem for CbfsFuse {
     fn fsync(
         &mut self,
         _req: &fuser::Request<'_>,
-        ino: u64,
+        _ino: u64,
         _fh: u64,
         _datasync: bool,
         reply: fuser::ReplyEmpty,
@@ -245,7 +244,7 @@ impl fuser::Filesystem for CbfsFuse {
     fn fsyncdir(
         &mut self,
         _req: &fuser::Request<'_>,
-        ino: u64,
+        _ino: u64,
         _fh: u64,
         _datasync: bool,
         reply: fuser::ReplyEmpty,
@@ -263,6 +262,7 @@ impl fuser::Filesystem for CbfsFuse {
         _umask: u32,
         reply: fuser::ReplyEntry,
     ) {
+        println!("{}:{}", _req.uid(), _req.gid());
         let pnode = self.get_node(parent);
         match self
             .fs
@@ -284,7 +284,7 @@ impl fuser::Filesystem for CbfsFuse {
         &mut self,
         _req: &fuser::Request<'_>,
         ino: u64,
-        fh: u64,
+        _fh: u64,
         offset: i64,
         mut reply: fuser::ReplyDirectory,
     ) {
@@ -375,10 +375,19 @@ impl fuser::Filesystem for CbfsFuse {
     ) {
         match self.get_node_from_parent(parent, name.to_str().unwrap()) {
             Ok(node) => match self.delete_node(node, Some(CbEntryType::Directory)) {
-                Ok(()) => reply.ok(),
-                Err(err) => reply.error(err.get_code()),
+                Ok(()) => {
+                    println!("Success!");
+                    reply.ok();
+                }
+                Err(err) => {
+                    println!("Error 2: {:?}", err);
+                    reply.error(err.get_code());
+                }
             },
-            Err(err) => reply.error(err.get_code()),
+            Err(err) => {
+                println!("Error 1");
+                reply.error(err.get_code());
+            }
         }
     }
 
