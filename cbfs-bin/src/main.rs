@@ -6,7 +6,7 @@ use std::{
 use cbfs::{self, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array};
 use clap::Parser;
 use fuser::{self, FileAttr, FileType};
-use libc::{ENOENT, ENOSYS};
+use libc::{ENOENT, ENOSYS, ENOTDIR};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -114,6 +114,36 @@ impl fuser::Filesystem for CbfsFuse {
         } else {
             println!("getattr(ino={})", ino);
             reply.error(ENOSYS);
+        }
+    }
+
+    fn lookup(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEntry,
+    ) {
+        println!("lookup(parent={parent},name={})", name.to_str().unwrap());
+
+        if let Ok(dirs) = self.fs.get_directory_listing(self.get_node(parent)) {
+            for dnode in dirs {
+                if let Ok(f) = self.fs.get_node_header(dnode) {
+                    if f.get_name() == name.to_str().unwrap()
+                        && let Some(attr) = self.get_attr(self.get_ino(dnode))
+                    {
+                        reply.entry(&Duration::from_secs(10), &attr, 0);
+                        return;
+                    }
+                } else {
+                    reply.error(ENOSYS);
+                    return;
+                }
+            }
+
+            reply.error(ENOENT);
+        } else {
+            reply.error(ENOTDIR);
         }
     }
 
@@ -246,12 +276,7 @@ impl fuser::Filesystem for CbfsFuse {
 }
 
 fn main() {
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(5)
-        .timestamp(stderrlog::Timestamp::Off)
-        .init()
-        .unwrap();
+    simple_logger::SimpleLogger::new().init().unwrap();
 
     let args = Args::parse();
 
