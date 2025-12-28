@@ -40,7 +40,7 @@ impl CbVolumeHeader {
 
         if (sector_size as usize) < min_sector_size {
             return Err(CbfsError::SectorSizeTooSmall(sector_size));
-        } else if sector_count >= CbFileSystem::NODE_END {
+        } else if sector_count == CbFileSystem::NODE_END {
             return Err(CbfsError::InvalidSectorOption);
         }
 
@@ -127,8 +127,8 @@ impl CbFileSystem {
         let data = vec![0u8; header.data_sector_size() as usize];
         let mut nodes = vec![0u16; sector_count as usize];
 
-        for i in 0..=header.root_sector.get() as usize {
-            nodes[i] = Self::NODE_END;
+        for n in nodes.iter_mut().take(header.root_sector.get() as usize + 1) {
+            *n = Self::NODE_END;
         }
 
         let root_entry = CbEntryHeader {

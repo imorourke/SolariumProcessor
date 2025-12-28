@@ -60,7 +60,7 @@ impl CbfsFuse {
         let fstype = Self::fs_type(hdr.get_entry_type())?;
         let ts = SystemTime::now();
         Ok(FileAttr {
-            ino: ino,
+            ino,
             size: hdr.get_payload_size() as u64,
             blocks: self.fs.num_sectors_for_node(n) as u64,
             atime: ts,
@@ -191,15 +191,14 @@ impl fuser::Filesystem for CbfsFuse {
         _flags: Option<u32>,
         reply: fuser::ReplyAttr,
     ) {
-        if let Some(new_size) = size {
-            if self
+        if let Some(new_size) = size
+            && self
                 .fs
                 .set_node_byte_size(self.get_node(ino), new_size as u32)
                 .is_err()
-            {
-                reply.error(ENOSYS);
-                return;
-            }
+        {
+            reply.error(ENOSYS);
+            return;
         }
 
         reply.attr(&Duration::from_secs(5), &self.get_fs_attr_ino(ino).unwrap());
@@ -353,10 +352,7 @@ impl fuser::Filesystem for CbfsFuse {
                 ),
             ];
 
-            let all_dirs = parent_dirs
-                .into_iter()
-                .chain(dirs.into_iter())
-                .collect::<Vec<_>>();
+            let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
 
             if offset == 0 {
                 for (i, (node, hdr)) in all_dirs.into_iter().enumerate() {
