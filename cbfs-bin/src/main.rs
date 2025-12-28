@@ -67,7 +67,7 @@ impl CbfsFuse {
                 ctime: ts,
                 crtime: ts,
                 kind: fstype,
-                perm: 0o755,
+                perm: 0o777,
                 nlink: 0,
                 uid: 0,
                 gid: 0,
@@ -246,6 +246,13 @@ impl fuser::Filesystem for CbfsFuse {
 }
 
 fn main() {
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(5)
+        .timestamp(stderrlog::Timestamp::Off)
+        .init()
+        .unwrap();
+
     let args = Args::parse();
 
     let fs = if let Some(orig) = &args.base_file

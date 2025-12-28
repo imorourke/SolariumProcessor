@@ -9,3 +9,4 @@ cbfs = { version = "*", path = "../cbfs" }
 clap = { version = "4.5.53", features = ["derive"] }
 libc = "0.2.178"
 time = "0.3.44"
+stderrlog = "0.6.0"
