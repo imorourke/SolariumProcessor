@@ -90,7 +90,7 @@ fn os_main() void {
                     k_cpu_reset();
                 } else if (strcmp(cmd, "date") == 0) {
                     def dt: k_datetime_t = k_rtc_current();
-                    k_io_print_uint(dt.year + 1980);
+                    k_io_print_uint(dt.year);
                     k_io_print("-");
                     k_io_print_uint(dt.month);
                     k_io_print("-");

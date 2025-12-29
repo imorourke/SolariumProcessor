@@ -22,13 +22,14 @@ impl MemorySegment for RtcClockDevice {
             let index = offset - DEVICE_ID_SIZE;
             let time = chrono::Utc::now();
             match index {
-                0 => Ok((time.year() - 1980) as u8),
-                1 => Ok(time.month() as u8),
-                2 => Ok(time.day0() as u8),
-                3 => Ok(time.hour() as u8),
-                4 => Ok(time.minute() as u8),
-                5 => Ok(time.second() as u8),
-                6 => Ok((time.timestamp_millis() / 10) as u8),
+                0 => Ok((time.year() as i16).to_be_bytes()[0]),
+                1 => Ok((time.year() as i16).to_be_bytes()[1]),
+                2 => Ok(time.month() as u8),
+                3 => Ok(time.day0() as u8),
+                4 => Ok(time.hour() as u8),
+                5 => Ok(time.minute() as u8),
+                6 => Ok(time.second() as u8),
+                7 => Ok((time.timestamp_millis() / 10) as u8),
                 _ => Err(MemorySegmentError::InvalidMemoryAccess(offset)),
             }
         }

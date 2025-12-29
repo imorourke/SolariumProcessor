@@ -70,7 +70,6 @@ impl TryFrom<CbDateTime> for DateTime<Utc> {
     type Error = CbfsError;
 
     fn try_from(value: CbDateTime) -> Result<Self, Self::Error> {
-        println!("Obtaining from {value}");
         chrono::NaiveDate::from_ymd_opt(
             value.date.year.get() as i32,
             value.date.month as u32,

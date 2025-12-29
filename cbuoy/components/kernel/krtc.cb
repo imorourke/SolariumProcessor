@@ -2,7 +2,7 @@
 #define K_RTC_DEV
 
 struct k_datetime_t {
-    year: u8;
+    year: i16;
     month: u8;
     day: u8;
     hour: u8;
