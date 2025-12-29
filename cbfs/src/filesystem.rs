@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::fserr::CbFuseErr;
-use cbfs::{CbDateTime, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array};
+use cbfs_lib::{CbDateTime, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array};
 use fuser::{self, FileAttr, FileType};
 use libc::{ENOENT, ENOSYS, S_IFREG};
 

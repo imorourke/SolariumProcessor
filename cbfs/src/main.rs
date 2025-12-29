@@ -3,7 +3,7 @@ mod fserr;
 
 use std::path::PathBuf;
 
-use cbfs::CbFileSystem;
+use cbfs_lib::CbFileSystem;
 use clap::Parser;
 
 use crate::filesystem::CbfsFuse;

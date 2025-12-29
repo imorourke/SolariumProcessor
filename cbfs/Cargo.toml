@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.42"
-zerocopy = { version = "0.8", features = ["derive"] }
+fuser = { git = "https://github.com/imorourke/fuser.git", branch = "dev/fuset" }
+cbfs-lib = { version = "*", path = "../cbfs-lib" }
+clap = { version = "4.5.53", features = ["derive"] }
+libc = "0.2.178"
+simple_logger = "5.1.0"

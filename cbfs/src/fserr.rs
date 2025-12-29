@@ -1,4 +1,4 @@
-use cbfs::CbfsError;
+use cbfs_lib::CbfsError;
 use libc::{ENOENT, ENOSYS, ENOTDIR};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
