@@ -441,16 +441,12 @@ impl fuser::Filesystem for CbfsFuse {
         }
 
         if let Some(mtime) = _mtime {
-            println!("Setting mtime for {ino}");
-
             let ts = match mtime {
                 fuser::TimeOrNow::Now => SystemTime::now(),
                 fuser::TimeOrNow::SpecificTime(t) => t,
             };
 
             let cbdt: CbDateTime = ts.into();
-
-            println!("  {cbdt}");
 
             match self.fs.entry_header(self.get_entry_id(ino)) {
                 Ok(mut hdr) => {
@@ -469,7 +465,6 @@ impl fuser::Filesystem for CbfsFuse {
         }
 
         if let Some(ts) = _ctime {
-            println!("Setting ctime for {ino}");
             let cbdt: CbDateTime = ts.into();
 
             match self.fs.entry_header(self.get_entry_id(ino)) {
