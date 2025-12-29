@@ -485,7 +485,7 @@ impl fuser::Filesystem for CbfsFuse {
 
                 if self
                     .fs
-                    .set_node_data_header(self.get_node(ino), hdr, &fdata)
+                    .set_entry_data(self.get_node(ino), hdr, &fdata)
                     .is_ok()
                 {
                     reply.written(data.len() as u32);
@@ -520,8 +520,8 @@ impl From<CbfsError> for CbFuseErr {
     fn from(value: CbfsError) -> Self {
         match value {
             CbfsError::PathNotFound(_) => Self::NoEntry,
-            CbfsError::InvalidNode(_) => Self::NoEntry,
-            CbfsError::NodeNotDirectory => Self::NotDirectory,
+            CbfsError::InvalidEntry(_) => Self::NoEntry,
+            CbfsError::EntryNotDirectory => Self::NotDirectory,
             _ => Self::Other,
         }
     }
