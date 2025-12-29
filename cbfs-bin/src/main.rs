@@ -56,7 +56,7 @@ impl CbfsFuse {
         if ino == 1 {
             self.fs.header.root_sector.get()
         } else if ino <= (u16::MAX as u64) {
-            self.fs.get_node_valid(ino as u16).map_or(0, |x| x)
+            self.fs.get_entry_valid(ino as u16).map_or(0, |x| x)
         } else {
             0
         }
@@ -80,13 +80,13 @@ impl CbfsFuse {
 
     fn get_fs_attr_ino(&self, ino: u64) -> Result<FileAttr, CbFuseErr> {
         let n = self.get_node(ino);
-        let hdr = self.fs.get_node_header(n)?;
+        let hdr = self.fs.entry_header(n)?;
         let fstype = Self::fs_type(hdr.get_entry_type())?;
         let ts = SystemTime::now();
         Ok(FileAttr {
             ino,
             size: hdr.get_payload_size() as u64,
-            blocks: self.fs.num_sectors_for_node(n) as u64,
+            blocks: self.fs.num_sectors_for_entry(n) as u64,
             atime: ts,
             mtime: ts,
             ctime: ts,
@@ -104,14 +104,14 @@ impl CbfsFuse {
 
     fn save_fs(&self) {
         if let Some(base) = &self.base_file {
-            self.fs.write_to_file(base).unwrap();
+            self.fs.write_fs_to_file(base).unwrap();
         }
     }
 
     fn get_node_from_parent(&self, parent: u64, name: &str) -> Result<u16, CbFuseErr> {
-        let entries = self.fs.get_directory_listing(self.get_node(parent))?;
+        let entries = self.fs.directory_listing(self.get_node(parent))?;
         for e in entries.iter().copied() {
-            let hdr = self.fs.get_node_header(e)?;
+            let hdr = self.fs.entry_header(e)?;
             if hdr.get_name() == name {
                 return Ok(e);
             }
@@ -121,10 +121,10 @@ impl CbfsFuse {
     }
 
     fn delete_node(&mut self, node: u16, tval: Option<CbEntryType>) -> Result<(), CbFuseErr> {
-        if let Ok(hdr) = self.fs.get_node_header(node)
+        if let Ok(hdr) = self.fs.entry_header(node)
             && (tval.is_none() || (hdr.get_entry_type() == tval.unwrap()))
         {
-            self.fs.rmnode(node)?;
+            self.fs.delete_entry(node)?;
             Ok(())
         } else {
             Err(CbFuseErr::NoEntry)
@@ -159,7 +159,7 @@ impl fuser::Filesystem for CbfsFuse {
         _flags: i32,
         reply: fuser::ReplyCreate,
     ) {
-        match self.fs.mkentryn(
+        match self.fs.create_entry(
             self.get_node(parent),
             name.to_str().unwrap(),
             CbEntryType::File,
@@ -218,7 +218,7 @@ impl fuser::Filesystem for CbfsFuse {
         if let Some(new_size) = size
             && self
                 .fs
-                .set_node_byte_size(self.get_node(ino), new_size as u32)
+                .set_entry_payload_byte_size(self.get_node(ino), new_size as u32)
                 .is_err()
         {
             reply.error(ENOSYS);
@@ -293,7 +293,7 @@ impl fuser::Filesystem for CbfsFuse {
     ) {
         const FILE_MODE_VAL: u32 = S_IFREG as u32;
         if (mode & FILE_MODE_VAL) == FILE_MODE_VAL {
-            match self.fs.mkentryn(
+            match self.fs.create_entry(
                 self.get_node(parent),
                 name.to_str().unwrap(),
                 CbEntryType::File,
@@ -329,7 +329,7 @@ impl fuser::Filesystem for CbfsFuse {
         let pnode = self.get_node(parent);
         match self
             .fs
-            .mkentryn(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
+            .create_entry(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
         {
             Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
                 Ok(attr) => reply.entry(&Duration::from_secs(1), &attr, 0),
@@ -352,15 +352,15 @@ impl fuser::Filesystem for CbfsFuse {
         mut reply: fuser::ReplyDirectory,
     ) {
         let n = self.get_node(ino);
-        if let Ok(hdr) = self.fs.get_node_header(n)
+        if let Ok(hdr) = self.fs.entry_header(n)
             && hdr.get_entry_type() == CbEntryType::Directory
         {
             let dirs = self
                 .fs
-                .get_directory_listing(n)
+                .directory_listing(n)
                 .unwrap()
                 .into_iter()
-                .map(|h| (h as u64, self.fs.get_node_header(h).unwrap()))
+                .map(|h| (h as u64, self.fs.entry_header(h).unwrap()))
                 .collect::<Vec<_>>();
 
             let parent_dirs = [
@@ -462,7 +462,7 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        if let Ok((hdr, data)) = self.fs.get_node_data(self.get_node(ino))
+        if let Ok((hdr, data)) = self.fs.entry_data(self.get_node(ino))
             && hdr.get_entry_type() == CbEntryType::File
         {
             if offset < 0 {
@@ -489,7 +489,7 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
-        if let Ok((hdr, mut fdata)) = self.fs.get_node_data(self.get_node(ino)) {
+        if let Ok((hdr, mut fdata)) = self.fs.entry_data(self.get_node(ino)) {
             if offset < 0 {
                 reply.error(ENOSYS);
             } else {
@@ -524,7 +524,10 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn statfs(&mut self, _req: &fuser::Request<'_>, _ino: u64, reply: fuser::ReplyStatfs) {
         let free_sectors = self.fs.num_free_sectors();
-        let num_entries = match self.fs.num_entries(self.fs.header.root_sector.get()) {
+        let num_entries = match self
+            .fs
+            .num_entries_within_entry(self.fs.header.root_sector.get())
+        {
             Ok(count) => count,
             Err(e) => {
                 reply.error(CbFuseErr::from(e).get_code());
@@ -566,8 +569,8 @@ impl From<CbfsError> for CbFuseErr {
     fn from(value: CbfsError) -> Self {
         match value {
             CbfsError::PathNotFound(_) => Self::NoEntry,
-            CbfsError::InvalidEntry(_) => Self::NoEntry,
-            CbfsError::EntryNotDirectory => Self::NotDirectory,
+            CbfsError::EntryInvalid(_) => Self::NoEntry,
+            CbfsError::EntryNotDirectory(_) => Self::NotDirectory,
             _ => Self::Other,
         }
     }
