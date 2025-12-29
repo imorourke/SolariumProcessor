@@ -10,6 +10,7 @@ use std::{
     fs::OpenOptions,
     io::{Seek, SeekFrom, Write},
     path::Path,
+    time::SystemTime,
 };
 
 use zerocopy::{
@@ -18,6 +19,7 @@ use zerocopy::{
 };
 
 pub use crate::{
+    datetime::CbDateTime,
     entries::{CbEntryHeader, CbEntryType},
     names::{StringArrayError, string_to_array},
 };
@@ -105,6 +107,7 @@ pub enum CbfsError {
     UnknownEntryType(u8),
     InvalidName,
     TableFull,
+    InvalidDateTime,
     InvalidSectorCount(u16),
     SectorSizeTooSmall(u16),
     IoError(std::io::Error),
@@ -159,7 +162,7 @@ impl CbFileSystem {
         let root_entry = CbEntryHeader {
             attributes: 0,
             entry_type: CbEntryType::Directory as u8,
-            modification_time: U32::new(0),
+            modification_time: CbDateTime::from(SystemTime::now()),
             name: string_to_array("")?,
             parent: U16::new(0),
             payload_size: U32::new(0),
@@ -332,7 +335,7 @@ impl CbFileSystem {
     }
 
     /// Sets only the header portion of a given entry
-    pub fn set_entry_header(&mut self, entry: u16, hdr: &CbEntryHeader) -> Result<(), CbfsError> {
+    pub fn set_entry_header(&mut self, entry: u16, hdr: CbEntryHeader) -> Result<(), CbfsError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_data_start_idx(entry)?;
         for (dst, src) in self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())]
@@ -394,8 +397,6 @@ impl CbFileSystem {
 
     /// Provides the number of sectors associated with the entry
     pub fn num_sectors_for_entry(&self, entry: u16) -> usize {
-        assert!(self.entry_is_primary(entry).unwrap());
-
         if entry == 0 {
             return 0;
         }
@@ -554,7 +555,7 @@ impl CbFileSystem {
     pub fn set_entry_payload_byte_size(&mut self, entry: u16, size: u32) -> Result<(), CbfsError> {
         let (hdr, mut data) = self.entry_data(entry)?;
         if hdr.get_entry_type() == CbEntryType::File {
-            data.resize(size as usize + std::mem::size_of::<CbEntryHeader>(), 0);
+            data.resize(size as usize, 0);
             self.set_entry_data(entry, hdr, &data)
         } else {
             Err(CbfsError::EntryNotFile(entry))
@@ -587,7 +588,7 @@ impl CbFileSystem {
         let new_hdr = CbEntryHeader {
             attributes: 0,
             entry_type: entry_type as u8,
-            modification_time: U32::new(0),
+            modification_time: CbDateTime::from(SystemTime::now()),
             name: string_to_array(name)?,
             parent: U16::new(parent),
             payload_size: U32::new(data.len() as u32),
@@ -646,7 +647,6 @@ impl CbFileSystem {
     /// Adds an entry to the provided directory table.
     fn add_entry_to_directory(&mut self, parent: u16, entry: u16) -> Result<(), CbfsError> {
         assert!(self.entry_is_primary(parent)?);
-        assert!(self.entry_is_primary(entry)?);
 
         let (mut hdr, mut data) = self.entry_data(parent)?;
         assert_eq!(hdr.get_payload_size(), data.len());
@@ -674,7 +674,12 @@ impl CbFileSystem {
     }
 
     /// Moves an entry to a new parent directory
-    pub fn move_entry(&mut self, entry: u16, new_parent: u16) -> Result<(), CbfsError> {
+    pub fn move_entry(
+        &mut self,
+        entry: u16,
+        new_parent: u16,
+        new_name: Option<&str>,
+    ) -> Result<(), CbfsError> {
         assert!(self.entry_is_primary(entry)?);
         assert!(self.entry_is_primary(new_parent)?);
 
@@ -686,17 +691,24 @@ impl CbFileSystem {
 
         let mut hdr = self.entry_header(entry)?;
 
+        if let Some(n) = new_name {
+            hdr.set_name(n)?;
+        }
+
+        let target_name = hdr.get_name();
+
         for e in self.directory_listing(new_parent)? {
-            if self.entry_header(e)?.get_name() == hdr.get_name() {
-                return Err(CbfsError::DuplicateName(hdr.get_name().clone()));
+            if self.entry_header(e)?.get_name() == target_name {
+                return Err(CbfsError::DuplicateName(target_name));
             }
         }
 
         let pnode = hdr.parent.get();
         hdr.parent = new_parent.into();
+
         self.remove_entry_from_directory(pnode, entry)?;
         self.add_entry_to_directory(new_parent, entry)?;
-        self.set_entry_header(entry, &hdr)?;
+        self.set_entry_header(entry, hdr)?;
 
         Ok(())
     }

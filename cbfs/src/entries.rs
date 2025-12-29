@@ -5,7 +5,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::names::array_to_string;
+use crate::{CbfsError, datetime::CbDateTime, names::array_to_string, string_to_array};
 
 #[repr(C)]
 #[repr(packed)]
@@ -15,7 +15,7 @@ pub struct CbEntryHeader {
     pub attributes: u8,
     pub parent: U16,
     pub payload_size: U32,
-    pub modification_time: U32,
+    pub modification_time: CbDateTime,
     pub name: [u8; Self::NAME_SIZE],
 }
 
@@ -30,6 +30,11 @@ impl CbEntryHeader {
         array_to_string(&self.name)
     }
 
+    pub fn set_name(&mut self, s: &str) -> Result<(), CbfsError> {
+        self.name = string_to_array(s)?;
+        Ok(())
+    }
+
     pub fn get_payload_size(&self) -> usize {
         self.payload_size.get() as usize
     }
@@ -38,8 +43,8 @@ impl CbEntryHeader {
         self.payload_size = U32::new(s as u32);
     }
 
-    pub fn get_header_size(&self) -> usize {
-        std::mem::size_of::<Self>()
+    pub const fn get_header_size(&self) -> usize {
+        std::mem::size_of::<CbEntryHeader>()
     }
 
     pub fn get_parent(&self) -> u16 {
@@ -48,6 +53,14 @@ impl CbEntryHeader {
 
     pub fn get_total_size(&self) -> usize {
         self.get_payload_size() + self.get_header_size()
+    }
+
+    pub fn get_modification_time(&self) -> CbDateTime {
+        self.modification_time
+    }
+
+    pub fn set_modification_time(&mut self, time: CbDateTime) {
+        self.modification_time = time;
     }
 }
 

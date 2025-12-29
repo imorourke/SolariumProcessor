@@ -1,54 +1,89 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::SystemTime};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct CbDateTime {
-    pub year: u8,
+use chrono::{DateTime, Datelike, Timelike, Utc};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
+
+use crate::CbfsError;
+
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CbDate {
+    pub year: I16,
     pub month: u8,
     pub day: u8,
+}
+
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CbTime {
     pub hour: u8,
     pub minute: u8,
     pub second: u8,
+    pub hundredths: u8,
 }
 
-impl CbDateTime {
-    const YEAR_BITS: u32 = 8;
-    const MONTH_BITS: u32 = 4;
-    const DAY_BITS: u32 = 5;
-    const HOUR_BITS: u32 = 5;
-    const MINUTE_BITS: u32 = 6;
-    const SECOND_BITS: u32 = 6;
-
-    const YEAR_MASK: BitMask = BitMask::new(Self::YEAR_BITS, 0);
-    const MONTH_MASK: BitMask = BitMask::new(Self::MONTH_BITS, Self::YEAR_MASK.offset);
-    const DAY_MASK: BitMask = BitMask::new(Self::DAY_BITS, Self::MONTH_MASK.offset);
-    const HOUR_MASK: BitMask = BitMask::new(Self::HOUR_BITS, Self::DAY_MASK.offset);
-    const MINUTE_MASK: BitMask = BitMask::new(Self::MINUTE_BITS, Self::HOUR_MASK.offset);
-    const SECOND_MASK: BitMask = BitMask::new(Self::SECOND_BITS, Self::MINUTE_MASK.offset);
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CbDateTime {
+    date: CbDate,
+    time: CbTime,
 }
 
-impl From<u32> for CbDateTime {
-    fn from(value: u32) -> Self {
+impl From<DateTime<Utc>> for CbDateTime {
+    fn from(value: DateTime<Utc>) -> Self {
         Self {
-            year: Self::YEAR_MASK.get_val(value) as u8,
-            month: Self::MONTH_MASK.get_val(value) as u8,
-            day: Self::DAY_MASK.get_val(value) as u8,
-            hour: Self::HOUR_MASK.get_val(value) as u8,
-            minute: Self::MINUTE_MASK.get_val(value) as u8,
-            second: Self::SECOND_MASK.get_val(value) as u8,
+            date: CbDate {
+                year: I16::new(value.year() as i16),
+                month: value.month() as u8,
+                day: value.day() as u8,
+            },
+            time: CbTime {
+                hour: value.hour() as u8,
+                minute: value.minute() as u8,
+                second: value.second() as u8,
+                hundredths: (value.timestamp_millis() / 100) as u8,
+            },
         }
     }
 }
 
-impl From<CbDateTime> for u32 {
-    fn from(value: CbDateTime) -> Self {
-        let mut word = 0;
-        CbDateTime::YEAR_MASK.set_val(&mut word, value.year as u32);
-        CbDateTime::MONTH_MASK.set_val(&mut word, value.month as u32);
-        CbDateTime::DAY_MASK.set_val(&mut word, value.day as u32);
-        CbDateTime::HOUR_MASK.set_val(&mut word, value.hour as u32);
-        CbDateTime::MINUTE_MASK.set_val(&mut word, value.minute as u32);
-        CbDateTime::SECOND_MASK.set_val(&mut word, value.second as u32);
-        word
+impl From<SystemTime> for CbDateTime {
+    fn from(value: SystemTime) -> Self {
+        let dt = DateTime::<Utc>::from(value);
+        dt.into()
+    }
+}
+
+impl TryFrom<CbDateTime> for SystemTime {
+    type Error = CbfsError;
+
+    fn try_from(value: CbDateTime) -> Result<Self, Self::Error> {
+        let res = DateTime::<Utc>::try_from(value)?;
+        Ok(res.into())
+    }
+}
+
+impl TryFrom<CbDateTime> for DateTime<Utc> {
+    type Error = CbfsError;
+
+    fn try_from(value: CbDateTime) -> Result<Self, Self::Error> {
+        println!("Obtaining from {value}");
+        chrono::NaiveDate::from_ymd_opt(
+            value.date.year.get() as i32,
+            value.date.month as u32,
+            value.date.day as u32,
+        )
+        .and_then(|x| {
+            x.and_hms_opt(
+                value.time.hour as u32,
+                value.time.minute as u32,
+                value.time.second as u32,
+            )
+        })
+        .map_or(Err(CbfsError::InvalidDateTime), |x| Ok(x.and_utc()))
     }
 }
 
@@ -57,40 +92,12 @@ impl Display for CbDateTime {
         write!(
             f,
             "{}/{}/{} {}:{}:{}",
-            self.year,
-            self.month + 1,
-            self.day + 1,
-            self.hour,
-            self.minute,
-            self.second
+            self.date.year,
+            self.date.month,
+            self.date.day,
+            self.time.hour,
+            self.time.minute,
+            self.time.second
         )
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BitMask {
-    pub offset: u32,
-    pub mask: u32,
-}
-
-impl BitMask {
-    const fn new(count: u32, offset: u32) -> Self {
-        let mut i = 0;
-        let mut mask = 0;
-        while i < count {
-            let bit = offset + i;
-            assert!(bit < u32::BITS);
-            mask |= 1 << bit;
-            i += 1;
-        }
-        Self { offset, mask }
-    }
-
-    pub const fn get_val(&self, word: u32) -> u32 {
-        (word & self.mask) >> self.offset
-    }
-
-    pub fn set_val(&self, word: &mut u32, val: u32) {
-        *word = (*word & !self.mask) | ((val << self.offset) & self.mask);
     }
 }

@@ -1,9 +1,11 @@
 use std::{
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use cbfs::{self, CbEntryHeader, CbEntryType, CbFileSystem, CbfsError, string_to_array};
+use cbfs::{
+    self, CbDateTime, CbEntryHeader, CbEntryType, CbFileSystem, CbfsError, string_to_array,
+};
 use clap::Parser;
 use fuser::{self, FileAttr, FileType};
 use libc::{ENOENT, ENOSYS, ENOTDIR, S_IFREG};
@@ -19,7 +21,7 @@ struct Args {
     base_file: Option<PathBuf>,
     #[arg(
         long,
-        short = 'n',
+        short = 'S',
         default_value_t = 1024,
         help = "the number of sectors to create if a a filesystem is loaded"
     )]
@@ -36,9 +38,9 @@ struct Args {
         short,
         help = "the name of the volume to use if a new filesystem is created"
     )]
-    volume_name: Option<String>,
+    name: Option<String>,
     #[arg(help = "the path to mount the filesystem to")]
-    mount_point: PathBuf,
+    mount: PathBuf,
     #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
     verbose: bool,
 }
@@ -52,8 +54,10 @@ struct CbfsFuse {
 }
 
 impl CbfsFuse {
-    fn get_node(&self, ino: u64) -> u16 {
-        if ino == 1 {
+    const ROOT_INO: u64 = 1;
+
+    fn get_entry_id(&self, ino: u64) -> u16 {
+        if ino == Self::ROOT_INO {
             self.fs.header.root_sector.get()
         } else if ino <= (u16::MAX as u64) {
             self.fs.get_entry_valid(ino as u16).map_or(0, |x| x)
@@ -62,11 +66,11 @@ impl CbfsFuse {
         }
     }
 
-    fn get_ino(&self, node: u16) -> u64 {
-        if node == self.fs.header.root_sector.get() {
-            1
+    fn get_ino(&self, entry: u16) -> u64 {
+        if entry == self.fs.header.root_sector.get() {
+            Self::ROOT_INO
         } else {
-            node as u64
+            entry as u64
         }
     }
 
@@ -79,10 +83,10 @@ impl CbfsFuse {
     }
 
     fn get_fs_attr_ino(&self, ino: u64) -> Result<FileAttr, CbFuseErr> {
-        let n = self.get_node(ino);
+        let n = self.get_entry_id(ino);
         let hdr = self.fs.entry_header(n)?;
-        let fstype = Self::fs_type(hdr.get_entry_type())?;
-        let ts = SystemTime::now();
+
+        let ts: SystemTime = hdr.get_modification_time().try_into().unwrap_or(UNIX_EPOCH);
         Ok(FileAttr {
             ino,
             size: hdr.get_payload_size() as u64,
@@ -91,7 +95,7 @@ impl CbfsFuse {
             mtime: ts,
             ctime: ts,
             crtime: ts,
-            kind: fstype,
+            kind: Self::fs_type(hdr.get_entry_type())?,
             perm: 0o755,
             nlink: 0,
             uid: self.uid,
@@ -108,8 +112,8 @@ impl CbfsFuse {
         }
     }
 
-    fn get_node_from_parent(&self, parent: u64, name: &str) -> Result<u16, CbFuseErr> {
-        let entries = self.fs.directory_listing(self.get_node(parent))?;
+    fn get_entry_from_parent(&self, parent: u64, name: &str) -> Result<u16, CbFuseErr> {
+        let entries = self.fs.directory_listing(self.get_entry_id(parent))?;
         for e in entries.iter().copied() {
             let hdr = self.fs.entry_header(e)?;
             if hdr.get_name() == name {
@@ -120,7 +124,7 @@ impl CbfsFuse {
         Err(CbFuseErr::NoEntry)
     }
 
-    fn delete_node(&mut self, node: u16, tval: Option<CbEntryType>) -> Result<(), CbFuseErr> {
+    fn delete_entry(&mut self, node: u16, tval: Option<CbEntryType>) -> Result<(), CbFuseErr> {
         if let Ok(hdr) = self.fs.entry_header(node)
             && (tval.is_none() || (hdr.get_entry_type() == tval.unwrap()))
         {
@@ -139,14 +143,18 @@ impl Drop for CbfsFuse {
 }
 
 impl fuser::Filesystem for CbfsFuse {
-    fn init(
+    fn access(
         &mut self,
         req: &fuser::Request<'_>,
-        _config: &mut fuser::KernelConfig,
-    ) -> Result<(), libc::c_int> {
-        self.uid = req.uid();
-        self.gid = req.gid();
-        Ok(())
+        _ino: u64,
+        _mask: i32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        if self.uid == 0 && self.gid == 0 {
+            self.uid = req.uid();
+            self.gid = req.gid();
+        }
+        reply.ok();
     }
 
     fn create(
@@ -160,7 +168,7 @@ impl fuser::Filesystem for CbfsFuse {
         reply: fuser::ReplyCreate,
     ) {
         match self.fs.create_entry(
-            self.get_node(parent),
+            self.get_entry_id(parent),
             name.to_str().unwrap(),
             CbEntryType::File,
             &[],
@@ -218,14 +226,87 @@ impl fuser::Filesystem for CbfsFuse {
         if let Some(new_size) = size
             && self
                 .fs
-                .set_entry_payload_byte_size(self.get_node(ino), new_size as u32)
+                .set_entry_payload_byte_size(self.get_entry_id(ino), new_size as u32)
                 .is_err()
         {
             reply.error(ENOSYS);
             return;
         }
 
+        if let Some(mtime) = _mtime {
+            println!("Setting mtime for {ino}");
+
+            let ts = match mtime {
+                fuser::TimeOrNow::Now => SystemTime::now(),
+                fuser::TimeOrNow::SpecificTime(t) => t,
+            };
+
+            let cbdt: CbDateTime = ts.into();
+
+            println!("  {cbdt}");
+
+            match self.fs.entry_header(self.get_entry_id(ino)) {
+                Ok(mut hdr) => {
+                    hdr.set_modification_time(cbdt);
+
+                    if let Err(e) = self.fs.set_entry_header(self.get_entry_id(ino), hdr) {
+                        reply.error(CbFuseErr::from(e).get_code());
+                        return;
+                    }
+                }
+                Err(e) => {
+                    reply.error(CbFuseErr::from(e).get_code());
+                    return;
+                }
+            }
+        }
+
+        if let Some(ts) = _ctime {
+            println!("Setting ctime for {ino}");
+            let cbdt: CbDateTime = ts.into();
+
+            match self.fs.entry_header(self.get_entry_id(ino)) {
+                Ok(mut hdr) => {
+                    hdr.set_modification_time(cbdt);
+
+                    if let Err(e) = self.fs.set_entry_header(self.get_entry_id(ino), hdr) {
+                        reply.error(CbFuseErr::from(e).get_code());
+                        return;
+                    }
+                }
+                Err(e) => {
+                    reply.error(CbFuseErr::from(e).get_code());
+                    return;
+                }
+            }
+        }
+
         reply.attr(&Duration::from_secs(5), &self.get_fs_attr_ino(ino).unwrap());
+    }
+
+    fn rename(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        newparent: u64,
+        newname: &std::ffi::OsStr,
+        _flags: u32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(entry) => match self.fs.move_entry(
+                entry,
+                self.get_entry_id(newparent),
+                Some(newname.to_str().unwrap()),
+            ) {
+                Ok(()) => reply.ok(),
+                Err(e) => reply.error(CbFuseErr::from(e).get_code()),
+            },
+            Err(e) => {
+                reply.error(e.get_code());
+            }
+        }
     }
 
     fn lookup(
@@ -235,7 +316,7 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEntry,
     ) {
-        match self.get_node_from_parent(parent, name.to_str().unwrap()) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
             Ok(node) => match self.get_fs_attr_ino(self.get_ino(node)) {
                 Ok(attr) => {
                     reply.entry(&Duration::from_secs(10), &attr, 0);
@@ -294,7 +375,7 @@ impl fuser::Filesystem for CbfsFuse {
         const FILE_MODE_VAL: u32 = S_IFREG as u32;
         if (mode & FILE_MODE_VAL) == FILE_MODE_VAL {
             match self.fs.create_entry(
-                self.get_node(parent),
+                self.get_entry_id(parent),
                 name.to_str().unwrap(),
                 CbEntryType::File,
                 &[],
@@ -325,8 +406,7 @@ impl fuser::Filesystem for CbfsFuse {
         _umask: u32,
         reply: fuser::ReplyEntry,
     ) {
-        println!("{}:{}", _req.uid(), _req.gid());
-        let pnode = self.get_node(parent);
+        let pnode = self.get_entry_id(parent);
         match self
             .fs
             .create_entry(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
@@ -351,7 +431,7 @@ impl fuser::Filesystem for CbfsFuse {
         offset: i64,
         mut reply: fuser::ReplyDirectory,
     ) {
-        let n = self.get_node(ino);
+        let n = self.get_entry_id(ino);
         if let Ok(hdr) = self.fs.entry_header(n)
             && hdr.get_entry_type() == CbEntryType::Directory
         {
@@ -369,7 +449,7 @@ impl fuser::Filesystem for CbfsFuse {
                     CbEntryHeader {
                         attributes: hdr.attributes,
                         entry_type: hdr.entry_type,
-                        modification_time: hdr.payload_size,
+                        modification_time: hdr.modification_time,
                         name: string_to_array(".").unwrap(),
                         parent: hdr.parent,
                         payload_size: hdr.payload_size,
@@ -380,7 +460,7 @@ impl fuser::Filesystem for CbfsFuse {
                     CbEntryHeader {
                         attributes: 0,
                         entry_type: CbEntryType::Directory as u8,
-                        modification_time: 0.into(),
+                        modification_time: CbDateTime::default(),
                         name: string_to_array("..").unwrap(),
                         parent: 0.into(),
                         payload_size: 0.into(),
@@ -417,8 +497,8 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
     ) {
-        match self.get_node_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.delete_node(node, Some(CbEntryType::File)) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(node) => match self.delete_entry(node, Some(CbEntryType::File)) {
                 Ok(()) => reply.ok(),
                 Err(err) => reply.error(err.get_code()),
             },
@@ -433,19 +513,16 @@ impl fuser::Filesystem for CbfsFuse {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
     ) {
-        match self.get_node_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.delete_node(node, Some(CbEntryType::Directory)) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(node) => match self.delete_entry(node, Some(CbEntryType::Directory)) {
                 Ok(()) => {
-                    println!("Success!");
                     reply.ok();
                 }
                 Err(err) => {
-                    println!("Error 2: {:?}", err);
                     reply.error(err.get_code());
                 }
             },
             Err(err) => {
-                println!("Error 1");
                 reply.error(err.get_code());
             }
         }
@@ -462,7 +539,7 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        if let Ok((hdr, data)) = self.fs.entry_data(self.get_node(ino))
+        if let Ok((hdr, data)) = self.fs.entry_data(self.get_entry_id(ino))
             && hdr.get_entry_type() == CbEntryType::File
         {
             if offset < 0 {
@@ -489,7 +566,7 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
-        if let Ok((hdr, mut fdata)) = self.fs.entry_data(self.get_node(ino)) {
+        if let Ok((hdr, mut fdata)) = self.fs.entry_data(self.get_entry_id(ino)) {
             if offset < 0 {
                 reply.error(ENOSYS);
             } else {
@@ -509,7 +586,7 @@ impl fuser::Filesystem for CbfsFuse {
 
                 if self
                     .fs
-                    .set_entry_data(self.get_node(ino), hdr, &fdata)
+                    .set_entry_data(self.get_entry_id(ino), hdr, &fdata)
                     .is_ok()
                 {
                     reply.written(data.len() as u32);
@@ -595,7 +672,7 @@ fn main() {
     } else {
         CbfsFuse {
             fs: CbFileSystem::new(
-                args.volume_name.as_ref().map(|x| x.as_ref()).unwrap_or(""),
+                args.name.as_ref().map(|x| x.as_ref()).unwrap_or(""),
                 args.sector_size,
                 args.sector_num,
             )
@@ -606,5 +683,5 @@ fn main() {
         }
     };
 
-    fuser::mount2(fs, args.mount_point, &[]).unwrap();
+    fuser::mount2(fs, args.mount, &[]).unwrap();
 }
