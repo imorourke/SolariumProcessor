@@ -115,6 +115,31 @@ impl Drop for CbfsFuse {
 }
 
 impl fuser::Filesystem for CbfsFuse {
+    fn statfs(&mut self, _req: &fuser::Request<'_>, _ino: u64, reply: fuser::ReplyStatfs) {
+        let free_sectors = self.fs.num_free_sectors();
+        let num_entries = match self
+            .fs
+            .num_entries_within_entry(self.fs.header.root_sector.get())
+        {
+            Ok(count) => count,
+            Err(e) => {
+                reply.error(CbFuseErr::from(e).get_code());
+                return;
+            }
+        };
+
+        reply.statfs(
+            self.fs.header.sector_count.get() as u64,
+            free_sectors as u64,
+            free_sectors as u64,
+            num_entries as u64,
+            free_sectors as u64,
+            self.fs.header.sector_size.get() as u32,
+            CbEntryHeader::NAME_SIZE as u32,
+            self.fs.header.sector_size.get() as u32,
+        );
+    }
+
     fn access(
         &mut self,
         req: &fuser::Request<'_>,
@@ -127,6 +152,91 @@ impl fuser::Filesystem for CbfsFuse {
             self.gid = req.gid();
         }
         reply.ok();
+    }
+
+    fn lookup(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEntry,
+    ) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(node) => match self.get_fs_attr_ino(self.get_ino(node)) {
+                Ok(attr) => {
+                    reply.entry(&Duration::from_secs(10), &attr, 0);
+                }
+                Err(err) => reply.error(err.get_code()),
+            },
+            Err(err) => reply.error(err.get_code()),
+        }
+    }
+
+    fn readdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: fuser::ReplyDirectory,
+    ) {
+        let n = self.get_entry_id(ino);
+        if let Ok(hdr) = self.fs.entry_header(n)
+            && hdr.get_entry_type() == CbEntryType::Directory
+        {
+            let dirs = self
+                .fs
+                .directory_listing(n)
+                .unwrap()
+                .into_iter()
+                .map(|h| (h as u64, self.fs.entry_header(h).unwrap()))
+                .collect::<Vec<_>>();
+
+            let parent_dirs = [
+                (
+                    n as u64,
+                    CbEntryHeader {
+                        attributes: hdr.attributes,
+                        entry_type: hdr.entry_type,
+                        modification_time: hdr.modification_time,
+                        name: string_to_array(".").unwrap(),
+                        parent: hdr.parent,
+                        payload_size: hdr.payload_size,
+                    },
+                ),
+                (
+                    self.get_ino(hdr.parent.get()),
+                    CbEntryHeader {
+                        attributes: 0,
+                        entry_type: CbEntryType::Directory as u8,
+                        modification_time: CbDateTime::default(),
+                        name: string_to_array("..").unwrap(),
+                        parent: 0.into(),
+                        payload_size: 0.into(),
+                    },
+                ),
+            ];
+
+            let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
+
+            if offset == 0 {
+                for (i, (node, hdr)) in all_dirs.into_iter().enumerate() {
+                    if reply.add(
+                        node,
+                        i as i64 + 2,
+                        Self::fs_type(hdr.get_entry_type()).unwrap(),
+                        Path::new(&hdr.get_name()),
+                    ) {
+                        reply.ok();
+                        return;
+                    }
+                }
+            }
+
+            reply.ok();
+        } else {
+            reply.error(ENOENT);
+        }
     }
 
     fn create(
@@ -155,6 +265,131 @@ impl fuser::Filesystem for CbfsFuse {
             },
             Err(err) => {
                 reply.error(CbFuseErr::from(err).get_code());
+            }
+        }
+    }
+
+    fn mknod(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        mode: u32,
+        _umask: u32,
+        _rdev: u32,
+        reply: fuser::ReplyEntry,
+    ) {
+        #[allow(clippy::unnecessary_cast)] // Allow for other OS types
+        const FILE_MODE_VAL: u32 = S_IFREG as u32;
+        if (mode & FILE_MODE_VAL) == FILE_MODE_VAL {
+            match self.fs.create_entry(
+                self.get_entry_id(parent),
+                name.to_str().unwrap(),
+                CbEntryType::File,
+                &[],
+            ) {
+                Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+                    Ok(attr) => {
+                        reply.entry(&Duration::from_secs(5), &attr, 0);
+                    }
+                    Err(err) => {
+                        reply.error(err.get_code());
+                    }
+                },
+                Err(err) => {
+                    reply.error(CbFuseErr::from(err).get_code());
+                }
+            }
+        } else {
+            reply.error(ENOSYS);
+        }
+    }
+
+    fn mkdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        _mode: u32,
+        _umask: u32,
+        reply: fuser::ReplyEntry,
+    ) {
+        let pnode = self.get_entry_id(parent);
+        match self
+            .fs
+            .create_entry(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
+        {
+            Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+                Ok(attr) => reply.entry(&Duration::from_secs(1), &attr, 0),
+                Err(err) => {
+                    reply.error(err.get_code());
+                }
+            },
+            Err(err) => {
+                reply.error(CbFuseErr::from(err).get_code());
+            }
+        }
+    }
+
+    fn rename(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        newparent: u64,
+        newname: &std::ffi::OsStr,
+        _flags: u32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(entry) => match self.fs.move_entry(
+                entry,
+                self.get_entry_id(newparent),
+                Some(newname.to_str().unwrap()),
+            ) {
+                Ok(()) => reply.ok(),
+                Err(e) => reply.error(CbFuseErr::from(e).get_code()),
+            },
+            Err(e) => {
+                reply.error(e.get_code());
+            }
+        }
+    }
+
+    fn unlink(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(node) => match self.delete_entry(node, Some(CbEntryType::File)) {
+                Ok(()) => reply.ok(),
+                Err(err) => reply.error(err.get_code()),
+            },
+            Err(err) => reply.error(err.get_code()),
+        }
+    }
+
+    fn rmdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
+        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
+            Ok(node) => match self.delete_entry(node, Some(CbEntryType::Directory)) {
+                Ok(()) => {
+                    reply.ok();
+                }
+                Err(err) => {
+                    reply.error(err.get_code());
+                }
+            },
+            Err(err) => {
+                reply.error(err.get_code());
             }
         }
     }
@@ -256,251 +491,6 @@ impl fuser::Filesystem for CbfsFuse {
         reply.attr(&Duration::from_secs(5), &self.get_fs_attr_ino(ino).unwrap());
     }
 
-    fn rename(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        newparent: u64,
-        newname: &std::ffi::OsStr,
-        _flags: u32,
-        reply: fuser::ReplyEmpty,
-    ) {
-        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
-            Ok(entry) => match self.fs.move_entry(
-                entry,
-                self.get_entry_id(newparent),
-                Some(newname.to_str().unwrap()),
-            ) {
-                Ok(()) => reply.ok(),
-                Err(e) => reply.error(CbFuseErr::from(e).get_code()),
-            },
-            Err(e) => {
-                reply.error(e.get_code());
-            }
-        }
-    }
-
-    fn lookup(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEntry,
-    ) {
-        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.get_fs_attr_ino(self.get_ino(node)) {
-                Ok(attr) => {
-                    reply.entry(&Duration::from_secs(10), &attr, 0);
-                }
-                Err(err) => reply.error(err.get_code()),
-            },
-            Err(err) => reply.error(err.get_code()),
-        }
-    }
-
-    fn fsync(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        reply: fuser::ReplyEmpty,
-    ) {
-        self.save_fs();
-        reply.ok();
-    }
-
-    fn fsyncdir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        reply: fuser::ReplyEmpty,
-    ) {
-        self.save_fs();
-        reply.ok();
-    }
-
-    fn flush(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        reply: fuser::ReplyEmpty,
-    ) {
-        reply.ok();
-    }
-
-    fn mknod(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        mode: u32,
-        _umask: u32,
-        _rdev: u32,
-        reply: fuser::ReplyEntry,
-    ) {
-        #[allow(clippy::unnecessary_cast)] // Allow for other OS types
-        const FILE_MODE_VAL: u32 = S_IFREG as u32;
-        if (mode & FILE_MODE_VAL) == FILE_MODE_VAL {
-            match self.fs.create_entry(
-                self.get_entry_id(parent),
-                name.to_str().unwrap(),
-                CbEntryType::File,
-                &[],
-            ) {
-                Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
-                    Ok(attr) => {
-                        reply.entry(&Duration::from_secs(5), &attr, 0);
-                    }
-                    Err(err) => {
-                        reply.error(err.get_code());
-                    }
-                },
-                Err(err) => {
-                    reply.error(CbFuseErr::from(err).get_code());
-                }
-            }
-        } else {
-            reply.error(ENOSYS);
-        }
-    }
-
-    fn mkdir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        _mode: u32,
-        _umask: u32,
-        reply: fuser::ReplyEntry,
-    ) {
-        let pnode = self.get_entry_id(parent);
-        match self
-            .fs
-            .create_entry(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
-        {
-            Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
-                Ok(attr) => reply.entry(&Duration::from_secs(1), &attr, 0),
-                Err(err) => {
-                    reply.error(err.get_code());
-                }
-            },
-            Err(err) => {
-                reply.error(CbFuseErr::from(err).get_code());
-            }
-        }
-    }
-
-    fn readdir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: fuser::ReplyDirectory,
-    ) {
-        let n = self.get_entry_id(ino);
-        if let Ok(hdr) = self.fs.entry_header(n)
-            && hdr.get_entry_type() == CbEntryType::Directory
-        {
-            let dirs = self
-                .fs
-                .directory_listing(n)
-                .unwrap()
-                .into_iter()
-                .map(|h| (h as u64, self.fs.entry_header(h).unwrap()))
-                .collect::<Vec<_>>();
-
-            let parent_dirs = [
-                (
-                    n as u64,
-                    CbEntryHeader {
-                        attributes: hdr.attributes,
-                        entry_type: hdr.entry_type,
-                        modification_time: hdr.modification_time,
-                        name: string_to_array(".").unwrap(),
-                        parent: hdr.parent,
-                        payload_size: hdr.payload_size,
-                    },
-                ),
-                (
-                    self.get_ino(hdr.parent.get()),
-                    CbEntryHeader {
-                        attributes: 0,
-                        entry_type: CbEntryType::Directory as u8,
-                        modification_time: CbDateTime::default(),
-                        name: string_to_array("..").unwrap(),
-                        parent: 0.into(),
-                        payload_size: 0.into(),
-                    },
-                ),
-            ];
-
-            let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
-
-            if offset == 0 {
-                for (i, (node, hdr)) in all_dirs.into_iter().enumerate() {
-                    if reply.add(
-                        node,
-                        i as i64 + 2,
-                        Self::fs_type(hdr.get_entry_type()).unwrap(),
-                        Path::new(&hdr.get_name()),
-                    ) {
-                        reply.ok();
-                        return;
-                    }
-                }
-            }
-
-            reply.ok();
-        } else {
-            reply.error(ENOENT);
-        }
-    }
-
-    fn unlink(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEmpty,
-    ) {
-        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.delete_entry(node, Some(CbEntryType::File)) {
-                Ok(()) => reply.ok(),
-                Err(err) => reply.error(err.get_code()),
-            },
-            Err(err) => reply.error(err.get_code()),
-        }
-    }
-
-    fn rmdir(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        parent: u64,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEmpty,
-    ) {
-        match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.delete_entry(node, Some(CbEntryType::Directory)) {
-                Ok(()) => {
-                    reply.ok();
-                }
-                Err(err) => {
-                    reply.error(err.get_code());
-                }
-            },
-            Err(err) => {
-                reply.error(err.get_code());
-            }
-        }
-    }
-
     fn read(
         &mut self,
         _req: &fuser::Request<'_>,
@@ -572,28 +562,38 @@ impl fuser::Filesystem for CbfsFuse {
         }
     }
 
-    fn statfs(&mut self, _req: &fuser::Request<'_>, _ino: u64, reply: fuser::ReplyStatfs) {
-        let free_sectors = self.fs.num_free_sectors();
-        let num_entries = match self
-            .fs
-            .num_entries_within_entry(self.fs.header.root_sector.get())
-        {
-            Ok(count) => count,
-            Err(e) => {
-                reply.error(CbFuseErr::from(e).get_code());
-                return;
-            }
-        };
+    fn flush(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        reply: fuser::ReplyEmpty,
+    ) {
+        reply.ok();
+    }
 
-        reply.statfs(
-            self.fs.header.sector_count.get() as u64,
-            free_sectors as u64,
-            free_sectors as u64,
-            num_entries as u64,
-            free_sectors as u64,
-            self.fs.header.sector_size.get() as u32,
-            CbEntryHeader::NAME_SIZE as u32,
-            self.fs.header.sector_size.get() as u32,
-        );
+    fn fsync(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _datasync: bool,
+        reply: fuser::ReplyEmpty,
+    ) {
+        self.save_fs();
+        reply.ok();
+    }
+
+    fn fsyncdir(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _datasync: bool,
+        reply: fuser::ReplyEmpty,
+    ) {
+        self.save_fs();
+        reply.ok();
     }
 }
