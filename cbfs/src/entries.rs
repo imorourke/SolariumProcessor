@@ -20,7 +20,7 @@ pub struct CbEntryHeader {
 }
 
 impl CbEntryHeader {
-    const NAME_SIZE: usize = 12;
+    pub const NAME_SIZE: usize = 12;
 
     pub fn get_entry_type(&self) -> CbEntryType {
         CbEntryType::from(self.entry_type)

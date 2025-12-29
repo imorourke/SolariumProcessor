@@ -11,12 +11,36 @@ use libc::{ENOENT, ENOSYS, ENOTDIR, S_IFREG};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(long, short)]
+    #[arg(
+        long,
+        short,
+        help = "file to read from (if present on mount) or write/create to save filesystem to when unmounted"
+    )]
     base_file: Option<PathBuf>,
-    #[arg(long, short, default_value_t = 0)]
-    new_file_size: u64,
-    #[arg(long, short)]
+    #[arg(
+        long,
+        short = 'n',
+        default_value_t = 1024,
+        help = "the number of sectors to create if a a filesystem is loaded"
+    )]
+    sector_num: u16,
+    #[arg(
+        long,
+        short = 's',
+        default_value_t = 512,
+        help = "the size of each sector in bytes to use if a new filesystem is created"
+    )]
+    sector_size: u16,
+    #[arg(
+        long,
+        short,
+        help = "the name of the volume to use if a new filesystem is created"
+    )]
+    volume_name: Option<String>,
+    #[arg(help = "the path to mount the filesystem to")]
     mount_point: PathBuf,
+    #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
+    verbose: bool,
 }
 
 #[derive(Debug)]
@@ -497,6 +521,28 @@ impl fuser::Filesystem for CbfsFuse {
             reply.error(ENOSYS);
         }
     }
+
+    fn statfs(&mut self, _req: &fuser::Request<'_>, _ino: u64, reply: fuser::ReplyStatfs) {
+        let free_sectors = self.fs.num_free_sectors();
+        let num_entries = match self.fs.num_entries(self.fs.header.root_sector.get()) {
+            Ok(count) => count,
+            Err(e) => {
+                reply.error(CbFuseErr::from(e).get_code());
+                return;
+            }
+        };
+
+        reply.statfs(
+            self.fs.header.sector_count.get() as u64,
+            free_sectors as u64,
+            free_sectors as u64,
+            num_entries as u64,
+            free_sectors as u64,
+            self.fs.header.sector_size.get() as u32,
+            CbEntryHeader::NAME_SIZE as u32,
+            self.fs.header.sector_size.get() as u32,
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -528,9 +574,11 @@ impl From<CbfsError> for CbFuseErr {
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().init().unwrap();
-
     let args = Args::parse();
+
+    if args.verbose {
+        simple_logger::SimpleLogger::new().init().unwrap();
+    }
 
     let fs = if let Some(orig) = &args.base_file
         && orig.exists()
@@ -543,7 +591,12 @@ fn main() {
         }
     } else {
         CbfsFuse {
-            fs: CbFileSystem::new("test", 1024, 512).unwrap(),
+            fs: CbFileSystem::new(
+                args.volume_name.as_ref().map(|x| x.as_ref()).unwrap_or(""),
+                args.sector_size,
+                args.sector_num,
+            )
+            .unwrap(),
             base_file: args.base_file,
             uid: 0,
             gid: 0,

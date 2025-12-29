@@ -32,7 +32,7 @@ pub struct CbVolumeHeader {
 }
 
 impl CbVolumeHeader {
-    const CURRENT_VERSION: u16 = 1;
+    pub const CURRENT_VERSION: u16 = 1;
     const ENTRY_TABLE_ELEMENT_SIZE: usize = std::mem::size_of::<u16>();
 
     pub fn new(sector_size: u16, sector_count: u16) -> Result<Self, CbfsError> {
@@ -53,8 +53,9 @@ impl CbVolumeHeader {
             reserved: [0; _],
         };
 
-        let table_size = header.sector_count.get() * Self::ENTRY_TABLE_ELEMENT_SIZE as u16;
-        header.root_sector = U16::new(table_size.div_ceil(header.sector_size.get()) + 1);
+        let table_size = (header.sector_count.get() as usize) * Self::ENTRY_TABLE_ELEMENT_SIZE;
+        header.root_sector =
+            U16::new((table_size.div_ceil(header.sector_size.get() as usize) + 1) as u16);
 
         if header.root_sector.get() >= sector_count {
             return Err(CbfsError::InvalidSectorOption);
@@ -321,7 +322,7 @@ impl CbFileSystem {
             return 0;
         }
 
-        let mut count = 1;
+        let mut count = 0;
         let mut current = node;
         while current != Self::NODE_END {
             count += 1;
@@ -340,6 +341,23 @@ impl CbFileSystem {
         }
 
         Err(CbfsError::TableFull)
+    }
+
+    pub fn num_free_sectors(&self) -> usize {
+        self.entries.iter().filter(|x| **x == 0).count()
+    }
+
+    pub fn num_entries(&self, entry: u16) -> Result<usize, CbfsError> {
+        let hdr = self.get_node_header(entry)?;
+        let mut count = 1;
+        if hdr.get_entry_type() == CbEntryType::Directory {
+            for e in self.get_directory_listing(entry)? {
+                count += self.num_entries(e)?;
+            }
+            Ok(count)
+        } else {
+            Ok(count)
+        }
     }
 
     pub fn set_num_sectors(&mut self, mut node: u16, count: u16) -> Result<(), CbfsError> {
