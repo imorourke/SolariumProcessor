@@ -2,6 +2,7 @@
 #define KFS
 
 #include kmalloc.cb
+#include krtc.cb
 
 const K_FS_VOL_NAME_LEN: u32 = 16;
 const K_FS_ENTRY_NAME_LEN: u32 = 12;
@@ -23,7 +24,7 @@ struct k_fs_entry_header_t {
     attributes: u8;
     parent: u16;
     payload_size: u32;
-    modification_time: u32;
+    modification_time: k_datetime_t;
     name: [K_FS_ENTRY_NAME_LEN]u8;
 }
 
