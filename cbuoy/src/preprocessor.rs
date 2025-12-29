@@ -27,6 +27,7 @@ pub static DEFAULT_FILES: &[(&str, &str)] = &[
         "kernel/kirq.cb",
         include_str!("../components/kernel/kirq.cb"),
     ),
+    ("kernel/kfs.cb", include_str!("../components/kernel/kfs.cb")),
     (
         "kernel/kmalloc.cb",
         include_str!("../components/kernel/kmalloc.cb"),

@@ -1,4 +1,51 @@
 #ifndef KFS
 #define KFS
 
+#include kmalloc.cb
+
+const K_FS_VOL_NAME_LEN: u32 = 16;
+const K_FS_ENTRY_NAME_LEN: u32 = 12;
+
+const K_FS_NODE_TYPE_DIR: u8 = 1;
+const K_FS_NODE_TYPE_FILE: u8 = 2;
+
+struct k_fs_vol_header_t {
+    version: u16;
+    sector_size: u16;
+    sector_count: u16;
+    volume_name: [K_FS_VOL_NAME_LEN]u8;
+    root_sector: u16;
+    //padding[40]u8
+}
+
+struct k_fs_entry_header_t {
+    entry_type: u8;
+    attributes: u8;
+    parent: u16;
+    payload_size: u32;
+    modification_time: u32;
+    name: [K_FS_ENTRY_NAME_LEN]u8;
+}
+
+struct k_fs_disk_t {
+    disk_num: u32;
+    vol_hdr: *k_fs_vol_header_t;
+    entry_table: *u16;
+}
+
+fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
+    def dev: *k_fs_disk_t = k_malloc(sizeof(k_fs_disk_t));
+    dev->disk_num = device_num;
+    dev->vol_hdr = k_malloc(sizeof(k_fs_vol_header_t));
+    k_memset(dev->vol_hdr, 0, sizeof(k_fs_vol_header_t));
+    dev->entry_table = k_malloc(sizeof(u16) * dev->vol_hdr->sector_count);
+    return dev;
+}
+
+fn k_fs_disk_close(dev: *k_fs_disk_t) void {
+    k_free(dev->entry_table);
+    k_free(dev->vol_hdr);
+    k_free(dev);
+}
+
 #endif // KFS
