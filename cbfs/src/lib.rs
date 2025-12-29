@@ -420,7 +420,7 @@ impl CbFileSystem {
             .filter(|(_, x)| **x == 0)
             .map(|(i, _)| i as u16)
             .next()
-            .map_or(Err(CbfsError::TableFull), |x| Ok(x))
+            .ok_or(CbfsError::TableFull)
     }
 
     /// Returns the number of free sectors remaining
@@ -578,7 +578,7 @@ impl CbFileSystem {
         }
 
         // If providing a directory entry, the data field must be empty
-        if entry_type == CbEntryType::Directory && data.len() != 0 {
+        if entry_type == CbEntryType::Directory && !data.is_empty() {
             return Err(CbfsError::NonZeroDirectoryData);
         }
 
