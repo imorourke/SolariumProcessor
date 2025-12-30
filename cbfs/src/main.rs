@@ -41,13 +41,6 @@ struct Args {
     mount: PathBuf,
     #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
     verbose: bool,
-    #[arg(
-        short,
-        long,
-        help = "use offset functions (experimental)",
-        default_value_t = false
-    )]
-    offsets: bool,
 }
 
 fn main() {
@@ -60,7 +53,7 @@ fn main() {
     let fs = if let Some(orig) = &args.base_file
         && orig.exists()
     {
-        CbfsFuse::new(CbFileSystem::open(orig).unwrap(), Some(orig), args.offsets)
+        CbfsFuse::new(CbFileSystem::open(orig).unwrap(), Some(orig))
     } else {
         CbfsFuse::new(
             CbFileSystem::new(
@@ -70,7 +63,6 @@ fn main() {
             )
             .unwrap(),
             args.base_file.as_deref(),
-            args.offsets,
         )
     };
 

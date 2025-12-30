@@ -12,17 +12,15 @@ use libc::{ENOENT, ENOSYS, S_IFREG};
 pub struct CbfsFuse {
     fs: CbFileSystem,
     base_file: Option<PathBuf>,
-    use_offsets: bool,
 }
 
 impl CbfsFuse {
     const ROOT_INO: u64 = 1;
 
-    pub fn new(fs: CbFileSystem, base_file: Option<&Path>, use_offsets: bool) -> Self {
+    pub fn new(fs: CbFileSystem, base_file: Option<&Path>) -> Self {
         Self {
             fs,
             base_file: base_file.map(|x| x.to_owned()),
-            use_offsets,
         }
     }
 
@@ -154,6 +152,16 @@ impl fuser::Filesystem for CbfsFuse {
             },
             Err(err) => reply.error(err.get_code()),
         }
+    }
+
+    fn access(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        _ino: u64,
+        _mask: i32,
+        reply: fuser::ReplyEmpty,
+    ) {
+        reply.ok();
     }
 
     fn readdir(
@@ -484,21 +492,6 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        if self.use_offsets {
-            match self
-                .fs
-                .entry_data_offset(self.get_entry_id(ino), offset as u32, size)
-            {
-                Ok(data) => {
-                    reply.data(&data);
-                }
-                Err(e) => {
-                    reply.error(CbFuseErr::from(e).get_code());
-                }
-            }
-            return;
-        }
-
         if let Ok((hdr, data)) = self.fs.entry_data(self.get_entry_id(ino))
             && hdr.get_entry_type() == CbEntryType::File
         {
@@ -526,24 +519,6 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
-        if self.use_offsets {
-            match self
-                .fs
-                .entry_header(self.get_entry_id(ino))
-                .and_then(|hdr| {
-                    self.fs
-                        .set_entry_data_offset(self.get_entry_id(ino), hdr, offset as u32, data)
-                }) {
-                Ok(_) => {
-                    reply.written(data.len() as u32);
-                }
-                Err(e) => {
-                    reply.error(CbFuseErr::from(e).get_code());
-                }
-            }
-            return;
-        }
-
         if let Ok((hdr, mut fdata)) = self.fs.entry_data(self.get_entry_id(ino)) {
             if offset < 0 {
                 reply.error(ENOSYS);
