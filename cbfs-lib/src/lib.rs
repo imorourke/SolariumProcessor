@@ -9,6 +9,7 @@ use std::{
     fmt::Debug,
     fs::OpenOptions,
     io::{Seek, SeekFrom, Write},
+    ops::Range,
     path::Path,
     time::SystemTime,
 };
@@ -395,6 +396,59 @@ impl CbFileSystem {
         Ok((hdr, raw_data[hdr_size..hdr.get_total_size()].to_vec()))
     }
 
+    fn indices_for_entry_data_offset(
+        &self,
+        entry: u16,
+        offset: u32,
+        size: u32,
+    ) -> Result<Vec<(u16, Range<usize>, Range<usize>)>, CbfsError> {
+        let header_offset = offset as usize + std::mem::size_of::<CbEntryHeader>() as usize;
+        let sector_init = header_offset / self.header.sector_size.get() as usize;
+        let sector_end = (header_offset + size as usize) / self.header.sector_size.get() as usize;
+
+        let sectors_for_entry = self.sector_ids_for_entry(entry)?;
+
+        let mut vals = Vec::new();
+        let mut data_pos = 0;
+
+        for s in sector_init..=sector_end {
+            let file_start = s * self.header.sector_size.get() as usize;
+            let file_end = s + self.header.sector_size.get() as usize;
+
+            let sector_idx_start = header_offset.max(file_start);
+            let sector_idx_end = (header_offset + size as usize).min(file_end);
+            let idx = self.get_data_start_idx(entry)?;
+
+            let sid = sectors_for_entry[s as usize];
+
+            assert!(sector_idx_end >= sector_idx_start);
+            let len_to_read = sector_idx_end - sector_idx_start;
+
+            vals.push((
+                sid,
+                (sector_idx_start - file_start + idx)..(sector_idx_end - file_start + idx),
+                data_pos..(data_pos + len_to_read),
+            ));
+            data_pos += len_to_read;
+        }
+
+        Ok(vals)
+    }
+
+    /// Provides the provided offset/length data values for the provided entry
+    pub fn entry_data_offset(
+        &self,
+        entry: u16,
+        offset: u32,
+        size: u32,
+    ) -> Result<Vec<u8>, CbfsError> {
+        let mut all_data = Vec::new();
+        for (_, dst, _) in self.indices_for_entry_data_offset(entry, offset, size)? {
+            all_data.extend(self.data[dst].iter())
+        }
+        Ok(all_data)
+    }
+
     /// Provides the number of sectors associated with the entry
     pub fn num_sectors_for_entry(&self, entry: u16) -> usize {
         if entry == 0 {
@@ -532,6 +586,28 @@ impl CbFileSystem {
                 .zip(d.iter())
             {
                 *dst = *src;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Sets entry data within a specified location
+    pub fn set_entry_data_offset(
+        &mut self,
+        entry: u16,
+        header: CbEntryHeader,
+        offset: u32,
+        data: &[u8],
+    ) -> Result<(), CbfsError> {
+        let total_size = data.len() + offset as usize;
+        if total_size < header.payload_size.get() as usize {
+            self.set_entry_payload_byte_size(entry, total_size as u32)?;
+        }
+
+        for (_, dst, src) in self.indices_for_entry_data_offset(entry, offset, data.len() as u32)? {
+            for (idst, isrc) in self.data[dst].iter_mut().zip(data[src].iter()) {
+                *idst = *isrc;
             }
         }
 

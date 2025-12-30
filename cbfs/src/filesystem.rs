@@ -12,19 +12,17 @@ use libc::{ENOENT, ENOSYS, S_IFREG};
 pub struct CbfsFuse {
     fs: CbFileSystem,
     base_file: Option<PathBuf>,
-    uid: u32,
-    gid: u32,
+    use_offsets: bool,
 }
 
 impl CbfsFuse {
     const ROOT_INO: u64 = 1;
 
-    pub fn new(fs: CbFileSystem, base_file: Option<&Path>) -> Self {
+    pub fn new(fs: CbFileSystem, base_file: Option<&Path>, use_offsets: bool) -> Self {
         Self {
             fs,
             base_file: base_file.map(|x| x.to_owned()),
-            uid: 0,
-            gid: 0,
+            use_offsets,
         }
     }
 
@@ -54,7 +52,7 @@ impl CbfsFuse {
         }
     }
 
-    fn get_fs_attr_ino(&self, ino: u64) -> Result<FileAttr, CbFuseErr> {
+    fn get_fs_attr_ino(&self, req: &fuser::Request, ino: u64) -> Result<FileAttr, CbFuseErr> {
         let n = self.get_entry_id(ino);
         let hdr = self.fs.entry_header(n)?;
 
@@ -70,8 +68,8 @@ impl CbfsFuse {
             kind: Self::fs_type(hdr.get_entry_type())?,
             perm: 0o755,
             nlink: 0,
-            uid: self.uid,
-            gid: self.gid,
+            uid: req.uid(),
+            gid: req.gid(),
             rdev: 0,
             flags: 0,
             blksize: self.fs.header.sector_size.get() as u32,
@@ -115,7 +113,7 @@ impl Drop for CbfsFuse {
 }
 
 impl fuser::Filesystem for CbfsFuse {
-    fn statfs(&mut self, _req: &fuser::Request<'_>, _ino: u64, reply: fuser::ReplyStatfs) {
+    fn statfs(&mut self, _req: &fuser::Request, _ino: u64, reply: fuser::ReplyStatfs) {
         let free_sectors = self.fs.num_free_sectors();
         let num_entries = match self
             .fs
@@ -140,29 +138,15 @@ impl fuser::Filesystem for CbfsFuse {
         );
     }
 
-    fn access(
-        &mut self,
-        req: &fuser::Request<'_>,
-        _ino: u64,
-        _mask: i32,
-        reply: fuser::ReplyEmpty,
-    ) {
-        if self.uid == 0 && self.gid == 0 {
-            self.uid = req.uid();
-            self.gid = req.gid();
-        }
-        reply.ok();
-    }
-
     fn lookup(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEntry,
     ) {
         match self.get_entry_from_parent(parent, name.to_str().unwrap()) {
-            Ok(node) => match self.get_fs_attr_ino(self.get_ino(node)) {
+            Ok(node) => match self.get_fs_attr_ino(req, self.get_ino(node)) {
                 Ok(attr) => {
                     reply.entry(&Duration::from_secs(10), &attr, 0);
                 }
@@ -174,7 +158,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn readdir(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         ino: u64,
         _fh: u64,
         offset: i64,
@@ -241,7 +225,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn create(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         _mode: u32,
@@ -255,7 +239,7 @@ impl fuser::Filesystem for CbfsFuse {
             CbEntryType::File,
             &[],
         ) {
-            Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+            Ok(new_node) => match self.get_fs_attr_ino(req, self.get_ino(new_node)) {
                 Ok(attr) => {
                     reply.created(&Duration::from_secs(5), &attr, 0, 0, 0);
                 }
@@ -271,7 +255,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn mknod(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         mode: u32,
@@ -288,7 +272,7 @@ impl fuser::Filesystem for CbfsFuse {
                 CbEntryType::File,
                 &[],
             ) {
-                Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+                Ok(new_node) => match self.get_fs_attr_ino(req, self.get_ino(new_node)) {
                     Ok(attr) => {
                         reply.entry(&Duration::from_secs(5), &attr, 0);
                     }
@@ -307,7 +291,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn mkdir(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         _mode: u32,
@@ -319,7 +303,7 @@ impl fuser::Filesystem for CbfsFuse {
             .fs
             .create_entry(pnode, name.to_str().unwrap(), CbEntryType::Directory, &[])
         {
-            Ok(new_node) => match self.get_fs_attr_ino(self.get_ino(new_node)) {
+            Ok(new_node) => match self.get_fs_attr_ino(req, self.get_ino(new_node)) {
                 Ok(attr) => reply.entry(&Duration::from_secs(1), &attr, 0),
                 Err(err) => {
                     reply.error(err.get_code());
@@ -333,7 +317,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn rename(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         newparent: u64,
@@ -358,7 +342,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn unlink(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
@@ -374,7 +358,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn rmdir(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         parent: u64,
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEmpty,
@@ -396,12 +380,12 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn getattr(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         ino: u64,
         _fh: Option<u64>,
         reply: fuser::ReplyAttr,
     ) {
-        match self.get_fs_attr_ino(ino) {
+        match self.get_fs_attr_ino(req, ino) {
             Ok(attr) => {
                 let ttl = Duration::from_secs(1);
                 reply.attr(&ttl, &attr);
@@ -414,7 +398,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn setattr(
         &mut self,
-        _req: &fuser::Request<'_>,
+        req: &fuser::Request,
         ino: u64,
         _mode: Option<u32>,
         _uid: Option<u32>,
@@ -483,12 +467,15 @@ impl fuser::Filesystem for CbfsFuse {
             }
         }
 
-        reply.attr(&Duration::from_secs(5), &self.get_fs_attr_ino(ino).unwrap());
+        reply.attr(
+            &Duration::from_secs(5),
+            &self.get_fs_attr_ino(req, ino).unwrap(),
+        );
     }
 
     fn read(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         ino: u64,
         _fh: u64,
         offset: i64,
@@ -497,6 +484,21 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
+        if self.use_offsets {
+            match self
+                .fs
+                .entry_data_offset(self.get_entry_id(ino), offset as u32, size)
+            {
+                Ok(data) => {
+                    reply.data(&data);
+                }
+                Err(e) => {
+                    reply.error(CbFuseErr::from(e).get_code());
+                }
+            }
+            return;
+        }
+
         if let Ok((hdr, data)) = self.fs.entry_data(self.get_entry_id(ino))
             && hdr.get_entry_type() == CbEntryType::File
         {
@@ -514,7 +516,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn write(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         ino: u64,
         _fh: u64,
         offset: i64,
@@ -524,6 +526,24 @@ impl fuser::Filesystem for CbfsFuse {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyWrite,
     ) {
+        if self.use_offsets {
+            match self
+                .fs
+                .entry_header(self.get_entry_id(ino))
+                .and_then(|hdr| {
+                    self.fs
+                        .set_entry_data_offset(self.get_entry_id(ino), hdr, offset as u32, data)
+                }) {
+                Ok(_) => {
+                    reply.written(data.len() as u32);
+                }
+                Err(e) => {
+                    reply.error(CbFuseErr::from(e).get_code());
+                }
+            }
+            return;
+        }
+
         if let Ok((hdr, mut fdata)) = self.fs.entry_data(self.get_entry_id(ino)) {
             if offset < 0 {
                 reply.error(ENOSYS);
@@ -559,7 +579,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn flush(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         _ino: u64,
         _fh: u64,
         _lock_owner: u64,
@@ -570,7 +590,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn fsync(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         _ino: u64,
         _fh: u64,
         _datasync: bool,
@@ -582,7 +602,7 @@ impl fuser::Filesystem for CbfsFuse {
 
     fn fsyncdir(
         &mut self,
-        _req: &fuser::Request<'_>,
+        _req: &fuser::Request,
         _ino: u64,
         _fh: u64,
         _datasync: bool,
