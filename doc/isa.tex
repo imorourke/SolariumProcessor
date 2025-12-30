@@ -583,9 +583,13 @@ The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 13
 
 Through direct modification of the stack, we can create a set of utilities to swap between different threads at runtime. Listing \ref{listing:cbuoy-threading-utils} provides several functions. \texttt{k\_tsk\_init} provides means to register a new thread. \texttt{k\_tsk\_main} is a function that is called to transition from the main thread into the inner executing threads. \texttt{k\_tsk\_yield} is both an interrupt handler (for a periodic device like a timer) and also a function that may be called by threaded functions to yield their execution to the next thread. This is simple round-robin threading, so there is no scheduler implemented in this example.
 
-\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and swich between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/components/kernel/ktsk.cb}
+\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and switch between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/components/kernel/ktsk.cb}
 
 \pagebreak
+
+\section{Filesystem}
+
+The CBFS filesystem provides basic I/O capabilities for the Jib computer.
 
 \section{Tools}
 
