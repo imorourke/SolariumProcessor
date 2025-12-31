@@ -129,6 +129,19 @@ impl Default for VisualJib {
         let tx_thread_local = tx_thread.clone();
         let (tx_window, rx_window) = std::sync::mpsc::channel::<CodeWindowAction>();
 
+        CodeWindow::new(
+            0,
+            tx_ui.clone(),
+            tx_thread.clone(),
+            tx_window.clone(),
+            include_str!("../../cbuoy/examples/os.cb").to_string(),
+            CodeWindowType::Cbuoy,
+            None,
+        )
+        .compile_cbuoy();
+
+        tx_ui.send(UiToThread::CpuStart).unwrap();
+
         Self {
             cpu_run_requested: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -147,7 +160,7 @@ impl Default for VisualJib {
             rx_window,
             registers: RegisterManager::default(),
             program_counter: ProgramCounterView::default(),
-            current_cpu_speed: 0,
+            current_cpu_speed: 50,
             last_cpu_speed: 0,
             code_windows: Vec::new(),
             code_window_id: 0,

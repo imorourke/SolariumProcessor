@@ -1,7 +1,9 @@
 use crate::messages::{ThreadToUi, UiToThread};
 use jib::{
     cpu::{Processor, ProcessorError},
-    device::{InterruptClockDevice, ProcessorDevice, RtcClockDevice, SerialInputOutputDevice},
+    device::{
+        BlockDevice, InterruptClockDevice, ProcessorDevice, RtcClockDevice, SerialInputOutputDevice,
+    },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
 use jib_asm::InstructionList;
@@ -80,7 +82,8 @@ pub struct CpuState {
 }
 
 impl CpuState {
-    const DEVICE_START_IND: u32 = 0xA000;
+    const DEVICE_START_ADDR: u32 = 0xA000;
+    const DEVICE_HD_START_ADDR: u32 = 0xB000;
     pub const THREAD_LOOP_MS: u64 = 50;
     const MSGS_PER_LOOP: u64 = 1000;
 
@@ -197,8 +200,13 @@ impl CpuState {
         self.cpu.memory_add_segment(
             INIT_RO_LEN,
             Rc::new(RefCell::new(ReadWriteSegment::new(
-                (Self::DEVICE_START_IND - INIT_RO_LEN) as usize,
+                (Self::DEVICE_START_ADDR - INIT_RO_LEN) as usize,
             ))),
+        )?;
+
+        self.cpu.memory_add_segment(
+            0x10000,
+            Rc::new(RefCell::new(ReadWriteSegment::new(0x10000))),
         )?;
 
         let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
@@ -206,13 +214,20 @@ impl CpuState {
             Rc::new(RefCell::new(InterruptClockDevice::default())),
             Rc::new(RefCell::new(RtcClockDevice::default())),
         ];
-        let mut dev_loc = Self::DEVICE_START_IND;
+        let mut dev_loc = Self::DEVICE_START_ADDR;
 
         for d in devices {
             self.cpu.memory_add_segment(dev_loc, d.clone())?;
             dev_loc += d.borrow().len();
             self.cpu.device_add(d)?;
         }
+
+        let fs = cbfs_lib::CbFileSystem::new("root", 256, 16384).unwrap();
+        let hard_drive = Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())));
+
+        self.cpu.device_add(hard_drive.clone())?;
+        self.cpu
+            .memory_add_segment(Self::DEVICE_HD_START_ADDR, hard_drive)?;
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 
@@ -413,7 +428,14 @@ impl CpuState {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
-    let mut state = CpuState::new(rx, tx.clone()).unwrap();
+    let mut state = match CpuState::new(rx, tx.clone()) {
+        Ok(cpu) => cpu,
+        Err(e) => {
+            eprintln!("Error with this: {:?}", e);
+            tx.send(ThreadToUi::ThreadExit).unwrap();
+            return;
+        }
+    };
 
     while state.run_thread {
         if state.process_messages(true).is_err() {

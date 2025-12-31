@@ -10,6 +10,7 @@ nothread = []
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy", version = "*" }
+cbfs-lib = { path = "../cbfs-lib", version = "*" }
 eframe = "0.33"
 image = "0.25"
 

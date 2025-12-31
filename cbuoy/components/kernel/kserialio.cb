@@ -5,6 +5,16 @@ global SERIAL_IN_SIZE: const *u8 = 0xA000u32 + 2;
 global SERIAL_IN_LOC: const *u8 = 0xA000u32 + 3;
 global SERIAL_OUT_LOC: const *u8 = 0xA000u32 + 5;
 
+//struct k_serial_control_t {
+//    device_id: u16;
+//    input_size: u8;
+//    input_data: *u8;
+//    output_size: u8;
+//    output_set: *u8,
+//}
+//
+//global SERIAL_DEV: *k_serial_control_t = 0xF000A000;
+
 #ifdef K_SERIAL_IO_CBUOY_PRINT
 fn k_io_print(c: *u8) void {
     while (*c != 0) {

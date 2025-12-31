@@ -56,6 +56,8 @@ fn os_main() void {
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [OS_ARG_SIZE]*u8;
     def valid: u8 = 1;
+    def disk: *k_fs_disk_t = 0;
+
     while (valid) {
         k_io_print("~> ");
         if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
@@ -102,6 +104,25 @@ fn os_main() void {
                     k_io_print(":");
                     k_io_print_uint(dt.second);
                     k_io_print("\n");
+                } else if (strcmp(cmd, "mount") == 0) {
+                    if (disk == 0) {
+                        disk = k_fs_disk_open(0);
+                        k_io_print("Disk Mounted\n");
+                        k_io_print("  ");
+                        k_io_print_uint((disk->vol_hdr).sector_size : u32);
+                        k_io_print(" # ");
+                        k_io_print_uint((disk->vol_hdr).sector_count : u32);
+                        k_io_print("\n");
+                    } else {
+                        k_io_print("Disk already mounted\n");
+                    }
+                } else if (strcmp(cmd, "umount") == 0) {
+                    if (disk != 0) {
+                        k_fs_disk_close(disk);
+                        k_io_print("Disk Unmounted\n");
+                    } else {
+                        k_io_print("Disk Not Mounted\n");
+                    }
                 } else {
                     k_io_print("^! Unknown Command: ");
                     k_io_print(cmd);

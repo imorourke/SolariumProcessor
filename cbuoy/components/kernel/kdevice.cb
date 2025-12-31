@@ -3,7 +3,7 @@
 
 #include kmalloc.cb
 
-const K_DEVICE_START: u32 = 0xA000;
+const K_DEVICE_START: u32 = 0xA000u32;
 const K_DEVICE_SIZE: u32 = 32;
 
 const K_DEVICE_ID_SERIALIO: u16 = 1;

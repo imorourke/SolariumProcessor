@@ -242,6 +242,35 @@ impl CbFileSystem {
         Ok(())
     }
 
+    /// Obtains the current file values as a byte sream
+    pub fn as_bytes(&self) -> Result<Vec<u8>, CbfsError> {
+        let mut voldata = vec![0u8; self.header.volume_byte_size() as usize];
+        let sect_size = self.header.sector_size.get() as usize;
+
+        for (dst, src) in voldata.iter_mut().zip(self.header.as_bytes()) {
+            *dst = *src;
+        }
+
+        for (dst, src) in voldata.iter_mut().skip(sect_size).zip(
+            self.entries
+                .iter()
+                .copied()
+                .flat_map(|x| U16::new(x).to_bytes()),
+        ) {
+            *dst = src;
+        }
+
+        for (dst, src) in voldata
+            .iter_mut()
+            .skip(sect_size * self.header.root_sector.get() as usize)
+            .zip(self.data.iter())
+        {
+            *dst = *src;
+        }
+
+        Ok(voldata)
+    }
+
     /// Determines if the entry is an end entry marked by the sentinel
     const fn entry_is_end(entry: u16) -> bool {
         entry & Self::NODE_END == Self::NODE_END

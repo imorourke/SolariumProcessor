@@ -9,33 +9,54 @@ struct mem_val_t {
     prev: *mem_val_t;
 }
 
-const K_MEM_START: *u8 = 0x9000;
-const K_MEM_TOP: *u8 = 0xA000;
+const K_MEM_SIZE: u32 = 0x10000u32;
+const K_MEM_START: *u8 = 0x10000u32;
+const K_MEM_TOP: *u8 = K_MEM_START + K_MEM_SIZE;
 global K_MEM_ROOT: *mem_val_t = 0;
 
-asmfn k_memset(dst: *u8, val: u8, size: u32) void {
+fn k_memset(dst: *u8, val: u8, size: u32) void {
+    def i: u32 = 0;
+    while (i < size) {
+        *dst = val;
+        dst = dst + 1;
+        i = i + 1;
+    }
+}
+
+asmfn k_memset_asm(dst: *u8, val: u8, size: u32) void {
     // Load Arguments
     "copy 8 $arg";
-    "ld 8:u32 8"; // [8] = dst
-    "ldi 9:u16 #{dst}#";
-    "add 9:u32 9 $arg";
-    "ldi 10:u16 #{val}#";
-    "add 10:u32 10 9";
-    "ldi 9:u8 9"; // [9] = val
-    "ldi 10:u32 10"; // [10] = size
+    "ldi 9:u16 #{val}#";
+    "add 9:u32 9 8";
+    "ld 9:u8 9"; // [9] = val
+    "ldi 10:u16 #{size}#";
     "add 10:u32 10 8";
+    "ld 10:u32 10"; // [10] = size
     "ldi 11:u16 1"; // [11] = 1
+    "ld 8:u32 8"; // [8] = dst
 
     // Loop through to set each value
     "tl 12:u32 8 10";
+    "tz 12";
     "jmpri 8";
     "jmpri 16";
     "sav 8:u8 9";
     "add 8:u32 8 1";
-    "jmpri -20";
+    "jmpri -24";
 
     // Return the result
     "ret";
+}
+
+fn k_memcpy(dst: *u8, src: *u8, size: u32) void {
+    if ((dst == 0) || (src == 0)) return;
+    def i: u32 = 0;
+    while (i < size) {
+        *dst = *src;
+        dst = dst + 1;
+        src = src + 1;
+        i = i + 1;
+    }
 }
 
 fn k_malloc(size: u32) *u8 {

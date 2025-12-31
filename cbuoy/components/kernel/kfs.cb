@@ -3,6 +3,7 @@
 
 #include kmalloc.cb
 #include krtc.cb
+#include kserialio.cb
 
 const K_FS_VOL_NAME_LEN: u32 = 16;
 const K_FS_ENTRY_NAME_LEN: u32 = 12;
@@ -28,24 +29,86 @@ struct k_fs_entry_header_t {
     name: [K_FS_ENTRY_NAME_LEN]u8;
 }
 
+struct k_fs_disk_control_t {
+    device_id: u16;
+    parked: u8;
+    ready: u8;
+    target_offset: u32;
+    move_to_offset: u8;
+    write_segment: u8;
+    memory_size: u16;
+    data: [256]u8;
+}
+
 struct k_fs_disk_t {
     disk_num: u32;
-    vol_hdr: *k_fs_vol_header_t;
+    vol_hdr: k_fs_vol_header_t;
     entry_table: *u16;
+    disk: *k_fs_disk_control_t;
+}
+
+const DISK_LOC: *u8 = 0xB000;
+
+fn k_fs_disk_move(disk: *k_fs_disk_control_t, offset: u32) void {
+    // Set the control block
+    disk->target_offset = offset;
+    disk->move_to_offset = 1;
+
+    // Wait for the disk to be ready
+    while (disk->ready == 0) {
+        k_io_print("Waiting...\n");
+    }
 }
 
 fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
+    // Allocate the disk
     def dev: *k_fs_disk_t = k_malloc(sizeof(k_fs_disk_t));
+    k_memset(dev, 0, sizeof(k_fs_disk_t));
     dev->disk_num = device_num;
-    dev->vol_hdr = k_malloc(sizeof(k_fs_vol_header_t));
-    k_memset(dev->vol_hdr, 0, sizeof(k_fs_vol_header_t));
-    dev->entry_table = k_malloc(sizeof(u16) * dev->vol_hdr->sector_count);
+
+    // Setup the disk control block
+    dev->disk = DISK_LOC;
+    dev->disk->parked = 0;
+    dev->disk->memory_size = 0;
+
+    // Copy the volume header
+    k_fs_disk_move(dev->disk, 0);
+    k_io_print("Copying ");
+    k_io_print_uint(&(dev->vol_hdr));
+    k_io_print(" from ");
+    k_io_print_uint(dev->disk->data);
+    k_io_print(" with size ");
+    k_io_print_uint(sizeof(k_fs_vol_header_t));
+    k_io_print("\n");
+    k_memcpy(&(dev->vol_hdr), &((dev->disk)->data[0]), sizeof(k_fs_vol_header_t));
+
+    // Setup the entry table
+    def total_size: u32 = sizeof(u16) * (dev->vol_hdr).sector_count;
+    dev->entry_table = k_malloc(total_size);
+
+    def current_size: u32 = 0;
+    def table: *u8 = &(dev->entry_table[0]);
+    def mem_size: u32 = dev->disk->memory_size;
+
+    while (current_size < total_size) {
+        def size_to_read: u32 = total_size - current_size;
+        if (size_to_read > mem_size) {
+            size_to_read = mem_size;
+        }
+
+        k_io_print("Moving to ");
+        k_io_print_uint(dev->vol_hdr.sector_size + current_size);
+        k_io_print("\n");
+        k_fs_disk_move(dev->disk, dev->vol_hdr.sector_size + current_size);
+        k_memcpy(table + current_size, &((dev->disk)->data[0]), size_to_read);
+        current_size = current_size + size_to_read;
+    }
+
     return dev;
 }
 
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {
     k_free(dev->entry_table);
-    k_free(dev->vol_hdr);
     k_free(dev);
 }
 

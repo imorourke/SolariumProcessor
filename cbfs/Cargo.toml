@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 fuser = { git = "https://github.com/imorourke/fuser.git", branch = "dev/fuset" }
-cbfs-lib = { version = "*", path = "../cbfs-lib" }
-clap = { version = "4.5.53", features = ["derive"] }
-libc = "0.2.178"
-simple_logger = "5.1.0"
+cbfs-lib = { path = "../cbfs-lib", version = "*" }
+clap = { version = "4.5", features = ["derive"] }
+libc = "0.2"
+simple_logger = "5.1"
