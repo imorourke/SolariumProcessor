@@ -98,9 +98,6 @@ fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
             size_to_read = mem_size;
         }
 
-        k_io_print("Moving to ");
-        k_io_print_uint(dev->vol_hdr.sector_size + current_size);
-        k_io_print("\n");
         k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size + current_size);
         k_memcpy(table + current_size, &((dev->ctl)->data[0]), size_to_read);
         current_size = current_size + size_to_read;
