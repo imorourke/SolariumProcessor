@@ -92,6 +92,8 @@ fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
     def table: *u8 = &(dev->entry_table[0]);
     def mem_size: u32 = dev->ctl->memory_size;
 
+    k_io_print("Reading entry table\n");
+
     while (current_size < total_size) {
         def size_to_read: u32 = total_size - current_size;
         if (size_to_read > mem_size) {
