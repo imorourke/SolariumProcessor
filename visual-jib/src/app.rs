@@ -160,7 +160,7 @@ impl Default for VisualJib {
             rx_window,
             registers: RegisterManager::default(),
             program_counter: ProgramCounterView::default(),
-            current_cpu_speed: 50,
+            current_cpu_speed: 100,
             last_cpu_speed: 0,
             code_windows: Vec::new(),
             code_window_id: 0,
@@ -172,7 +172,7 @@ impl Default for VisualJib {
 
 impl VisualJib {
     const SPEED_MIN: i32 = 1;
-    const SPEED_MAX: i32 = 100;
+    const SPEED_MAX: i32 = 200;
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn name() -> &'static str {
