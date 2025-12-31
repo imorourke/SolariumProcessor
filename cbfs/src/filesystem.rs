@@ -12,15 +12,17 @@ use libc::{ENOENT, ENOSYS, S_IFREG};
 pub struct CbfsFuse {
     fs: CbFileSystem,
     base_file: Option<PathBuf>,
+    zero_unused: bool,
 }
 
 impl CbfsFuse {
     const ROOT_INO: u64 = 1;
 
-    pub fn new(fs: CbFileSystem, base_file: Option<&Path>) -> Self {
+    pub fn new(fs: CbFileSystem, base_file: Option<&Path>, zero_unused: bool) -> Self {
         Self {
             fs,
             base_file: base_file.map(|x| x.to_owned()),
+            zero_unused,
         }
     }
 
@@ -74,7 +76,10 @@ impl CbfsFuse {
         })
     }
 
-    pub fn save_fs(&self) {
+    pub fn save_fs(&mut self) {
+        if self.zero_unused {
+            self.fs.zero_unused_sectors().unwrap();
+        }
         if let Some(base) = &self.base_file {
             self.fs.write_fs_to_file(base).unwrap();
         }

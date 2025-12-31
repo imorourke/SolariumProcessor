@@ -11,12 +11,21 @@ use crate::filesystem::CbfsFuse;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(help = "the path to mount the filesystem to")]
+    mount: PathBuf,
     #[arg(
         long,
         short,
         help = "file to read from (if present on mount) or write/create to save filesystem to when unmounted"
     )]
     base_file: Option<PathBuf>,
+    #[arg(
+        long,
+        short,
+        help = "zeros out any unused sectors on close",
+        default_value_t = false
+    )]
+    zero_unused: bool,
     #[arg(
         long,
         short = 'S',
@@ -37,8 +46,6 @@ struct Args {
         help = "the name of the volume to use if a new filesystem is created"
     )]
     name: Option<String>,
-    #[arg(help = "the path to mount the filesystem to")]
-    mount: PathBuf,
     #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
     verbose: bool,
 }
@@ -53,7 +60,11 @@ fn main() {
     let fs = if let Some(orig) = &args.base_file
         && orig.exists()
     {
-        CbfsFuse::new(CbFileSystem::open(orig).unwrap(), Some(orig))
+        CbfsFuse::new(
+            CbFileSystem::open(orig).unwrap(),
+            Some(orig),
+            args.zero_unused,
+        )
     } else {
         CbfsFuse::new(
             CbFileSystem::new(
@@ -63,6 +74,7 @@ fn main() {
             )
             .unwrap(),
             args.base_file.as_deref(),
+            args.zero_unused,
         )
     };
 
