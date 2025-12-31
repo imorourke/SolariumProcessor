@@ -1,6 +1,7 @@
 #ifndef K_MALLOC
 #define K_MALLOC
 
+#include kconfig.cb
 #include kserialio.cb
 
 struct mem_val_t {
@@ -9,8 +10,6 @@ struct mem_val_t {
     prev: *mem_val_t;
 }
 
-const K_MEM_SIZE: u32 = 0x10000u32;
-const K_MEM_START: *u8 = 0x10000u32;
 const K_MEM_TOP: *u8 = K_MEM_START + K_MEM_SIZE;
 global K_MEM_ROOT: *mem_val_t = 0;
 

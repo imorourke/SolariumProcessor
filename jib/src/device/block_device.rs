@@ -131,7 +131,8 @@ impl MemorySegment for BlockDevice {
             9 => Ok(0),
             10..12 => Ok(self.reported_size().to_be_bytes()[local_offset - 10]),
             Self::CONTROL_SIZE..Self::DATA_TOP => {
-                if let Some(v) = self.get_data_window()[0..self.reported_size() as usize]
+                if let Some(v) = self
+                    .get_data_window()
                     .get(local_offset as usize - Self::CONTROL_SIZE)
                 {
                     Ok(*v)

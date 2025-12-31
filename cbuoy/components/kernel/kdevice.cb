@@ -1,9 +1,9 @@
 #ifndef K_DEVICE
 #define K_DEVICE
 
+#include kconfig.cb
 #include kmalloc.cb
 
-const K_DEVICE_START: u32 = 0xA000u32;
 const K_DEVICE_SIZE: u32 = 32;
 
 const K_DEVICE_ID_SERIALIO: u16 = 1;
@@ -19,7 +19,7 @@ struct k_device_t {
 global K_DEVICE_TABLE: [K_DEVICE_SIZE]k_device_t;
 
 fn k_device_init() void {
-    def dev: *u8 = K_DEVICE_START;
+    def dev: *u8 = K_LOC_DEVICE_START;
     def i: u32 = 0;
     while (i < K_DEVICE_SIZE) {
         def id: u16 = *(dev : *u16);

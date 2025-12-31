@@ -1,6 +1,8 @@
 #ifndef K_RTC_DEV
 #define K_RTC_DEV
 
+#include kconfig.cb
+
 struct k_datetime_t {
     year: i16;
     month: u8;
@@ -11,11 +13,16 @@ struct k_datetime_t {
     hundredths: u8;
 }
 
-global K_RTC_BASE: *u32 = 0xA040u32;
-global K_RTC_LOC: *k_datetime_t = (K_RTC_BASE : u32) + 2;
+struct k_rtc_control_t {
+    device_id: u16;
+    datetime: k_datetime_t;
+}
+
+global K_RTC_BASE: *k_rtc_control_t = K_LOC_DEVICE_START + 0x40u32;
+//global K_RTC_LOC: *k_datetime_t = (K_RTC_BASE : u32) + 2;
 
 fn k_rtc_current() k_datetime_t {
-    return *K_RTC_LOC;
+    return K_RTC_BASE->datetime;
 }
 
 #endif // K_RTC_DEV

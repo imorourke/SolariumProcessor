@@ -107,6 +107,7 @@ fn os_main() void {
                 } else if (strcmp(cmd, "mount") == 0) {
                     if (disk == 0) {
                         disk = k_fs_disk_open(0);
+                        k_io_print("Disk ");
                         k_io_print("Disk Mounted\n");
                         k_io_print("  ");
                         k_io_print_uint((disk->vol_hdr).sector_size : u32);

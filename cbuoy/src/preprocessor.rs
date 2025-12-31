@@ -12,6 +12,10 @@ use crate::{TokenError, tokenize, tokenizer::Token};
 
 pub static DEFAULT_FILES: &[(&str, &str)] = &[
     (
+        "kernel/kconfig.cb",
+        include_str!("../components/kernel/kconfig.cb"),
+    ),
+    (
         "kernel/kclock.cb",
         include_str!("../components/kernel/kclock.cb"),
     ),

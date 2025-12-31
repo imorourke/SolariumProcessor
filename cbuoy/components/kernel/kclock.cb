@@ -1,13 +1,21 @@
 #ifndef K_CLOCK_DEV
 #define K_CLOCK_DEV
 
-global K_CLOCK_BASE: *u32 = 0xA020u32;
-global K_CLOCK_LOC: *u32 = (K_CLOCK_BASE : u32) + 2;
-global K_CLOCK_INT: *u32 = (K_CLOCK_BASE : u32) + 0xA;
+#include kconfig.cb
+
+struct k_irq_clock_control_t {
+    device_id: u16;
+    interval: u32;
+    interrupt: u32;
+}
+
+global K_CLOCK: *k_irq_clock_control_t = K_LOC_DEVICE_START + 0x20u32;
+//global K_CLOCK_LOC: *u32 = (K_CLOCK_BASE : u32) + 2;
+//global K_CLOCK_INT: *u32 = (K_CLOCK_BASE : u32) + 0xA;
 
 fn k_clock_configure(interval: u32, interrupt: u32) void {
-    *K_CLOCK_LOC = interval;
-    *K_CLOCK_INT = interrupt;
+    K_CLOCK->interval = interval;
+    K_CLOCK->interrupt = interrupt;
 }
 
 #endif // K_CLOCK_DEV

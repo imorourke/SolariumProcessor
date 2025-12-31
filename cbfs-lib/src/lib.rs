@@ -96,7 +96,7 @@ impl CbVolumeHeader {
 }
 
 /// Provides error message information regarding issues with the filesystem
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CbfsError {
     EntryInvalid(u16),
     EntryNotFile(u16),
@@ -110,7 +110,7 @@ pub enum CbfsError {
     InvalidDateTime,
     InvalidSectorCount(u16),
     SectorSizeTooSmall(u16),
-    IoError(std::io::Error),
+    UnknownError(String),
 }
 
 impl From<StringArrayError> for CbfsError {
@@ -118,12 +118,6 @@ impl From<StringArrayError> for CbfsError {
         match value {
             StringArrayError::InvalidName => Self::InvalidName,
         }
-    }
-}
-
-impl From<std::io::Error> for CbfsError {
-    fn from(value: std::io::Error) -> Self {
-        Self::IoError(value)
     }
 }
 
@@ -213,33 +207,45 @@ impl CbFileSystem {
 
     /// Saves the current in-memory filesystme to the provided file
     pub fn write_fs_to_file(&self, file: &Path) -> Result<(), CbfsError> {
-        let mut f = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(file)?;
+        fn write_inner(
+            file: &Path,
+            header: &CbVolumeHeader,
+            entries: &[u16],
+            data: &[u8],
+        ) -> Result<(), std::io::Error> {
+            let mut f = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(file)?;
 
-        let sect_size = self.header.sector_size.get() as u64;
+            let sect_size = header.sector_size.get() as u64;
 
-        f.set_len(self.header.volume_byte_size())?;
-        f.seek(SeekFrom::Start(0))?;
-        f.write_all(self.header.as_bytes())?;
-        f.seek(SeekFrom::Start(sect_size))?;
+            f.set_len(header.volume_byte_size())?;
+            f.seek(SeekFrom::Start(0))?;
+            f.write_all(header.as_bytes())?;
+            f.seek(SeekFrom::Start(sect_size))?;
 
-        for n in self.entries.iter().copied() {
-            f.write_all(&U16::new(n).to_bytes()).unwrap();
+            for n in entries.iter().copied() {
+                f.write_all(&U16::new(n).to_bytes()).unwrap();
+            }
+
+            assert_eq!(data.len() as u64, header.data_sector_size());
+
+            f.seek(SeekFrom::Start(
+                sect_size * (header.root_sector.get() as u64),
+            ))?;
+            f.write_all(data).unwrap();
+
+            assert_eq!(f.stream_position()?, header.volume_byte_size());
+
+            Ok(())
         }
 
-        assert_eq!(self.data.len() as u64, self.header.data_sector_size());
-
-        f.seek(SeekFrom::Start(
-            sect_size * (self.header.root_sector.get() as u64),
-        ))?;
-        f.write_all(&self.data).unwrap();
-
-        assert_eq!(f.stream_position()?, self.header.volume_byte_size());
-
-        Ok(())
+        match write_inner(file, &self.header, &self.entries, &self.data) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(CbfsError::UnknownError(format!("{e}"))),
+        }
     }
 
     /// Obtains the current file values as a byte sream

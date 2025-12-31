@@ -1,9 +1,11 @@
 #ifndef K_SERIAL_IO
 #define K_SERIAL_IO
 
-global SERIAL_IN_SIZE: const *u8 = 0xA000u32 + 2;
-global SERIAL_IN_LOC: const *u8 = 0xA000u32 + 3;
-global SERIAL_OUT_LOC: const *u8 = 0xA000u32 + 5;
+#include kconfig.cb
+
+global K_SERIAL_IN_SIZE: const *u8 = K_LOC_DEVICE_START + 2;
+global K_SERIAL_IN_LOC: const *u8 = K_LOC_DEVICE_START + 3;
+global K_SERIAL_OUT_LOC: const *u8 = K_LOC_DEVICE_START + 5;
 
 //struct k_serial_control_t {
 //    device_id: u16;
@@ -13,21 +15,21 @@ global SERIAL_OUT_LOC: const *u8 = 0xA000u32 + 5;
 //    output_set: *u8,
 //}
 //
-//global SERIAL_DEV: *k_serial_control_t = 0xF000A000;
+//global SERIAL_DEV: *k_serial_control_t = K_LOC_DEVICE_START;
 
 #ifdef K_SERIAL_IO_CBUOY_PRINT
 fn k_io_print(c: *u8) void {
     while (*c != 0) {
-        *SERIAL_OUT_LOC = *c;
+        *K_SERIAL_OUT_LOC = *c;
         c = c + 1;
     }
 }
 
 fn k_io_print_digit(v: u8) void {
     if (v < 10) {
-        *SERIAL_OUT_LOC = '0' + v;
+        *K_SERIAL_OUT_LOC = '0' + v;
     } else {
-        *SERIAL_OUT_LOC = '?';
+        *K_SERIAL_OUT_LOC = '?';
     }
 }
 #else
@@ -35,7 +37,7 @@ asmfn k_io_print(c: *u8) void {
     "push $stat";
     "intoff";
     "%LDLOC% 8:u32";
-    ".loadloc %{SERIAL_OUT_LOC}%";
+    ".loadloc %{K_SERIAL_OUT_LOC}%";
     "ld 8:u32 8";
     ".align";
     "ldi 9:u16 1";
@@ -58,7 +60,7 @@ asmfn k_io_print_digit(v: u8) void {
     "ld 9:u8 9";
     "ldi 10:u16 10";
     "%LDLOC% 11:u32";
-    ".loadloc %{SERIAL_OUT_LOC}%";
+    ".loadloc %{K_SERIAL_OUT_LOC}%";
     "ld 11:u32 11";
     "tl 12:u8 9 10";
     "tz 12";
@@ -104,9 +106,9 @@ fn k_io_print_hex(v: u32) void {
         while (cp != chars) {
             cp = cp - 1;
             if (*cp < 10) {
-                *SERIAL_OUT_LOC = '0' + *cp;
+                *K_SERIAL_OUT_LOC = '0' + *cp;
             } else {
-                *SERIAL_OUT_LOC = 'A' + (*cp - 10);
+                *K_SERIAL_OUT_LOC = 'A' + (*cp - 10);
             }
         }
     }
@@ -120,12 +122,12 @@ fn k_io_print_stat(name: *u8, v: u32) void {
 }
 
 fn k_io_read_char() u8 {
-    return *SERIAL_IN_LOC;
+    return *K_SERIAL_IN_LOC;
 }
 
 fn k_io_read_char_immediate() u8 {
-    if (*SERIAL_IN_SIZE > 0) {
-        return *SERIAL_IN_LOC;
+    if (*K_SERIAL_IN_SIZE > 0) {
+        return *K_SERIAL_IN_LOC;
     } else {
         return 0u8;
     }
@@ -142,8 +144,8 @@ fn k_io_read_str_until(buffer: *u8, len: u32, target: u8) u32 {
         def num_read: u32 = 0;
 
         while (i != end) {
-            if (*SERIAL_IN_SIZE > 0) {
-                *i = *SERIAL_IN_LOC;
+            if (*K_SERIAL_IN_SIZE > 0) {
+                *i = *K_SERIAL_IN_LOC;
                 num_read = num_read + 1;
                 if (*i == target) {
                     *(i + 1) = 0;
