@@ -222,7 +222,7 @@ impl CpuState {
             self.cpu.device_add(d)?;
         }
 
-        let fs = cbfs_lib::CbFileSystem::new("root", 256, 16384).unwrap();
+        let fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
         let hard_drive = Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())));
 
         self.cpu.device_add(hard_drive.clone())?;
