@@ -277,6 +277,17 @@ impl CbFileSystem {
         Ok(voldata)
     }
 
+    pub fn zero_unused_sectors(&mut self) -> Result<(), CbfsError> {
+        let sector_size = self.header.sector_size.get() as usize;
+        for (i, s) in self.entries.iter().enumerate() {
+            if *s == 0 {
+                let idx = self.get_sector_start_idx(i as u16)?;
+                self.data[idx..(idx + sector_size)].fill(0);
+            }
+        }
+        Ok(())
+    }
+
     /// Determines if the entry is an end entry marked by the sentinel
     const fn entry_is_end(entry: u16) -> bool {
         entry & Self::NODE_END == Self::NODE_END
@@ -292,14 +303,14 @@ impl CbFileSystem {
     }
 
     /// Provides the starting index within the data vector for the provided entry
-    fn get_data_start_idx(&self, entry: u16) -> Result<usize, CbfsError> {
+    fn get_sector_start_idx(&self, entry: u16) -> Result<usize, CbfsError> {
         let idx = (self.get_entry_valid(entry)? - self.header.root_sector.get()) as usize;
         Ok(idx * self.header.sector_size.get() as usize)
     }
 
     /// Provides the entry type associated with the given entry
     fn entry_type(&self, entry: u16) -> Result<CbEntryType, CbfsError> {
-        match self.data.get(self.get_data_start_idx(entry)?).copied() {
+        match self.data.get(self.get_sector_start_idx(entry)?).copied() {
             Some(val) => Ok(CbEntryType::from(val)),
             None => Err(CbfsError::EntryInvalid(entry)),
         }
@@ -358,7 +369,7 @@ impl CbFileSystem {
     /// Provides the full entry header for the provided entry
     pub fn entry_header(&self, entry: u16) -> Result<CbEntryHeader, CbfsError> {
         assert!(self.entry_is_primary(entry)?);
-        let idx = self.get_data_start_idx(entry)?;
+        let idx = self.get_sector_start_idx(entry)?;
         let id = self.data[idx];
         Ok(match CbEntryType::from(id) {
             CbEntryType::File | CbEntryType::Directory => CbEntryHeader::read_from_bytes(
@@ -372,7 +383,7 @@ impl CbFileSystem {
     /// Sets only the header portion of a given entry
     pub fn set_entry_header(&mut self, entry: u16, hdr: CbEntryHeader) -> Result<(), CbfsError> {
         assert!(self.entry_is_primary(entry)?);
-        let idx = self.get_data_start_idx(entry)?;
+        let idx = self.get_sector_start_idx(entry)?;
         for (dst, src) in self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())]
             .iter_mut()
             .zip(hdr.as_bytes())
@@ -412,7 +423,7 @@ impl CbFileSystem {
 
         while entry != Self::NODE_END {
             assert_ne!(entry, 0);
-            let idx = self.get_data_start_idx(entry)?;
+            let idx = self.get_sector_start_idx(entry)?;
             raw_data.extend(&self.data[idx..(idx + self.header.sector_size.get() as usize)]);
             entry = self.entries[entry as usize];
         }
@@ -560,7 +571,7 @@ impl CbFileSystem {
         let sec_size = self.header.sector_size.get() as usize;
 
         for (d, idx) in data.chunks(sec_size).zip(file_nodes) {
-            let data_idx = self.get_data_start_idx(idx)?;
+            let data_idx = self.get_sector_start_idx(idx)?;
 
             for (dst, src) in self.data[data_idx..(data_idx + sec_size)]
                 .iter_mut()
