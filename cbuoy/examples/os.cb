@@ -120,6 +120,7 @@ fn os_main() void {
                 } else if (strcmp(cmd, "umount") == 0) {
                     if (disk != 0) {
                         k_fs_disk_close(disk);
+                        disk = 0;
                         k_io_print("Disk Unmounted\n");
                     } else {
                         k_io_print("Disk Not Mounted\n");
