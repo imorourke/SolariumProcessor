@@ -7,6 +7,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
+#[cfg(feature = "time")]
 use crate::CbfsError;
 
 #[repr(C)]
