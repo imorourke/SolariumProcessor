@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use cbfs_lib::CbFileSystem;
 use clap::Parser;
 
-use crate::filesystem::CbfsFuse;
+use crate::filesystem::{CbfsFuse, SaveFileOptions};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -48,6 +48,29 @@ struct Args {
     name: Option<String>,
     #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
     verbose: bool,
+    #[arg(
+        long,
+        help = "save generated file as a sparse file",
+        default_value_t = false
+    )]
+    sparse: bool,
+    #[arg(
+        short,
+        long,
+        help = "save generated file as a gzip file",
+        default_value_t = false
+    )]
+    gzip: bool,
+}
+
+impl Args {
+    fn save_options(&self) -> SaveFileOptions {
+        SaveFileOptions {
+            zero_unused: self.zero_unused,
+            save_gzip: self.gzip,
+            save_sparse: self.sparse,
+        }
+    }
 }
 
 fn main() {
@@ -57,14 +80,12 @@ fn main() {
         simple_logger::SimpleLogger::new().init().unwrap();
     }
 
+    let save_options = args.save_options();
+
     let fs = if let Some(orig) = &args.base_file
         && orig.exists()
     {
-        CbfsFuse::new(
-            CbFileSystem::open(orig).unwrap(),
-            Some(orig),
-            args.zero_unused,
-        )
+        CbfsFuse::new(CbFileSystem::open(orig).unwrap(), Some(orig), save_options)
     } else {
         CbfsFuse::new(
             CbFileSystem::new(
@@ -74,7 +95,7 @@ fn main() {
             )
             .unwrap(),
             args.base_file.as_deref(),
-            args.zero_unused,
+            save_options,
         )
     };
 

@@ -8,21 +8,28 @@ use cbfs_lib::{CbDateTime, CbEntryHeader, CbEntryType, CbFileSystem, string_to_a
 use fuser::{self, FileAttr, FileType};
 use libc::{ENOENT, ENOSYS, S_IFREG};
 
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+pub struct SaveFileOptions {
+    pub zero_unused: bool,
+    pub save_gzip: bool,
+    pub save_sparse: bool,
+}
+
 #[derive(Debug)]
 pub struct CbfsFuse {
     fs: CbFileSystem,
     base_file: Option<PathBuf>,
-    zero_unused: bool,
+    save_options: SaveFileOptions,
 }
 
 impl CbfsFuse {
     const ROOT_INO: u64 = 1;
 
-    pub fn new(fs: CbFileSystem, base_file: Option<&Path>, zero_unused: bool) -> Self {
+    pub fn new(fs: CbFileSystem, base_file: Option<&Path>, save_options: SaveFileOptions) -> Self {
         Self {
             fs,
             base_file: base_file.map(|x| x.to_owned()),
-            zero_unused,
+            save_options,
         }
     }
 
@@ -76,12 +83,21 @@ impl CbfsFuse {
         })
     }
 
-    pub fn save_fs(&mut self) {
-        if self.zero_unused {
+    pub fn save_fs(&mut self) -> Result<(), CbFuseErr> {
+        if self.save_options.zero_unused {
             self.fs.zero_unused_sectors().unwrap();
         }
         if let Some(base) = &self.base_file {
-            self.fs.write_fs_to_file(base).unwrap();
+            match self.fs.write_fs_to_file(
+                base,
+                self.save_options.save_sparse,
+                self.save_options.save_gzip,
+            ) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(CbFuseErr::from(e)),
+            }
+        } else {
+            Ok(())
         }
     }
 
@@ -111,7 +127,7 @@ impl CbfsFuse {
 
 impl Drop for CbfsFuse {
     fn drop(&mut self) {
-        self.save_fs();
+        self.save_fs().unwrap();
     }
 }
 
@@ -186,46 +202,53 @@ impl fuser::Filesystem for CbfsFuse {
                 .directory_listing(n)
                 .unwrap()
                 .into_iter()
-                .map(|h| (h as u64, self.fs.entry_header(h).unwrap()))
+                .map(|h| (h as u64, self.fs.entry_header(h)))
                 .collect::<Vec<_>>();
 
             let parent_dirs = [
                 (
                     n as u64,
-                    CbEntryHeader {
+                    Ok(CbEntryHeader {
                         attributes: hdr.attributes,
                         entry_type: hdr.entry_type,
                         modification_time: hdr.modification_time,
                         name: string_to_array(".").unwrap(),
                         parent: hdr.parent,
                         payload_size: hdr.payload_size,
-                    },
+                    }),
                 ),
                 (
                     self.get_ino(hdr.parent.get()),
-                    CbEntryHeader {
+                    Ok(CbEntryHeader {
                         attributes: 0,
                         entry_type: CbEntryType::Directory as u8,
                         modification_time: CbDateTime::default(),
                         name: string_to_array("..").unwrap(),
                         parent: 0.into(),
                         payload_size: 0.into(),
-                    },
+                    }),
                 ),
             ];
 
             let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
 
             if offset == 0 {
-                for (i, (node, hdr)) in all_dirs.into_iter().enumerate() {
-                    if reply.add(
-                        node,
-                        i as i64 + 2,
-                        Self::fs_type(hdr.get_entry_type()).unwrap(),
-                        Path::new(&hdr.get_name()),
-                    ) {
-                        reply.ok();
-                        return;
+                for (i, (node, hdr_res)) in all_dirs.into_iter().enumerate() {
+                    match hdr_res {
+                        Ok(hdr) => {
+                            if reply.add(
+                                node,
+                                i as i64 + 2,
+                                Self::fs_type(hdr.get_entry_type()).unwrap(),
+                                Path::new(&hdr.get_name()),
+                            ) {
+                                reply.ok();
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error for node {node} - {e:?}");
+                        }
                     }
                 }
             }
@@ -576,8 +599,10 @@ impl fuser::Filesystem for CbfsFuse {
         _datasync: bool,
         reply: fuser::ReplyEmpty,
     ) {
-        self.save_fs();
-        reply.ok();
+        match self.save_fs() {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.get_code()),
+        }
     }
 
     fn fsyncdir(
@@ -588,7 +613,9 @@ impl fuser::Filesystem for CbfsFuse {
         _datasync: bool,
         reply: fuser::ReplyEmpty,
     ) {
-        self.save_fs();
-        reply.ok();
+        match self.save_fs() {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.get_code()),
+        }
     }
 }

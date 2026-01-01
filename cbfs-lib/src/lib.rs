@@ -255,8 +255,12 @@ impl CbFileSystem {
             f.read_exact(&mut header_bytes)?;
             let header = CbVolumeHeader::read_from_bytes(&header_bytes).unwrap();
 
+            println!("Read header!");
+
             let sect_size = header.sector_size.get() as usize;
             let sect_count = header.sector_count.get() as usize;
+
+            println!("Sector {sect_size} @ {sect_count}");
 
             if sparse {
                 let mut entries = vec![0u16; sect_count];
@@ -266,6 +270,8 @@ impl CbFileSystem {
                     *v = n.get();
                 }
 
+                println!("Read {} entry values", entries.len());
+
                 let data_size = header.data_sector_size() as usize;
                 let mut fs = CbFileSystem {
                     header,
@@ -273,15 +279,23 @@ impl CbFileSystem {
                     data: vec![0u8; data_size],
                 };
 
+                println!("Constructed data");
+
                 let mut num_read_sectors = U16::new_zeroed();
                 f.read_exact(num_read_sectors.as_mut_bytes())?;
+
+                println!("Expecting to read {num_read_sectors}");
 
                 for _ in 0..num_read_sectors.get() {
                     let mut sector_id = U16::new_zeroed();
                     f.read_exact(sector_id.as_mut_bytes())?;
 
+                    println!("reading sector {sector_id}");
+
                     let mut sector_data = vec![0u8; sect_size];
                     f.read_exact(&mut sector_data)?;
+
+                    println!("reading sector bytes {sect_size}");
 
                     for (dst, src) in fs
                         .get_sector_data_mut(sector_id.get())?
@@ -296,6 +310,7 @@ impl CbFileSystem {
             } else {
                 let mut throw_data = vec![0u8; sect_size - header_bytes.len()];
                 f.read_exact(&mut throw_data)?;
+                println!("Read {} skip data", throw_data.len());
 
                 let mut entries = vec![0u16; sect_count];
                 for e in entries.iter_mut() {
@@ -304,14 +319,21 @@ impl CbFileSystem {
                     *e = n.get();
                 }
 
-                let entry_size = sect_count * std::mem::size_of::<u16>();
-                let remaining_data = sect_size - (entry_size % sect_size);
+                println!("Read {} entries", entries.len());
 
-                let mut throw_data = vec![0u8; remaining_data];
-                f.read_exact(&mut throw_data)?;
+                let entry_size = sect_count * std::mem::size_of::<u16>();
+                let remaining_data = (sect_size - (entry_size % sect_size)) % sect_size;
+
+                if remaining_data > 0 {
+                    let mut throw_data = vec![0u8; remaining_data];
+                    f.read_exact(&mut throw_data)?;
+                    println!("Read {} throw data", remaining_data);
+                }
 
                 let mut data = vec![0u8; header.data_sector_size() as usize];
                 f.read_exact(&mut data)?;
+
+                println!("Read {} data", data.len());
 
                 Ok(CbFileSystem {
                     header,
@@ -338,8 +360,8 @@ impl CbFileSystem {
     }
 
     /// Saves the current in-memory filesystme to the provided file
-    pub fn write_fs_to_file(&self, file: &Path) -> Result<(), CbfsError> {
-        let file_header = CbFileHeader::new(false, false);
+    pub fn write_fs_to_file(&self, file: &Path, sparse: bool, gzip: bool) -> Result<(), CbfsError> {
+        let file_header = CbFileHeader::new(sparse, gzip);
 
         let mut f = OpenOptions::new()
             .create(true)
@@ -361,11 +383,16 @@ impl CbFileSystem {
                     f.write_all(&U16::new(n).to_bytes())?;
                 }
 
-                let num_sparse_sectors = fs.entries.iter().filter(|x| **x != 0).count() as u16;
+                let num_sparse_sectors = fs
+                    .entries
+                    .iter()
+                    .skip(fs.header.root_sector.get() as usize)
+                    .filter(|x| **x != 0)
+                    .count() as u16;
                 f.write_all(&U16::new(num_sparse_sectors).to_bytes())?;
 
                 for (i, n) in fs.entries.iter().enumerate() {
-                    if *n != 0 {
+                    if *n != 0 && i >= fs.header.root_sector.get() as usize {
                         f.write_all(&U16::new(i as u16).to_bytes())?;
                         f.write_all(fs.get_sector_data(i as u16)?)?;
                     }
