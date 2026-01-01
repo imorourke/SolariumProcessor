@@ -16,15 +16,16 @@ struct Args {
     #[arg(
         long,
         short,
-        help = "file to read from (if present on mount) or write/create to save filesystem to when unmounted"
+        help = "file to read from (if present on mount) or write/create to save filesystem to when unmounted (unless the read-only base is set)"
     )]
     base_file: Option<PathBuf>,
     #[arg(
         long,
         short,
-        help = "zeros out any unused sectors on close",
-        default_value_t = false
+        help = "if set, will only read the base file, but will not write to it"
     )]
+    read_only_base: bool,
+    #[arg(long, short, help = "zeros out any unused sectors on close")]
     zero_unused: bool,
     #[arg(
         long,
@@ -46,20 +47,11 @@ struct Args {
         help = "the name of the volume to use if a new filesystem is created"
     )]
     name: Option<String>,
-    #[arg(short, long, help = "show verbose statistics", default_value_t = false)]
+    #[arg(short, long, help = "show verbose statistics")]
     verbose: bool,
-    #[arg(
-        long,
-        help = "save generated file as a sparse file",
-        default_value_t = false
-    )]
+    #[arg(long, help = "save generated file as a sparse file")]
     sparse: bool,
-    #[arg(
-        short,
-        long,
-        help = "save generated file as a gzip file",
-        default_value_t = false
-    )]
+    #[arg(short, long, help = "save generated file as a gzip file")]
     gzip: bool,
 }
 
@@ -69,6 +61,7 @@ impl Args {
             zero_unused: self.zero_unused,
             save_gzip: self.gzip,
             save_sparse: self.sparse,
+            read_only_base: self.read_only_base,
         }
     }
 }

@@ -13,6 +13,7 @@ pub struct SaveFileOptions {
     pub zero_unused: bool,
     pub save_gzip: bool,
     pub save_sparse: bool,
+    pub read_only_base: bool,
 }
 
 #[derive(Debug)]
@@ -84,10 +85,12 @@ impl CbfsFuse {
     }
 
     pub fn save_fs(&mut self) -> Result<(), CbFuseErr> {
-        if self.save_options.zero_unused {
-            self.fs.zero_unused_sectors().unwrap();
-        }
-        if let Some(base) = &self.base_file {
+        if !self.save_options.read_only_base
+            && let Some(base) = &self.base_file
+        {
+            if self.save_options.zero_unused {
+                self.fs.zero_unused_sectors().unwrap();
+            }
             match self.fs.write_fs_to_file(
                 base,
                 self.save_options.save_sparse,
