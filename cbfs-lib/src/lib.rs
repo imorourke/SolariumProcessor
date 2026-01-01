@@ -10,12 +10,12 @@ use std::time::SystemTime;
 use std::{
     fmt::Debug,
     fs::OpenOptions,
-    io::{Seek, SeekFrom, Write},
+    io::{Read, Write},
     path::Path,
 };
 
 use zerocopy::{
-    FromBytes, Immutable, IntoBytes, KnownLayout,
+    FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout,
     big_endian::{U16, U32},
 };
 
@@ -24,6 +24,62 @@ pub use crate::{
     entries::{CbEntryHeader, CbEntryType},
     names::{StringArrayError, string_to_array},
 };
+
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+struct CbFileHeader {
+    magic_number: U32,
+    version: U16,
+    flags: U16,
+}
+
+impl CbFileHeader {
+    const MAGIC_NUMBER: u32 = 0xA80E83BC;
+    const VERSION: u16 = 1;
+    const FLAG_SPARSE: u16 = 1 << 0;
+    const FLAG_COMPRESSED: u16 = 1 << 1;
+
+    pub fn new(sparse: bool, compressed: bool) -> Self {
+        Self {
+            magic_number: U32::new(Self::MAGIC_NUMBER),
+            version: U16::new(Self::VERSION),
+            flags: U16::new(
+                Self::get_flag(sparse, Self::FLAG_SPARSE)
+                    | Self::get_flag(compressed, Self::FLAG_COMPRESSED),
+            ),
+        }
+    }
+
+    pub fn check_data(&self) -> Result<(), CbfsError> {
+        if self.magic_number.get() != Self::MAGIC_NUMBER {
+            Err(CbfsError::UnknownError(format!(
+                "unknown magic number {}",
+                self.magic_number.get()
+            )))
+        } else if self.version.get() != Self::VERSION {
+            Err(CbfsError::UnknownError(format!(
+                "unknown version number {} != expected {}",
+                self.version.get(),
+                Self::VERSION
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn get_flag(is_set: bool, flag: u16) -> u16 {
+        if is_set { flag } else { 0 }
+    }
+
+    pub fn is_sparse(&self) -> bool {
+        (self.flags.get() & Self::FLAG_SPARSE) != 0
+    }
+
+    pub fn is_compressed(&self) -> bool {
+        (self.flags.get() & Self::FLAG_COMPRESSED) != 0
+    }
+}
 
 /// The volume header is present at the beginning of the filesystem, starting
 /// from byte 0 of the disk format.
@@ -114,6 +170,12 @@ pub enum CbfsError {
     UnknownError(String),
 }
 
+impl From<std::io::Error> for CbfsError {
+    fn from(value: std::io::Error) -> Self {
+        Self::UnknownError(format!("IO error - {value}"))
+    }
+}
+
 impl From<StringArrayError> for CbfsError {
     fn from(value: StringArrayError) -> Self {
         match value {
@@ -181,76 +243,157 @@ impl CbFileSystem {
 
     /// Opens a filesystem disk image and loads into memory
     pub fn open(path: &Path) -> Result<Self, CbfsError> {
-        let all_data = std::fs::read(path).unwrap();
+        let mut f = std::fs::File::open(path)?;
 
-        let header =
-            CbVolumeHeader::read_from_bytes(&all_data[..std::mem::size_of::<CbVolumeHeader>()])
-                .unwrap();
+        let mut file_header_bytes = [0u8; std::mem::size_of::<CbFileHeader>()];
+        f.read_exact(&mut file_header_bytes)?;
+        let file_header = CbFileHeader::read_from_bytes(&file_header_bytes).unwrap();
+        file_header.check_data()?;
 
-        let sect_size = header.sector_size.get() as usize;
-        let sect_count = header.sector_count.get() as usize;
+        fn read_inner<T: Read>(mut f: T, sparse: bool) -> Result<CbFileSystem, CbfsError> {
+            let mut header_bytes = [0u8; std::mem::size_of::<CbVolumeHeader>()];
+            f.read_exact(&mut header_bytes)?;
+            let header = CbVolumeHeader::read_from_bytes(&header_bytes).unwrap();
 
-        let entries = all_data
-            [sect_size..(sect_size + CbVolumeHeader::ENTRY_TABLE_ELEMENT_SIZE * sect_count)]
-            .chunks(CbVolumeHeader::ENTRY_TABLE_ELEMENT_SIZE)
-            .map(|x| U16::read_from_bytes(x).unwrap().get())
-            .collect::<Vec<_>>();
+            let sect_size = header.sector_size.get() as usize;
+            let sect_count = header.sector_count.get() as usize;
 
-        let data = all_data[(sect_size * header.root_sector.get() as usize)..].to_vec();
+            if sparse {
+                let mut entries = vec![0u16; sect_count];
+                for v in entries.iter_mut() {
+                    let mut n = U16::new_zeroed();
+                    f.read_exact(n.as_mut_bytes())?;
+                    *v = n.get();
+                }
 
-        assert_eq!(sect_count, entries.len());
-        assert_eq!(
-            data.len(),
-            sect_size * (sect_count - header.root_sector.get() as usize)
-        );
+                let data_size = header.data_sector_size() as usize;
+                let mut fs = CbFileSystem {
+                    header,
+                    entries,
+                    data: vec![0u8; data_size],
+                };
 
-        Ok(Self {
-            header,
-            entries,
-            data,
-        })
+                let mut num_read_sectors = U16::new_zeroed();
+                f.read_exact(num_read_sectors.as_mut_bytes())?;
+
+                for _ in 0..num_read_sectors.get() {
+                    let mut sector_id = U16::new_zeroed();
+                    f.read_exact(sector_id.as_mut_bytes())?;
+
+                    let mut sector_data = vec![0u8; sect_size];
+                    f.read_exact(&mut sector_data)?;
+
+                    for (dst, src) in fs
+                        .get_sector_data_mut(sector_id.get())?
+                        .iter_mut()
+                        .zip(sector_data.into_iter())
+                    {
+                        *dst = src;
+                    }
+                }
+
+                Ok(fs)
+            } else {
+                let mut throw_data = vec![0u8; sect_size - header_bytes.len()];
+                f.read_exact(&mut throw_data)?;
+
+                let mut entries = vec![0u16; sect_count];
+                for e in entries.iter_mut() {
+                    let mut n = U16::new_zeroed();
+                    f.read_exact(n.as_mut_bytes())?;
+                    *e = n.get();
+                }
+
+                let entry_size = sect_count * std::mem::size_of::<u16>();
+                let remaining_data = sect_size - (entry_size % sect_size);
+
+                let mut throw_data = vec![0u8; remaining_data];
+                f.read_exact(&mut throw_data)?;
+
+                let mut data = vec![0u8; header.data_sector_size() as usize];
+                f.read_exact(&mut data)?;
+
+                Ok(CbFileSystem {
+                    header,
+                    entries,
+                    data,
+                })
+            }
+        }
+
+        if file_header.is_compressed() {
+            #[cfg(feature = "gzip")]
+            {
+                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())
+            }
+            #[cfg(not(feature = "gzip"))]
+            {
+                Err(CbfsError::UnknownError(
+                    "gzip feature not enabled".to_string(),
+                ))
+            }
+        } else {
+            read_inner(f, file_header.is_sparse())
+        }
     }
 
     /// Saves the current in-memory filesystme to the provided file
     pub fn write_fs_to_file(&self, file: &Path) -> Result<(), CbfsError> {
-        fn write_inner(
-            file: &Path,
-            header: &CbVolumeHeader,
-            entries: &[u16],
-            data: &[u8],
-        ) -> Result<(), std::io::Error> {
-            let mut f = OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(file)?;
+        let file_header = CbFileHeader::new(false, false);
 
-            let sect_size = header.sector_size.get() as u64;
+        let mut f = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(file)?;
 
-            f.set_len(header.volume_byte_size())?;
-            f.seek(SeekFrom::Start(0))?;
-            f.write_all(header.as_bytes())?;
-            f.seek(SeekFrom::Start(sect_size))?;
+        f.write_all(file_header.as_bytes())?;
 
-            for n in entries.iter().copied() {
-                f.write_all(&U16::new(n).to_bytes()).unwrap();
+        fn write_inner<T: Write>(
+            mut f: T,
+            fs: &CbFileSystem,
+            sparse: bool,
+        ) -> Result<(), CbfsError> {
+            if sparse {
+                f.write_all(fs.header.as_bytes())?;
+
+                for n in fs.entries.iter().copied() {
+                    f.write_all(&U16::new(n).to_bytes())?;
+                }
+
+                let num_sparse_sectors = fs.entries.iter().filter(|x| **x != 0).count() as u16;
+                f.write_all(&U16::new(num_sparse_sectors).to_bytes())?;
+
+                for (i, n) in fs.entries.iter().enumerate() {
+                    if *n != 0 {
+                        f.write_all(&U16::new(i as u16).to_bytes())?;
+                        f.write_all(fs.get_sector_data(i as u16)?)?;
+                    }
+                }
+            } else {
+                f.write_all(&fs.as_bytes()?)?;
             }
-
-            assert_eq!(data.len() as u64, header.data_sector_size());
-
-            f.seek(SeekFrom::Start(
-                sect_size * (header.root_sector.get() as u64),
-            ))?;
-            f.write_all(data).unwrap();
-
-            assert_eq!(f.stream_position()?, header.volume_byte_size());
 
             Ok(())
         }
 
-        match write_inner(file, &self.header, &self.entries, &self.data) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(CbfsError::UnknownError(format!("{e}"))),
+        if file_header.is_compressed() {
+            #[cfg(feature = "gzip")]
+            {
+                write_inner(
+                    flate2::write::GzEncoder::new(f, flate2::Compression::best()),
+                    self,
+                    file_header.is_sparse(),
+                )
+            }
+            #[cfg(not(feature = "gzip"))]
+            {
+                Err(CbfsError::UnknownError(
+                    "gzip feature not enabled".to_string(),
+                ))
+            }
+        } else {
+            write_inner(f, self, file_header.is_sparse())
         }
     }
 
@@ -308,10 +451,22 @@ impl CbFileSystem {
         }
     }
 
-    /// Provides the starting index within the data vector for the provided entry
-    fn get_sector_start_idx(&self, entry: u16) -> Result<usize, CbfsError> {
-        let idx = (self.get_entry_valid(entry)? - self.header.root_sector.get()) as usize;
+    /// Provides the starting index within the data vector for the provided sector
+    fn get_sector_start_idx(&self, sector: u16) -> Result<usize, CbfsError> {
+        let idx = (self.get_entry_valid(sector)? - self.header.root_sector.get()) as usize;
         Ok(idx * self.header.sector_size.get() as usize)
+    }
+
+    /// Provides the data slice associated with the given sector
+    fn get_sector_data(&self, sector: u16) -> Result<&[u8], CbfsError> {
+        let idx = self.get_sector_start_idx(sector)?;
+        Ok(&self.data[idx..(idx + self.header.sector_size.get() as usize)])
+    }
+
+    /// Provides the mutable data slice associated with the given sector
+    fn get_sector_data_mut(&mut self, sector: u16) -> Result<&mut [u8], CbfsError> {
+        let idx = self.get_sector_start_idx(sector)?;
+        Ok(&mut self.data[idx..(idx + self.header.sector_size.get() as usize)])
     }
 
     /// Provides the entry type associated with the given entry
@@ -429,8 +584,7 @@ impl CbFileSystem {
 
         while entry != Self::NODE_END {
             assert_ne!(entry, 0);
-            let idx = self.get_sector_start_idx(entry)?;
-            raw_data.extend(&self.data[idx..(idx + self.header.sector_size.get() as usize)]);
+            raw_data.extend(self.get_sector_data(entry)?);
             entry = self.entries[entry as usize];
         }
 
@@ -577,12 +731,7 @@ impl CbFileSystem {
         let sec_size = self.header.sector_size.get() as usize;
 
         for (d, idx) in data.chunks(sec_size).zip(file_nodes) {
-            let data_idx = self.get_sector_start_idx(idx)?;
-
-            for (dst, src) in self.data[data_idx..(data_idx + sec_size)]
-                .iter_mut()
-                .zip(d.iter())
-            {
+            for (dst, src) in self.get_sector_data_mut(idx)?.iter_mut().zip(d.iter()) {
                 *dst = *src;
             }
         }
