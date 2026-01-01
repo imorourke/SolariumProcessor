@@ -5,12 +5,13 @@ mod datetime;
 mod entries;
 mod names;
 
+#[cfg(feature = "time")]
+use std::time::SystemTime;
 use std::{
     fmt::Debug,
     fs::OpenOptions,
     io::{Seek, SeekFrom, Write},
     path::Path,
-    time::SystemTime,
 };
 
 use zerocopy::{
@@ -153,10 +154,15 @@ impl CbFileSystem {
             *n = Self::NODE_END;
         }
 
+        #[cfg(feature = "time")]
+        let modification_time = CbDateTime::from(SystemTime::now());
+        #[cfg(not(feature = "time"))]
+        let modification_time = CbDateTime::default();
+
         let root_entry = CbEntryHeader {
             attributes: 0,
             entry_type: CbEntryType::Directory as u8,
-            modification_time: CbDateTime::from(SystemTime::now()),
+            modification_time,
             name: string_to_array("")?,
             parent: U16::new(0),
             payload_size: U32::new(0),
@@ -631,10 +637,15 @@ impl CbFileSystem {
         let new_node = self.next_free_sector()?;
         self.entries[new_node as usize] = Self::NODE_END;
 
+        #[cfg(feature = "time")]
+        let modification_time = CbDateTime::from(SystemTime::now());
+        #[cfg(not(feature = "time"))]
+        let modification_time = CbDateTime::default();
+
         let new_hdr = CbEntryHeader {
             attributes: 0,
             entry_type: entry_type as u8,
-            modification_time: CbDateTime::from(SystemTime::now()),
+            modification_time,
             name: string_to_array(name)?,
             parent: U16::new(parent),
             payload_size: U32::new(data.len() as u32),

@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4"
+chrono = { version = "0.4", optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }
+
+[features]
+default = ["time"]
+time = ["dep:chrono"]

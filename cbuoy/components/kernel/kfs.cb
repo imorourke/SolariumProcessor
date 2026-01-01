@@ -108,6 +108,32 @@ fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
     return dev;
 }
 
+fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) u32 {
+    if (dev->entry_table[entry] == 0) {
+        return 0;
+    }
+    k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size * entry);
+    dev->ctl->memory_size = 0;
+    k_memcpy(header, &dev->ctl->data, sizeof(k_fs_entry_header_t));
+    return 1;
+}
+
+fn k_fs_write_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) u32 {
+    if (dev->entry_table[entry] == 0) {
+        return 0;
+    }
+
+    return 0;
+}
+
+fn k_fs_read_data(dev: *k_fs_disk_t, entry: u16, buf: *u8, size: u32) u32 {
+    return 0;
+}
+
+fn k_fs_read_directory_entry(dev: *k_fs_disk_t, entry: u16, dirs: *u16, size: u32) u32 {
+    return 0;
+}
+
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {
     k_free(dev->entry_table);
     k_free(dev);

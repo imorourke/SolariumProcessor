@@ -1,5 +1,9 @@
-use std::{fmt::Display, time::SystemTime};
+use std::fmt::Display;
 
+#[cfg(feature = "time")]
+use std::time::SystemTime;
+
+#[cfg(feature = "time")]
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
@@ -32,6 +36,7 @@ pub struct CbDateTime {
     time: CbTime,
 }
 
+#[cfg(feature = "time")]
 impl From<DateTime<Utc>> for CbDateTime {
     fn from(value: DateTime<Utc>) -> Self {
         Self {
@@ -50,6 +55,7 @@ impl From<DateTime<Utc>> for CbDateTime {
     }
 }
 
+#[cfg(feature = "time")]
 impl From<SystemTime> for CbDateTime {
     fn from(value: SystemTime) -> Self {
         let dt = DateTime::<Utc>::from(value);
@@ -57,6 +63,7 @@ impl From<SystemTime> for CbDateTime {
     }
 }
 
+#[cfg(feature = "time")]
 impl TryFrom<CbDateTime> for SystemTime {
     type Error = CbfsError;
 
@@ -66,6 +73,7 @@ impl TryFrom<CbDateTime> for SystemTime {
     }
 }
 
+#[cfg(feature = "time")]
 impl TryFrom<CbDateTime> for DateTime<Utc> {
     type Error = CbfsError;
 
