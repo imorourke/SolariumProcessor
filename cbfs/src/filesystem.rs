@@ -235,23 +235,24 @@ impl fuser::Filesystem for CbfsFuse {
 
             let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
 
-            if offset == 0 {
-                for (i, (node, hdr_res)) in all_dirs.into_iter().enumerate() {
-                    match hdr_res {
-                        Ok(hdr) => {
-                            if reply.add(
-                                node,
-                                i as i64 + 2,
-                                Self::fs_type(hdr.get_entry_type()).unwrap(),
-                                Path::new(&hdr.get_name()),
-                            ) {
-                                reply.ok();
-                                return;
-                            }
+            for (i, (node, hdr_res)) in all_dirs.into_iter().enumerate().skip(offset as usize) {
+                let fst = match Self::fs_type(hdr.get_entry_type()) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("unknown entry type for {:?} - {e:?}", hdr.get_entry_type());
+                        continue;
+                    }
+                };
+
+                match hdr_res {
+                    Ok(hdr) => {
+                        if reply.add(node, i as i64 + 1, fst, Path::new(&hdr.get_name())) {
+                            reply.ok();
+                            return;
                         }
-                        Err(e) => {
-                            eprintln!("Error for node {node} - {e:?}");
-                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error for node {node} - {e:?}");
                     }
                 }
             }
