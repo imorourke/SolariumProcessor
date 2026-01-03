@@ -8,6 +8,7 @@ mod names;
 #[cfg(feature = "time")]
 use std::time::SystemTime;
 use std::{
+    collections::HashSet,
     fmt::Debug,
     fs::OpenOptions,
     io::{Read, Write},
@@ -28,7 +29,7 @@ pub use crate::{
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-struct CbFileHeader {
+pub struct CbFileHeader {
     magic_number: U32,
     version: U16,
     flags: U16,
@@ -194,6 +195,8 @@ pub struct CbFileSystem {
     /// The raw data sector values. This only contains the data after the allocation table, and does
     /// not include the entry sectors or the header sector
     data: Vec<u8>,
+    /// Defines which entries are base/primary entries
+    base_entries: HashSet<u16>,
 }
 
 impl CbFileSystem {
@@ -234,7 +237,9 @@ impl CbFileSystem {
             data,
             entries,
             header,
+            base_entries: HashSet::new(),
         };
+        fs.base_entries.insert(fs.header.root_sector.get());
 
         fs.set_entry_data(fs.header.root_sector.get(), root_entry, &[])?;
 
@@ -242,7 +247,7 @@ impl CbFileSystem {
     }
 
     /// Opens a filesystem disk image and loads into memory
-    pub fn open(path: &Path) -> Result<Self, CbfsError> {
+    pub fn open(path: &Path) -> Result<(CbFileHeader, Self), CbfsError> {
         let mut f = std::fs::File::open(path)?;
 
         let mut file_header_bytes = [0u8; std::mem::size_of::<CbFileHeader>()];
@@ -258,7 +263,7 @@ impl CbFileSystem {
             let sect_size = header.sector_size.get() as usize;
             let sect_count = header.sector_count.get() as usize;
 
-            if sparse {
+            let mut fs = if sparse {
                 let mut entries = vec![0u16; sect_count];
                 for v in entries.iter_mut() {
                     let mut n = U16::new_zeroed();
@@ -271,6 +276,7 @@ impl CbFileSystem {
                     header,
                     entries,
                     data: vec![0u8; data_size],
+                    base_entries: HashSet::new(),
                 };
 
                 let mut num_read_sectors = U16::new_zeroed();
@@ -292,7 +298,7 @@ impl CbFileSystem {
                     }
                 }
 
-                Ok(fs)
+                fs
             } else {
                 let mut throw_data = vec![0u8; sect_size - header_bytes.len()];
                 f.read_exact(&mut throw_data)?;
@@ -315,18 +321,35 @@ impl CbFileSystem {
                 let mut data = vec![0u8; header.data_sector_size() as usize];
                 f.read_exact(&mut data)?;
 
-                Ok(CbFileSystem {
+                CbFileSystem {
                     header,
                     entries,
                     data,
-                })
+                    base_entries: HashSet::new(),
+                }
+            };
+
+            // Perform DFS to read the base/primary node lists
+            let mut entry_stack = vec![fs.header.root_sector.get()];
+            while let Some(e) = entry_stack.pop() {
+                if fs.base_entries.insert(e) {
+                    if fs.entry_is_dir(e)? {
+                        for d in fs.directory_listing(e)? {
+                            entry_stack.push(d);
+                        }
+                    }
+                } else {
+                    panic!("duplicate file mapping provided!");
+                }
             }
+
+            Ok(fs)
         }
 
-        if file_header.is_compressed() {
+        let fs = if file_header.is_compressed() {
             #[cfg(feature = "gzip")]
             {
-                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())
+                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())?
             }
             #[cfg(not(feature = "gzip"))]
             {
@@ -335,8 +358,10 @@ impl CbFileSystem {
                 ))
             }
         } else {
-            read_inner(f, file_header.is_sparse())
-        }
+            read_inner(f, file_header.is_sparse())?
+        };
+
+        Ok((file_header, fs))
     }
 
     /// Saves the current in-memory filesystme to the provided file
@@ -519,19 +544,7 @@ impl CbFileSystem {
 
     /// Iterates through the directory tree to detemrine if the entry is a root entry
     fn entry_is_primary(&self, entry: u16) -> Result<bool, CbfsError> {
-        let mut current = vec![self.header.root_sector.get()];
-
-        while let Some(e) = current.pop() {
-            if e == entry {
-                return Ok(true);
-            } else if self.entry_is_dir(e)? {
-                for d in self.directory_listing(e)? {
-                    current.push(d);
-                }
-            }
-        }
-
-        Ok(false)
+        Ok(self.base_entries.contains(&entry))
     }
 
     /// Provides the full entry header for the provided entry
@@ -790,8 +803,8 @@ impl CbFileSystem {
             return Err(CbfsError::NonZeroDirectoryData);
         }
 
-        let new_node = self.next_free_sector()?;
-        self.entries[new_node as usize] = Self::NODE_END;
+        let new_entry = self.next_free_sector()?;
+        self.entries[new_entry as usize] = Self::NODE_END;
 
         #[cfg(feature = "time")]
         let modification_time = CbDateTime::from(SystemTime::now());
@@ -807,10 +820,11 @@ impl CbFileSystem {
             payload_size: U32::new(data.len() as u32),
         };
 
-        self.add_entry_to_directory(parent, new_node)?;
-        self.set_entry_data(new_node, new_hdr, data)?;
+        self.base_entries.insert(new_entry);
+        self.add_entry_to_directory(parent, new_entry)?;
+        self.set_entry_data(new_entry, new_hdr, data)?;
 
-        Ok(new_node)
+        Ok(new_entry)
     }
 
     /// Deletes an entry. If the entry is a directory, all contained files and
@@ -831,6 +845,7 @@ impl CbFileSystem {
         }
 
         self.set_num_sectors_for_entry(entry, 0)?;
+        self.base_entries.remove(&entry);
 
         Ok(())
     }
