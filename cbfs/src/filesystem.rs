@@ -137,18 +137,6 @@ impl Drop for CbfsFuse {
 }
 
 impl fuser::Filesystem for CbfsFuse {
-    fn setvolname(
-        &mut self,
-        _req: &fuser::Request<'_>,
-        name: &std::ffi::OsStr,
-        reply: fuser::ReplyEmpty,
-    ) {
-        match self.fs.header.set_name(name.to_str().unwrap()) {
-            Ok(()) => reply.ok(),
-            Err(err) => reply.error(CbFuseErr::from(err).get_code()),
-        }
-    }
-
     fn statfs(&mut self, _req: &fuser::Request, _ino: u64, reply: fuser::ReplyStatfs) {
         let free_sectors = self.fs.num_free_sectors();
         let num_entries = match self
