@@ -353,9 +353,9 @@ impl CbFileSystem {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                Err(CbfsError::UnknownError(
+                return Err(CbfsError::UnknownError(
                     "gzip feature not enabled".to_string(),
-                ))
+                ));
             }
         } else {
             read_inner(f, file_header.is_sparse())?
