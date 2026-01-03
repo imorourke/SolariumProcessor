@@ -29,7 +29,7 @@ pub use crate::{
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-struct CbFileHeader {
+pub struct CbFileHeader {
     magic_number: U32,
     version: U16,
     flags: U16,
@@ -247,7 +247,7 @@ impl CbFileSystem {
     }
 
     /// Opens a filesystem disk image and loads into memory
-    pub fn open(path: &Path) -> Result<Self, CbfsError> {
+    pub fn open(path: &Path) -> Result<(CbFileHeader, Self), CbfsError> {
         let mut f = std::fs::File::open(path)?;
 
         let mut file_header_bytes = [0u8; std::mem::size_of::<CbFileHeader>()];
@@ -346,10 +346,10 @@ impl CbFileSystem {
             Ok(fs)
         }
 
-        if file_header.is_compressed() {
+        let fs = if file_header.is_compressed() {
             #[cfg(feature = "gzip")]
             {
-                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())
+                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())?
             }
             #[cfg(not(feature = "gzip"))]
             {
@@ -358,8 +358,10 @@ impl CbFileSystem {
                 ))
             }
         } else {
-            read_inner(f, file_header.is_sparse())
-        }
+            read_inner(f, file_header.is_sparse())?
+        };
+
+        Ok((file_header, fs))
     }
 
     /// Saves the current in-memory filesystme to the provided file

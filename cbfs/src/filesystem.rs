@@ -14,6 +14,7 @@ pub struct SaveFileOptions {
     pub save_gzip: bool,
     pub save_sparse: bool,
     pub read_only_base: bool,
+    pub override_save_options: bool,
 }
 
 #[derive(Debug)]
@@ -91,6 +92,7 @@ impl CbfsFuse {
             if self.save_options.zero_unused {
                 self.fs.zero_unused_sectors().unwrap();
             }
+
             match self.fs.write_fs_to_file(
                 base,
                 self.save_options.save_sparse,

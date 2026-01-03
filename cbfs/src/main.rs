@@ -49,10 +49,22 @@ struct Args {
     name: Option<String>,
     #[arg(short, long, help = "show verbose statistics")]
     verbose: bool,
-    #[arg(long, help = "save generated file as a sparse file")]
+    #[arg(
+        long,
+        help = "save generated file as a sparse file (only applies to new files without the override flag)"
+    )]
     sparse: bool,
-    #[arg(short, long, help = "save generated file as a gzip file")]
+    #[arg(
+        short,
+        long,
+        help = "save generated file as a gzip file (only applies to new files without the override flag)"
+    )]
     gzip: bool,
+    #[arg(
+        long,
+        help = "overrides the loaded file options from a loaded cbfs file with the ones provide via command line"
+    )]
+    save_option_override: bool,
 }
 
 impl Args {
@@ -62,6 +74,7 @@ impl Args {
             save_gzip: self.gzip,
             save_sparse: self.sparse,
             read_only_base: self.read_only_base,
+            override_save_options: self.save_option_override,
         }
     }
 }
@@ -73,12 +86,19 @@ fn main() {
         simple_logger::SimpleLogger::new().init().unwrap();
     }
 
-    let save_options = args.save_options();
+    let mut save_options = args.save_options();
 
     let fs = if let Some(orig) = &args.base_file
         && orig.exists()
     {
-        CbfsFuse::new(CbFileSystem::open(orig).unwrap(), Some(orig), save_options)
+        let (hdr, fs) = CbFileSystem::open(orig).unwrap();
+
+        if !save_options.override_save_options {
+            save_options.save_gzip = hdr.is_compressed();
+            save_options.save_sparse = hdr.is_sparse();
+        }
+
+        CbfsFuse::new(fs, Some(orig), save_options)
     } else {
         CbfsFuse::new(
             CbFileSystem::new(
