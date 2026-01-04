@@ -670,6 +670,10 @@ impl CbFileSystem {
         }
     }
 
+    pub fn num_primary_entries(&self) -> usize {
+        self.base_entries.len()
+    }
+
     /// Sets the number of sectors for the given entry
     pub fn set_num_sectors_for_entry(
         &mut self,

@@ -69,7 +69,8 @@ impl CbfsFuse {
         Ok(FileAttr {
             ino,
             size: hdr.get_payload_size() as u64,
-            blocks: self.fs.num_sectors_for_entry(n) as u64,
+            blksize: self.fs.header.sector_size.get() as u32,
+            blocks: (hdr.get_payload_size() as u64).div_ceil(512),
             atime: ts,
             mtime: ts,
             ctime: ts,
@@ -81,7 +82,6 @@ impl CbfsFuse {
             gid: req.gid(),
             rdev: 0,
             flags: 0,
-            blksize: self.fs.header.sector_size.get() as u32,
         })
     }
 
@@ -139,16 +139,7 @@ impl Drop for CbfsFuse {
 impl fuser::Filesystem for CbfsFuse {
     fn statfs(&mut self, _req: &fuser::Request, _ino: u64, reply: fuser::ReplyStatfs) {
         let free_sectors = self.fs.num_free_sectors();
-        let num_entries = match self
-            .fs
-            .num_entries_within_entry(self.fs.header.root_sector.get())
-        {
-            Ok(count) => count,
-            Err(e) => {
-                reply.error(CbFuseErr::from(e).get_code());
-                return;
-            }
-        };
+        let num_entries = self.fs.num_primary_entries();
 
         reply.statfs(
             self.fs.header.sector_count.get() as u64,
