@@ -1,15 +1,11 @@
-#[cfg(target_os = "linux")]
 mod filesystem;
-#[cfg(target_os = "linux")]
 mod fserr;
 
 use std::path::PathBuf;
 
-#[cfg(target_os = "linux")]
 use cbfs_lib::CbFileSystem;
 use clap::Parser;
 
-#[cfg(target_os = "linux")]
 use crate::filesystem::{CbfsFuse, SaveFileOptions};
 
 #[derive(Parser, Debug)]
@@ -71,7 +67,6 @@ struct Args {
     save_option_override: bool,
 }
 
-#[cfg(target_os = "linux")]
 impl Args {
     fn save_options(&self) -> SaveFileOptions {
         SaveFileOptions {
@@ -84,7 +79,6 @@ impl Args {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn main() {
     let args = Args::parse();
 
@@ -119,9 +113,4 @@ fn main() {
     };
 
     fuser::mount2(fs, args.mount, &[]).unwrap();
-}
-
-#[cfg(not(target_os = "linux"))]
-fn main() {
-    eprintln!("cbfs not supported on this platform")
 }
