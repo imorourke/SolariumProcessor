@@ -7,13 +7,15 @@ use crate::{
     memory::{MemorySegment, MemorySegmentError},
 };
 
+type BlockSyncFunc = dyn Fn(&[u8]) -> bool;
+
 pub struct BlockDevice {
     data: Vec<u8>,
     current_offset: u32,
     target_offset: u32,
     parked: bool,
     memory_size: u16,
-    on_sync: Option<Box<dyn Fn(&[u8]) -> bool>>,
+    on_sync: Option<Box<BlockSyncFunc>>,
 }
 
 impl BlockDevice {
@@ -47,10 +49,7 @@ impl BlockDevice {
             target_offset: 0,
             parked: true,
             memory_size: 0,
-            on_sync: Some(Box::new(move |data| match std::fs::write(&pb, data) {
-                Ok(_) => true,
-                Err(_) => false,
-            })),
+            on_sync: Some(Box::new(move |data| std::fs::write(&pb, data).is_ok())),
         })
     }
 
@@ -133,7 +132,7 @@ impl MemorySegment for BlockDevice {
             Self::CONTROL_SIZE..Self::DATA_TOP => {
                 if let Some(v) = self
                     .get_data_window()
-                    .get(local_offset as usize - Self::CONTROL_SIZE)
+                    .get(local_offset - Self::CONTROL_SIZE)
                 {
                     Ok(*v)
                 } else {
@@ -167,14 +166,14 @@ impl MemorySegment for BlockDevice {
             9 => Err(MemorySegmentError::InvalidMemoryAccess(offset)),
             10..12 => {
                 let mut temp_array = self.memory_size.to_be_bytes();
-                temp_array[local_offset as usize - 10] = val;
+                temp_array[local_offset - 10] = val;
                 self.memory_size = u16::from_be_bytes(temp_array);
                 Ok(())
             }
             Self::CONTROL_SIZE..Self::DATA_TOP => {
                 if let Some(v) = self
                     .get_data_window_mut()
-                    .get_mut(local_offset as usize - Self::CONTROL_SIZE)
+                    .get_mut(local_offset - Self::CONTROL_SIZE)
                 {
                     *v = val;
                 }
