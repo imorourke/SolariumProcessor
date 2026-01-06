@@ -212,7 +212,7 @@ impl CpuState {
         let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
             self.dev_serial_io.clone(),
             Rc::new(RefCell::new(InterruptClockDevice::default())),
-            Rc::new(RefCell::new(RtcClockDevice::default())),
+            Rc::new(RefCell::new(RtcClockDevice)),
         ];
         let mut dev_loc = Self::DEVICE_START_ADDR;
 
