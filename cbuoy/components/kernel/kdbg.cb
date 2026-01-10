@@ -1,0 +1,6 @@
+#ifndef K_DBG
+#define K_DBG
+
+global K_DBG_ENABLED: u8 = 0;
+
+#endif // K_DBG

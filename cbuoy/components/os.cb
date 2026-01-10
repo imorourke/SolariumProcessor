@@ -3,6 +3,7 @@
 #include <kernel/kdevice.cb>
 #include <kernel/kfs.cb>
 #include <kernel/ktsk.cb>
+#include <kernel/kdbg.cb>
 #include <kernel/kirq.cb>
 #include <kernel/kclock.cb>
 #include <kernel/krtc.cb>
@@ -64,25 +65,29 @@ fn os_main() void {
             k_io_print(input_buffer);
             def count: i32 = os_split_args(input_buffer, &arg_buffer);
 
-            k_io_print("Arg Count: ");
-            k_io_print_uint(count);
-            k_io_print("\n");
-
-            def i: i32 = 0;
-            while (i < count) {
-                k_io_print("  [");
-                k_io_print_uint(i);
-                k_io_print("] = ");
-                k_io_print(arg_buffer[i]);
+            if (K_DBG_ENABLED) {
+                k_io_print("Arg Count: ");
+                k_io_print_uint(count);
                 k_io_print("\n");
-                i = i + 1;
+
+                def i: i32 = 0;
+                while (i < count) {
+                    k_io_print("  [");
+                    k_io_print_uint(i);
+                    k_io_print("] = ");
+                    k_io_print(arg_buffer[i]);
+                    k_io_print("\n");
+                    i = i + 1;
+                }
             }
 
             if (count > 0) {
                 def cmd: *u8 = arg_buffer[0];
-                k_io_print("CMD: ");
-                k_io_print(cmd);
-                k_io_print("\n");
+                if (K_DBG_ENABLED) {
+                    k_io_print("CMD: ");
+                    k_io_print(cmd);
+                    k_io_print("\n");
+                }
 
                 if (strcmp(cmd, "ls") == 0) {
                     k_io_print("No files found\n");
@@ -106,6 +111,7 @@ fn os_main() void {
                     k_io_print("\n");
                 } else if (strcmp(cmd, "mount") == 0) {
                     if (disk == 0) {
+                        k_io_print("Starting Mount...\n");
                         disk = k_fs_disk_open(0);
                         k_io_print("Disk ");
                         k_io_print("Disk Mounted\n");
@@ -125,6 +131,10 @@ fn os_main() void {
                     } else {
                         k_io_print("Disk Not Mounted\n");
                     }
+                } else if (strcmp(cmd, "dbgon") == 0) {
+                    K_DBG_ENABLED = 1;
+                } else if (strcmp(cmd, "dbgoff") == 0) {
+                    K_DBG_ENABLED = 0;
                 } else {
                     k_io_print("^! Unknown Command: ");
                     k_io_print(cmd);

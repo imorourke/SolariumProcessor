@@ -134,7 +134,7 @@ impl Default for VisualJib {
             tx_ui.clone(),
             tx_thread.clone(),
             tx_window.clone(),
-            include_str!("../../cbuoy/examples/os.cb").to_string(),
+            include_str!("../../cbuoy/components/os.cb").to_string(),
             CodeWindowType::Cbuoy,
             None,
         )
@@ -322,6 +322,14 @@ impl eframe::App for VisualJib {
                         self.open_code_window(CodeWindowType::Cbuoy, String::new(), None);
                     }
 
+                    if ui.button("CB/OS").clicked() {
+                        self.open_code_window(
+                            CodeWindowType::Cbuoy,
+                            include_str!("../../cbuoy/components/os.cb").to_string(),
+                            Some("os.cb"),
+                        );
+                    }
+
                     ui.menu_button("Examples", |ui| {
                         static CB_CODES: &[(&str, &str, &str)] = &[
                             (
@@ -329,7 +337,6 @@ impl eframe::App for VisualJib {
                                 include_str!("../../cbuoy/examples/default.cb"),
                                 "default.cb",
                             ),
-                            ("OS", include_str!("../../cbuoy/examples/os.cb"), "os.cb"),
                             (
                                 "Threading",
                                 include_str!("../../cbuoy/examples/threading.cb"),
