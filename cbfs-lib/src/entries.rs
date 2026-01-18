@@ -38,7 +38,7 @@ impl CbDirectoryEntry {
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct CbEntryHeader {
-    pub entry_type: u8, // TODO - CHECK THIS!
+    pub entry_type: u8,
     pub reserved: u8,
     pub parent: U16,
     pub modification_time: CbDateTime,
