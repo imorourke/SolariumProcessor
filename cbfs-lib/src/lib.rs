@@ -517,36 +517,6 @@ impl CbFileSystem {
         Ok(self.entry_type(entry)? == CbEntryType::Directory)
     }
 
-    /// Provides the resulting entry for a given absolute path within the filesystem, using
-    /// '/' characters as path separators
-    /*
-    pub fn get_entry_for_path(&self, path: &str) -> Result<u16, CbfsError> {
-        let mut current = self.header.root_sector.get() as usize;
-        let parts = path
-            .split('/')
-            .filter(|x| !x.is_empty())
-            .collect::<Vec<_>>();
-
-        // Iterate over each part
-        'outer: for p in parts.iter() {
-            // Get the directory listing for the current directory
-            for d in self.directory_listing(current as u16)? {
-                // Obtain the entry header and check if the name matches
-                let entry = self.entry_header(d)?;
-                if &entry.get_name() == p {
-                    current = d as usize;
-                    continue 'outer;
-                }
-            }
-
-            // If we didn't continue above, mark path not found
-            return Err(CbfsError::PathNotFound(path.into()));
-        }
-
-        Ok(current as u16)
-    }
-    */
-
     /// Iterates through the directory tree to detemrine if the entry is a root entry
     fn entry_is_primary(&self, entry: u16) -> Result<bool, CbfsError> {
         Ok(self.base_entries.contains(&entry))
@@ -697,6 +667,7 @@ impl CbFileSystem {
         }
     }
 
+    /// Determines the number of "primary/base" entries in the filesystem
     pub fn num_primary_entries(&self) -> usize {
         self.base_entries.len()
     }
@@ -801,22 +772,6 @@ impl CbFileSystem {
         let mut new_data = header.as_bytes().to_vec();
         new_data.extend(data);
         self.set_entry_data_raw(entry, &new_data)
-    }
-
-    /// Sets the entry header parent
-    fn set_entry_parent(&mut self, entry: u16, parent: u16) -> Result<(), CbfsError> {
-        assert!(self.entry_is_primary(entry)?);
-
-        assert!(self.entry_is_primary(entry)?);
-        let idx = self.get_sector_start_idx(entry)?;
-        match CbEntryHeader::mut_from_bytes(
-            &mut self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())],
-        ) {
-            Ok(hdr) => hdr.parent = parent.into(),
-            Err(e) => return Err(CbfsError::UnknownError(format!("{e}"))),
-        };
-
-        Ok(())
     }
 
     /// Sets the payload size for the provided entry
@@ -924,7 +879,7 @@ impl CbFileSystem {
         {
             if d.base_block.get() == entry {
                 d.base_block = U16::new(0);
-                assert!(!result_val.is_some());
+                assert!(result_val.is_none());
                 result_val = Some(*d);
             }
         }

@@ -4,9 +4,7 @@ use std::{
 };
 
 use crate::fserr::CbFuseErr;
-use cbfs_lib::{
-    CbDateTime, CbDirectoryEntry, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array,
-};
+use cbfs_lib::{CbDateTime, CbDirectoryEntry, CbEntryType, CbFileSystem, string_to_array};
 use fuser::{self, FileAttr, FileType};
 use libc::{ENOENT, ENOSYS, S_IFREG};
 
@@ -226,7 +224,12 @@ impl fuser::Filesystem for CbfsFuse {
                     }
                 };
 
-                if reply.add(self.get_ino(hdr.base_block.get()), i as i64 + 1, fst, Path::new(&hdr.get_name())) {
+                if reply.add(
+                    self.get_ino(hdr.base_block.get()),
+                    i as i64 + 1,
+                    fst,
+                    Path::new(&hdr.get_name()),
+                ) {
                     reply.ok();
                     return;
                 }
