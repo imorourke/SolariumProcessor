@@ -4,7 +4,9 @@ use std::{
 };
 
 use crate::fserr::CbFuseErr;
-use cbfs_lib::{CbDateTime, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array};
+use cbfs_lib::{
+    CbDateTime, CbDirectoryEntry, CbEntryHeader, CbEntryType, CbFileSystem, string_to_array,
+};
 use fuser::{self, FileAttr, FileType};
 use libc::{ENOENT, ENOSYS, S_IFREG};
 
@@ -109,9 +111,8 @@ impl CbfsFuse {
     fn get_entry_from_parent(&self, parent: u64, name: &str) -> Result<u16, CbFuseErr> {
         let entries = self.fs.directory_listing(self.get_entry_id(parent))?;
         for e in entries.iter().copied() {
-            let hdr = self.fs.entry_header(e)?;
-            if hdr.get_name() == name {
-                return Ok(e);
+            if e.get_name() == name {
+                return Ok(e.base_block.get());
             }
         }
 
@@ -148,7 +149,7 @@ impl fuser::Filesystem for CbfsFuse {
             num_entries as u64,
             free_sectors as u64,
             self.fs.header.sector_size.get() as u32,
-            CbEntryHeader::NAME_SIZE as u32,
+            CbDirectoryEntry::NAME_SIZE as u32,
             self.fs.header.sector_size.get() as u32,
         );
     }
@@ -193,42 +194,30 @@ impl fuser::Filesystem for CbfsFuse {
         if let Ok(hdr) = self.fs.entry_header(n)
             && hdr.get_entry_type() == CbEntryType::Directory
         {
-            let dirs = self
-                .fs
-                .directory_listing(n)
-                .unwrap()
-                .into_iter()
-                .map(|h| (h as u64, self.fs.entry_header(h)))
-                .collect::<Vec<_>>();
+            let dirs = self.fs.directory_listing(n).unwrap();
+            //.unwrap()
+            //.into_iter()
+            //.map(|h| (h.base_block.get() as u64, self.fs.entry_header(h.base_block.get())))
+            //.collect::<Vec<_>>();
 
             let parent_dirs = [
-                (
-                    n as u64,
-                    Ok(CbEntryHeader {
-                        attributes: hdr.attributes,
-                        entry_type: hdr.entry_type,
-                        modification_time: hdr.modification_time,
-                        name: string_to_array(".").unwrap(),
-                        parent: hdr.parent,
-                        payload_size: hdr.payload_size,
-                    }),
-                ),
-                (
-                    self.get_ino(hdr.parent.get()),
-                    Ok(CbEntryHeader {
-                        attributes: 0,
-                        entry_type: CbEntryType::Directory as u8,
-                        modification_time: CbDateTime::default(),
-                        name: string_to_array("..").unwrap(),
-                        parent: 0.into(),
-                        payload_size: 0.into(),
-                    }),
-                ),
+                CbDirectoryEntry {
+                    attributes: 0,
+                    entry_type: hdr.entry_type,
+                    base_block: n.into(),
+                    name: string_to_array(".").unwrap(),
+                },
+                CbDirectoryEntry {
+                    attributes: 0,
+                    entry_type: CbEntryType::Directory as u8,
+                    base_block: hdr.parent,
+                    name: string_to_array("..").unwrap(),
+                },
             ];
 
             let all_dirs = parent_dirs.into_iter().chain(dirs).collect::<Vec<_>>();
 
-            for (i, (node, hdr_res)) in all_dirs.into_iter().enumerate().skip(offset as usize) {
+            for (i, hdr) in all_dirs.into_iter().enumerate().skip(offset as usize) {
                 let fst = match Self::fs_type(hdr.get_entry_type()) {
                     Ok(t) => t,
                     Err(e) => {
@@ -237,16 +226,9 @@ impl fuser::Filesystem for CbfsFuse {
                     }
                 };
 
-                match hdr_res {
-                    Ok(hdr) => {
-                        if reply.add(node, i as i64 + 1, fst, Path::new(&hdr.get_name())) {
-                            reply.ok();
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error for node {node} - {e:?}");
-                    }
+                if reply.add(self.get_ino(hdr.base_block.get()), i as i64 + 1, fst, Path::new(&hdr.get_name())) {
+                    reply.ok();
+                    return;
                 }
             }
 

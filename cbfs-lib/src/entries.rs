@@ -10,21 +10,19 @@ use crate::{CbfsError, datetime::CbDateTime, names::array_to_string, string_to_a
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct CbEntryHeader {
-    pub entry_type: u8,
+pub struct CbDirectoryEntry {
+    pub base_block: U16,
     pub attributes: u8,
-    pub parent: U16,
-    pub payload_size: U32,
-    pub modification_time: CbDateTime,
+    pub entry_type: u8,
     pub name: [u8; Self::NAME_SIZE],
 }
 
-impl CbEntryHeader {
-    pub const NAME_SIZE: usize = 12;
-
+impl CbDirectoryEntry {
     pub fn get_entry_type(&self) -> CbEntryType {
         CbEntryType::from(self.entry_type)
     }
+
+    pub const NAME_SIZE: usize = 12;
 
     pub fn get_name(&self) -> String {
         array_to_string(&self.name)
@@ -34,7 +32,20 @@ impl CbEntryHeader {
         self.name = string_to_array(s)?;
         Ok(())
     }
+}
 
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CbEntryHeader {
+    pub entry_type: u8, // TODO - CHECK THIS!
+    pub reserved: u8,
+    pub parent: U16,
+    pub modification_time: CbDateTime,
+    pub payload_size: U32,
+}
+
+impl CbEntryHeader {
     pub fn get_payload_size(&self) -> usize {
         self.payload_size.get() as usize
     }
@@ -53,6 +64,10 @@ impl CbEntryHeader {
 
     pub fn get_total_size(&self) -> usize {
         self.get_payload_size() + self.get_header_size()
+    }
+
+    pub fn get_entry_type(&self) -> CbEntryType {
+        CbEntryType::from(self.entry_type)
     }
 
     pub fn get_modification_time(&self) -> CbDateTime {
