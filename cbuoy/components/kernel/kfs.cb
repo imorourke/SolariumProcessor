@@ -6,11 +6,13 @@
 #include krtc.cb
 #include kserialio.cb
 
+const K_FS_ENTRY_END: u16 = 0xFFFF;
+
 const K_FS_VOL_NAME_LEN: u32 = 16;
 const K_FS_ENTRY_NAME_LEN: u32 = 12;
 
-const K_FS_NODE_TYPE_DIR: u8 = 1;
-const K_FS_NODE_TYPE_FILE: u8 = 2;
+const K_FS_ENTRY_TYPE_DIR: u8 = 1;
+const K_FS_ENTRY_TYPE_FILE: u8 = 2;
 
 struct k_fs_vol_header_t {
     version: u16;
@@ -21,13 +23,19 @@ struct k_fs_vol_header_t {
     //padding[40]u8
 }
 
+struct k_fs_directory_entry_t {
+    base_block: u16,
+    attributes: u8,
+    entry_type: u8,
+    name: [K_FS_ENTRY_NAME_LEN]u8;
+}
+
 struct k_fs_entry_header_t {
     entry_type: u8;
-    attributes: u8;
+    reserved: u8;
     parent: u16;
-    payload_size: u32;
     modification_time: k_datetime_t;
-    name: [K_FS_ENTRY_NAME_LEN]u8;
+    payload_size: u32;
 }
 
 struct k_fs_disk_control_t {
@@ -61,6 +69,10 @@ fn k_fs_disk_move(ctl: *k_fs_disk_control_t, offset: u32) void {
             k_io_print("Waiting...\n");
         }
     }
+}
+
+fn k_fs_entry_valid(entry: u16) -> u8 {
+    return entry != 0 && entry != K_FS_ENTRY_END;
 }
 
 fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
@@ -117,30 +129,54 @@ fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
     return dev;
 }
 
-fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) u32 {
+fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) i32 {
     if (dev->entry_table[entry] == 0) {
-        return 0;
+        return -1;
     }
     k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size * entry);
     dev->ctl->memory_size = 0;
     k_memcpy(header, &dev->ctl->data, sizeof(k_fs_entry_header_t));
-    return 1;
+    return 0;
 }
 
-fn k_fs_write_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) u32 {
-    if (dev->entry_table[entry] == 0) {
+fn k_fs_read_entry_data(dev: *k_fs_disk_t, header: *k_fs_entry_header_t, entry: u16, data: *u8, size: u32, offset: u32) -> i32 {
+    return -1;
+}
+
+fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_directory_entry_t, entry_size: u32, entry_offset: u32) i32 {
+    if (entries == 0) {
+        return -1;
+    } else if (dev->entry_table[entry] == 0) {
+        return -1;
+    } else if (entry_size == 0) {
         return 0;
     }
 
-    return 0;
-}
+    def header: k_fs_entry_header_t;
+    if (k_fs_read_header(dev, entry, &header) != 0) {
+        return -1;
+    } else if (header.entry_type != K_FS_ENTRY_TYPE_DIR) {
+        return -1;
+    }
 
-fn k_fs_read_data(dev: *k_fs_disk_t, entry: u16, buf: *u8, size: u32) u32 {
-    return 0;
-}
+    def current_offset: u32 = sizeof(k_fs_entry_header_t) + entry_offset * sizeof(k_fs_directory_entry_t);
+    def local_offset: u32 = current_offset;
+    def sector_size = dev->vol_hdr->sector_size;
 
-fn k_fs_read_directory_entry(dev: *k_fs_disk_t, entry: u16, dirs: *u16, size: u32) u32 {
-    return 0;
+    while (local_offset >= sector_size) {
+        entry = dev->entry_table[entry];
+        local_offset -= sector_size;
+        if (!k_fs_entry_valid(entry)) {
+            return -1;
+        }
+    }
+
+    def current_value: u32 = 0;
+    def overall_size = header.payload_size + sizeof(k_fs_entry_header_t);
+
+    while (current_value < *entry_size && current_offset < overall_size) {
+        entries[current_value] =
+    }
 }
 
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {
