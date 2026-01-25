@@ -58,6 +58,7 @@ fn os_main() void {
     def arg_buffer: [OS_ARG_SIZE]*u8;
     def valid: u8 = 1;
     def disk: *k_fs_disk_t = 0;
+    def current_dir: u16 = 0;
 
     while (valid) {
         k_io_print("~> ");
@@ -90,9 +91,17 @@ fn os_main() void {
                 }
 
                 if (strcmp(cmd, "ls") == 0) {
-                    k_io_print("No files found\n");
+                    if (current_dir != 0) {
+                        k_io_print("Not implemented\n");
+                    } else {
+                        k_io_print("No disk mounted\n");
+                    }
                 } else if (strcmp(cmd, "pwd") == 0) {
-                    k_io_print("/root\n");
+                    if (current_dir != 0) {
+                        k_io_print("/\n");
+                    } else {
+                        k_io_print("No disk mounted\n");
+                    }
                 } else if (strcmp(cmd, "reset") == 0) {
                     k_cpu_reset();
                 } else if (strcmp(cmd, "date") == 0) {
@@ -120,6 +129,7 @@ fn os_main() void {
                         k_io_print(" # ");
                         k_io_print_uint((disk->vol_hdr).sector_count : u32);
                         k_io_print("\n");
+                        current_dir = (disk->vol_hdr).root_sector;
                     } else {
                         k_io_print("Disk already mounted\n");
                     }
@@ -127,6 +137,7 @@ fn os_main() void {
                     if (disk != 0) {
                         k_fs_disk_close(disk);
                         disk = 0;
+                        current_dir = 0;
                         k_io_print("Disk Unmounted\n");
                     } else {
                         k_io_print("Disk Not Mounted\n");

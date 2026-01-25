@@ -24,9 +24,9 @@ struct k_fs_vol_header_t {
 }
 
 struct k_fs_directory_entry_t {
-    base_block: u16,
-    attributes: u8,
-    entry_type: u8,
+    base_block: u16;
+    attributes: u8;
+    entry_type: u8;
     name: [K_FS_ENTRY_NAME_LEN]u8;
 }
 
@@ -71,7 +71,7 @@ fn k_fs_disk_move(ctl: *k_fs_disk_control_t, offset: u32) void {
     }
 }
 
-fn k_fs_entry_valid(entry: u16) -> u8 {
+fn k_fs_entry_valid(entry: u16) u8 {
     return entry != 0 && entry != K_FS_ENTRY_END;
 }
 
@@ -139,11 +139,11 @@ fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t)
     return 0;
 }
 
-fn k_fs_read_entry_data(dev: *k_fs_disk_t, header: *k_fs_entry_header_t, entry: u16, data: *u8, size: u32, offset: u32) -> i32 {
+fn k_fs_read_entry_data(dev: *k_fs_disk_t, header: *k_fs_entry_header_t, entry: u16, data: *u8, size: u32, offset: u32) i32 {
     return -1;
 }
 
-fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_directory_entry_t, entry_size: u32, entry_offset: u32) i32 {
+fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_directory_entry_t, entry_size: *u32, entry_offset: u32) i32 {
     if (entries == 0) {
         return -1;
     } else if (dev->entry_table[entry] == 0) {
@@ -161,22 +161,25 @@ fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_dir
 
     def current_offset: u32 = sizeof(k_fs_entry_header_t) + entry_offset * sizeof(k_fs_directory_entry_t);
     def local_offset: u32 = current_offset;
-    def sector_size = dev->vol_hdr->sector_size;
+    def sector_size: u16 = (dev->vol_hdr).sector_size;
 
     while (local_offset >= sector_size) {
         entry = dev->entry_table[entry];
-        local_offset -= sector_size;
+        local_offset = local_offset - sector_size;
         if (!k_fs_entry_valid(entry)) {
             return -1;
         }
     }
 
     def current_value: u32 = 0;
-    def overall_size = header.payload_size + sizeof(k_fs_entry_header_t);
+    def overall_size: u32 = header.payload_size + sizeof(k_fs_entry_header_t);
 
     while (current_value < *entry_size && current_offset < overall_size) {
-        entries[current_value] =
+        //entries[current_value] =
+        return -1; // TODO - Finish here
     }
+
+    return -1; // TODO - Finish here
 }
 
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {
