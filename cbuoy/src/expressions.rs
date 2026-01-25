@@ -292,8 +292,7 @@ impl Expression for DereferenceExpression {
             Ok(dt.as_ref().clone())
         } else {
             Err(self
-                .base
-                .get_token()
+                .token
                 .clone()
                 .into_err("cannot dereference a non-pointer type"))
         }
