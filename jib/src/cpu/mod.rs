@@ -645,6 +645,11 @@ impl Processor {
         Ok(())
     }
 
+    pub fn memory_set_range(&mut self, address: u32, vals: &[u8]) -> Result<(), ProcessorError> {
+        self.memory.set_range(address, vals)?;
+        Ok(())
+    }
+
     pub fn memory_inspect(&self, address: u32) -> Result<u8, ProcessorError> {
         Ok(self.memory.inspect(address)?)
     }

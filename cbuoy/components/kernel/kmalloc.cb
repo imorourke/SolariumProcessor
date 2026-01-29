@@ -2,7 +2,6 @@
 #define K_MALLOC
 
 #include kconfig.cb
-#include kserialio.cb
 
 struct mem_val_t {
     size: u32;
@@ -135,22 +134,6 @@ fn k_free(ptr: *u8) void {
     }
     if (block == K_MEM_ROOT) {
         K_MEM_ROOT = 0;
-    }
-}
-
-fn k_heap_print() void {
-    if (K_MEM_ROOT == 0) {
-        k_io_print("No Heap Allocations\n");
-    } else {
-        def current: *mem_val_t = K_MEM_ROOT;
-        while (current != 0) {
-            k_io_print("@");
-            k_io_print_uint(current : u32);
-            k_io_print(", ");
-            k_io_print_uint(current->size);
-            k_io_print("\n");
-            current = current->next;
-        }
     }
 }
 

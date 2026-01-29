@@ -20,9 +20,9 @@ pub struct SerialInputOutputDevice {
 impl SerialInputOutputDevice {
     // Define memory size and offset values
     const OFFSET_INPUT_SIZE: u32 = 2;
-    const OFFSET_INPUT_GET: u32 = 3;
+    const OFFSET_INPUT_DATA: u32 = 3;
     const OFFSET_OUTPUT_SIZE: u32 = 4;
-    const OFFSET_OUTPUT_SET: u32 = 5;
+    const OFFSET_OUTPUT_DATA: u32 = 5;
     const OFFSET_INPUT_RESET_IN: u32 = 6;
     const OFFSET_INPUT_RESET_OUT: u32 = 7;
 
@@ -71,8 +71,14 @@ impl SerialInputOutputDevice {
                 Ok((u8::MAX as usize).min(self.input_queue.borrow().len()) as u8)
             }
             Self::OFFSET_OUTPUT_SIZE => Ok((u8::MAX as usize).min(self.output_queue.len()) as u8),
-            Self::OFFSET_OUTPUT_SET => Ok(0),
-            _ => Err(MemorySegmentError::InvalidMemoryAccess(offset)),
+            Self::OFFSET_OUTPUT_DATA
+            | Self::OFFSET_INPUT_RESET_IN
+            | Self::OFFSET_INPUT_RESET_OUT => Ok(0),
+            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow().front() {
+                Some(v) => Ok(*v),
+                None => Ok(0),
+            },
+            _ => Ok(0),
         }
     }
 }
@@ -82,24 +88,18 @@ impl MemorySegment for SerialInputOutputDevice {
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         // Use the offset values to determine the action to take
         match offset {
-            Self::OFFSET_INPUT_GET => match self.input_queue.borrow_mut().pop_front() {
+            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow_mut().pop_front() {
                 Some(v) => Ok(v),
                 None => Ok(0),
             },
-            _ => self.common_get(offset),
+            x => self.common_get(x),
         }
     }
 
     /// Provides the word at the requested memory location without affecting the device state
     fn inspect(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         // Use the offset values to determine the action to take
-        match offset {
-            Self::OFFSET_INPUT_GET => match self.input_queue.borrow().front() {
-                Some(v) => Ok(*v),
-                None => Ok(0),
-            },
-            _ => self.common_get(offset),
-        }
+        self.common_get(offset)
     }
 
     /// Sets the word at the requested memory location with the given data
@@ -112,7 +112,7 @@ impl MemorySegment for SerialInputOutputDevice {
 
         // Extract the offset and match based on the result
         match offset {
-            Self::OFFSET_OUTPUT_SET => {
+            Self::OFFSET_OUTPUT_DATA => {
                 if self.output_queue.len() < self.buffer_size {
                     self.output_queue.push_back(data);
                     Ok(())

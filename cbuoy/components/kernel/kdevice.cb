@@ -5,6 +5,7 @@
 #include kmalloc.cb
 
 const K_DEVICE_SIZE: u32 = 32;
+const K_DEVICE_COUNT: u32 = 128;
 
 const K_DEVICE_ID_SERIALIO: u16 = 1;
 const K_DEVICE_ID_IRQ_CLOCK: u16 = 2;
@@ -16,22 +17,43 @@ struct k_device_t {
     data: *u8;
 }
 
-global K_DEVICE_TABLE: [K_DEVICE_SIZE]k_device_t;
+global K_DEVICE_TABLE: [K_DEVICE_COUNT]k_device_t;
+global K_DEVICE_NUM: u32 = 0;
 
-fn k_device_init() void {
+fn k_device_init(all: u8) void {
+    k_memset(&K_DEVICE_TABLE, 0, sizeof(k_device_t) * K_DEVICE_COUNT);
     def dev: *u8 = K_LOC_DEVICE_START;
     def i: u32 = 0;
-    while (i < K_DEVICE_SIZE) {
+    K_DEVICE_NUM = 0;
+    while (i < K_DEVICE_COUNT) {
         def id: u16 = *(dev : *u16);
         if (id != 0) {
-            K_DEVICE_TABLE[i].slot = i;
-            K_DEVICE_TABLE[i].id = id;
-            K_DEVICE_TABLE[i].data = 0;
+            K_DEVICE_TABLE[K_DEVICE_NUM].slot = i;
+            K_DEVICE_TABLE[K_DEVICE_NUM].id = id;
+            K_DEVICE_TABLE[K_DEVICE_NUM].data = dev;
+            K_DEVICE_NUM = K_DEVICE_NUM + 1;
         } else {
-            k_memset(&K_DEVICE_TABLE[i], 0, sizeof(k_device_t));
+            break;
+        }
+        dev = dev + K_DEVICE_SIZE;
+        i = i + 1;
+    }
+}
+
+fn k_device_first_of_type(type_id: u16) *k_device_t {
+    if (type_id == 0) {
+        return 0;
+    }
+
+    def i: u32 = 0;
+    while (i < K_DEVICE_NUM) {
+        if (K_DEVICE_TABLE[i].id == type_id) {
+            return &(K_DEVICE_TABLE[i]);
         }
         i = i + 1;
     }
+
+    return 0;
 }
 
 #endif // K_DEVICE

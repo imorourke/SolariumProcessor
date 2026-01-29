@@ -53,6 +53,9 @@ fn os_split_args(input: *u8, args: **u8) i32 {
 }
 
 fn os_main() void {
+    k_device_init(0);
+    k_io_init();
+
     k_io_print("Starting C/Buoy OS\n");
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [OS_ARG_SIZE]*u8;

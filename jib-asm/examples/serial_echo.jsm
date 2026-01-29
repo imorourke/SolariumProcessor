@@ -11,7 +11,7 @@
 ldn $sp:u32
 .u32 0x1000
 ldn 13:u32
-.u32 0xA000
+.u32 0xFFFFA000
 
 ; Mark the location to read input values from
 ldi 14:u16 3

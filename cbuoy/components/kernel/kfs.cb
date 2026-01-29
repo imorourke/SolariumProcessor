@@ -1,6 +1,7 @@
 #ifndef KFS
 #define KFS
 
+#include kconfig.cb
 #include kdbg.cb
 #include kmalloc.cb
 #include krtc.cb
@@ -54,9 +55,10 @@ struct k_fs_disk_t {
     vol_hdr: k_fs_vol_header_t;
     entry_table: *u16;
     ctl: *k_fs_disk_control_t;
+    entry_table_dirty: u8;
 }
 
-const DISK_LOC: *u8 = 0xB000;
+const DISK_LOC: *u8 = K_LOC_DEVICE_HD_START;
 
 fn k_fs_disk_move(ctl: *k_fs_disk_control_t, offset: u32) void {
     // Set the control block
@@ -73,6 +75,56 @@ fn k_fs_disk_move(ctl: *k_fs_disk_control_t, offset: u32) void {
 
 fn k_fs_entry_valid(entry: u16) u8 {
     return entry != 0 && entry != K_FS_ENTRY_END;
+}
+
+fn k_fs_data_write(dev: *k_fs_disk_t, disk_offset: u32, data: *u8, size: u32) i32 {
+    def current_size: u32 = 0;
+    def mem_size: u32 = dev->ctl->memory_size;
+
+    while (current_size < size) {
+        def size_to_write: u32 = size - current_size;
+        if (size_to_write > mem_size) {
+            size_to_write = mem_size;
+        }
+
+        if (K_DBG_ENABLED) {
+            k_io_print_uint(current_size);
+            k_io_print("\n");
+        }
+
+        dev->ctl->memory_size = size_to_write;
+        k_fs_disk_move(dev->ctl, disk_offset + current_size);
+        k_memcpy(&dev->ctl->data, data + current_size, size_to_write);
+        dev->ctl->write_segment = 1;
+        current_size = current_size + size_to_write;
+    }
+
+    dev->ctl->memory_size = 0;
+    return 0;
+}
+
+fn k_fs_data_read(dev: *k_fs_disk_t, disk_offset: u32, data: *u8, size: u32) i32 {
+    def current_size: u32 = 0;
+    dev->ctl->memory_size = 0;
+    def mem_size: u32 = dev->ctl->memory_size;
+
+    while (current_size < size) {
+        def size_to_read: u32 = size - current_size;
+        if (size_to_read > mem_size) {
+            size_to_read = mem_size;
+        }
+
+        if (K_DBG_ENABLED) {
+            k_io_print_uint(current_size);
+            k_io_print("\n");
+        }
+
+        k_fs_disk_move(dev->ctl, disk_offset + current_size);
+        k_memcpy(data + current_size, &dev->ctl->data, size_to_read);
+        current_size = current_size + size_to_read;
+    }
+
+    return 0;
 }
 
 fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
@@ -103,30 +155,36 @@ fn k_fs_disk_open(device_num: u32) *k_fs_disk_t {
     def total_size: u32 = sizeof(u16) * (dev->vol_hdr).sector_count;
     dev->entry_table = k_malloc(total_size);
 
-    def current_size: u32 = 0;
-    def table: *u8 = dev->entry_table;
-    def mem_size: u32 = dev->ctl->memory_size;
+    def res: i32 = k_fs_data_read(
+        dev,
+        dev->vol_hdr.sector_size,
+        dev->entry_table : *u8,
+        sizeof(u16) * (dev->vol_hdr).sector_count,
+        );
 
-    if (K_DBG_ENABLED) {
-        k_io_print("Reading entry table\n");
+    if (res != 0) {
+        k_io_print("unable to load data table: ");
+        k_io_print_int(res);
+        k_io_print("\n");
     }
 
-    while (current_size < total_size) {
-        def size_to_read: u32 = total_size - current_size;
-        if (size_to_read > mem_size) {
-            size_to_read = mem_size;
-        }
-
-        if (K_DBG_ENABLED) {
-            k_io_print_uint(current_size);
-            k_io_print("\n");
-        }
-        k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size + current_size);
-        k_memcpy(table + current_size, &dev->ctl->data, size_to_read);
-        current_size = current_size + size_to_read;
-    }
-
+    // Return the device result
     return dev;
+}
+
+fn k_fs_write_disk_table(dev: *k_fs_disk_t) i32 {
+    def res: i32 = k_fs_data_write(
+        dev,
+        dev->vol_hdr.sector_size,
+        dev->entry_table: *u8,
+        sizeof(u16) * dev->vol_hdr.sector_count);
+
+    if (res != 0) {
+        return res;
+    }
+
+    dev->entry_table_dirty = 0;
+    return 0;
 }
 
 fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) i32 {
@@ -137,6 +195,10 @@ fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t)
     dev->ctl->memory_size = 0;
     k_memcpy(header, &dev->ctl->data, sizeof(k_fs_entry_header_t));
     return 0;
+}
+
+fn k_fs_get_dir_entry_by_name(dev: *k_fs_disk_t, name: *u8, entry: *k_fs_directory_entry_t) i32 {
+    return -1;
 }
 
 fn k_fs_read_entry_data(dev: *k_fs_disk_t, header: *k_fs_entry_header_t, entry: u16, data: *u8, size: u32, offset: u32) i32 {
@@ -183,6 +245,9 @@ fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_dir
 }
 
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {
+    if (dev->entry_table_dirty) {
+        k_fs_write_disk_table(dev);
+    }
     k_free(dev->entry_table);
     k_free(dev);
 }

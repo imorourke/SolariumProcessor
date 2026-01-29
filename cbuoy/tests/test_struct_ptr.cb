@@ -1,3 +1,4 @@
+#include <kernel/kdevice.cb>
 #include <kernel/kserialio.cb>
 
 global a: u16 = 255 + 5;
@@ -84,6 +85,9 @@ fn factorial(a: u32) u32 {
 }
 
 fn main() void {
+    k_device_init(0);
+    k_io_init();
+
     k_io_print(TEST_STR);
     k_io_print("\n");
     k_io_print_uint(strlenasm(TEST_STR));

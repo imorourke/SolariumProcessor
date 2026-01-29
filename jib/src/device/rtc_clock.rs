@@ -30,7 +30,7 @@ impl MemorySegment for RtcClockDevice {
                 5 => Ok(time.minute() as u8),
                 6 => Ok(time.second() as u8),
                 7 => Ok((time.timestamp_millis() / 10) as u8),
-                _ => Err(MemorySegmentError::InvalidMemoryAccess(offset)),
+                _ => Ok(0),
             }
         }
     }

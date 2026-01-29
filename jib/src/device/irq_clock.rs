@@ -51,7 +51,7 @@ impl MemorySegment for InterruptClockDevice {
                 let val = mem[index as usize].to_be_bytes();
                 Ok(val[within as usize])
             } else {
-                Err(MemorySegmentError::InvalidMemoryAccess(offset))
+                Ok(0)
             }
         }
     }

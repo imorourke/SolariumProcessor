@@ -32,8 +32,8 @@ jmpri loop
 
 .oper 0x1200
 :func_print_str
-    ldn 13:u16
-    .u16 0xA000
+    ldn 13:u32
+    .u32 0xFFFFA000
     .align
 
     ; Mark the location to write serial values to

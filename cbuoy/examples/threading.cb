@@ -1,3 +1,4 @@
+#include <kernel/kdevice.cb>
 #include <kernel/ktsk.cb>
 #include <kernel/kserialio.cb>
 #include <kernel/kirq.cb>
@@ -26,10 +27,10 @@ fn main_tsk_b() void {
 
 fn main_tsk_c() void {
     while (1) {
-        if (*SERIAL_IN_SIZE != 0) {
+        if (SERIAL_DEV->input_size != 0) {
             asm { "intoff"; }
-            while (*SERIAL_IN_SIZE != 0) {
-                *SERIAL_OUT_LOC = *SERIAL_IN_LOC;
+            while (SERIAL_DEV->input_size != 0) {
+                (SERIAL_DEV->output_data) = (SERIAL_DEV->input_data);
             }
             asm { "inton"; }
         }
@@ -42,6 +43,9 @@ global stack_b: [1024]u8;
 global stack_c: [1024]u8;
 
 fn main() void {
+    k_device_init(0);
+    k_io_init();
+
     k_tsk_init(main_tsk_a, stack_a);
     k_tsk_init(main_tsk_b, stack_b);
     k_tsk_init(main_tsk_c, stack_c);

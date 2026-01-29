@@ -41,6 +41,10 @@ pub static DEFAULT_FILES: &[(&str, &str)] = &[
         include_str!("../components/kernel/kmalloc.cb"),
     ),
     (
+        "kernel/kmalloc_dbg.cb",
+        include_str!("../components/kernel/kmalloc_dbg.cb"),
+    ),
+    (
         "kernel/krtc.cb",
         include_str!("../components/kernel/krtc.cb"),
     ),

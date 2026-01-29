@@ -12,27 +12,37 @@ struct SegmentData {
 }
 
 impl SegmentData {
-    pub fn within(&self, addr: u32) -> bool {
+    fn within(&self, addr: u32) -> bool {
         addr >= self.base && addr < self.top()
     }
 
-    pub fn top(&self) -> u32 {
+    fn top(&self) -> u32 {
         self.base + self.seg.borrow().len()
     }
 
-    pub fn get(&self, addr: u32) -> Result<u8, MemoryError> {
+    fn len(&self) -> u32 {
+        self.seg.borrow().len()
+    }
+
+    fn get(&self, addr: u32) -> Result<u8, MemoryError> {
         let offset = addr - self.base;
         let res = self.seg.borrow().get(offset);
         self.segment_to_memory(res)
     }
 
-    pub fn set(&self, addr: u32, val: u8) -> Result<(), MemoryError> {
+    fn set(&self, addr: u32, val: u8) -> Result<(), MemoryError> {
         let offset = addr - self.base;
         let res = self.seg.borrow_mut().set(offset, val);
         self.segment_to_memory(res)
     }
 
-    pub fn inspect(&self, addr: u32) -> Result<u8, MemoryError> {
+    fn set_range(&self, addr: u32, vals: &[u8]) -> Result<(), MemoryError> {
+        let offset = addr - self.base;
+        let res = self.seg.borrow_mut().set_range(offset, vals);
+        self.segment_to_memory(res)
+    }
+
+    fn inspect(&self, addr: u32) -> Result<u8, MemoryError> {
         let offset = addr - self.base;
         let res = self.seg.borrow().inspect(offset);
         self.segment_to_memory(res)
@@ -136,6 +146,19 @@ impl MemoryMap {
     pub fn set(&mut self, address: u32, val: u8) -> Result<(), MemoryError> {
         let data = self.get_segment(address)?;
         data.set(address, val)
+    }
+
+    pub fn set_range(&mut self, address: u32, vals: &[u8]) -> Result<(), MemoryError> {
+        let end_addr = address + vals.len() as u32;
+        let mut offset = 0;
+        while address + offset < end_addr {
+            let data = self.get_segment(address)?;
+            let end_val = (offset + data.len()).min(vals.len() as u32);
+            let slice_values = &vals[offset as usize..end_val as usize];
+            data.set_range(address + offset, slice_values)?;
+            offset += slice_values.len() as u32;
+        }
+        Ok(())
     }
 
     fn get_segment(&self, address: u32) -> Result<&SegmentData, MemoryError> {

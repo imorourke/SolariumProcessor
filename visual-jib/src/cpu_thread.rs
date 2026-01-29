@@ -2,7 +2,8 @@ use crate::messages::{ThreadToUi, UiToThread};
 use jib::{
     cpu::{Processor, ProcessorError},
     device::{
-        BlockDevice, InterruptClockDevice, ProcessorDevice, RtcClockDevice, SerialInputOutputDevice,
+        BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
+        RtcClockDevice, SerialInputOutputDevice,
     },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
@@ -82,8 +83,11 @@ pub struct CpuState {
 }
 
 impl CpuState {
-    const DEVICE_START_ADDR: u32 = 0xA000;
-    const DEVICE_HD_START_ADDR: u32 = 0xB000;
+    const INIT_MEMORY_SIZE: u32 = 0x40000000;
+    const DEVICE_START_ADDR: u32 = 0xFFFFA000;
+    const DEVICE_HD_START_ADDR: u32 = 0xFFFFB000;
+    const DEVICE_COUNT: usize =
+        ((Self::DEVICE_HD_START_ADDR - Self::DEVICE_START_ADDR) / DEVICE_MEM_SIZE) as usize;
     pub const THREAD_LOOP_MS: u64 = 50;
     const MSGS_PER_LOOP: u64 = 1000;
 
@@ -200,26 +204,28 @@ impl CpuState {
         self.cpu.memory_add_segment(
             INIT_RO_LEN,
             Rc::new(RefCell::new(ReadWriteSegment::new(
-                (Self::DEVICE_START_ADDR - INIT_RO_LEN) as usize,
+                (Self::INIT_MEMORY_SIZE - INIT_RO_LEN) as usize,
             ))),
         )?;
 
-        self.cpu.memory_add_segment(
-            0x10000,
-            Rc::new(RefCell::new(ReadWriteSegment::new(0x10000))),
-        )?;
-
+        let blank_dev = Rc::new(RefCell::new(BlankDevice::default()));
         let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
             self.dev_serial_io.clone(),
             Rc::new(RefCell::new(InterruptClockDevice::default())),
             Rc::new(RefCell::new(RtcClockDevice::default())),
         ];
-        let mut dev_loc = Self::DEVICE_START_ADDR;
 
-        for d in devices {
-            self.cpu.memory_add_segment(dev_loc, d.clone())?;
-            dev_loc += d.borrow().len();
-            self.cpu.device_add(d)?;
+        for i in 0..Self::DEVICE_COUNT {
+            let dev_loc = Self::DEVICE_START_ADDR + (i as u32) * DEVICE_MEM_SIZE;
+
+            let dev = if let Some(d) = devices.get(i) {
+                self.cpu.device_add(d.clone())?;
+                d.clone()
+            } else {
+                blank_dev.clone()
+            };
+
+            self.cpu.memory_add_segment(dev_loc, dev)?;
         }
 
         let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
@@ -238,14 +244,10 @@ impl CpuState {
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 
-        for (i, val) in self.last_code.iter().enumerate() {
-            if i < INIT_RO_LEN as usize {
-                continue;
-            }
-
-            self.cpu.memory_set(i as u32, *val)?;
+        if self.last_code.len() > INIT_RO_LEN as usize {
+            self.cpu
+                .memory_set_range(INIT_RO_LEN, &self.last_code[INIT_RO_LEN as usize..])?;
         }
-
         Ok(())
     }
 
@@ -364,30 +366,6 @@ impl CpuState {
             }
         }
 
-        // Check for serial output
-        let mut char_vec = Vec::new();
-        while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
-            let c = match jib::text::byte_to_character(w) {
-                Ok(v) => v,
-                Err(e) => {
-                    self.tx
-                        .send(ThreadToUi::LogMessage(format!("{e}")))
-                        .unwrap();
-                    '?'
-                }
-            };
-
-            char_vec.push(c);
-        }
-
-        if !char_vec.is_empty() {
-            self.tx
-                .send(ThreadToUi::SerialOutput(
-                    char_vec.into_iter().collect::<String>(),
-                ))
-                .unwrap();
-        }
-
         // Step if required
         if self.running {
             let step_repeat_count = self.multiplier as i64;
@@ -427,6 +405,30 @@ impl CpuState {
         if self.running_prev != self.running {
             self.running_prev = self.running;
             self.tx.send(ThreadToUi::CpuRunning(self.running)).unwrap();
+        }
+
+        // Check for serial output
+        let mut char_vec = Vec::new();
+        while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
+            let c = match jib::text::byte_to_character(w) {
+                Ok(v) => v,
+                Err(e) => {
+                    self.tx
+                        .send(ThreadToUi::LogMessage(format!("{e}")))
+                        .unwrap();
+                    '?'
+                }
+            };
+
+            char_vec.push(c);
+        }
+
+        if !char_vec.is_empty() {
+            self.tx
+                .send(ThreadToUi::SerialOutput(
+                    char_vec.into_iter().collect::<String>(),
+                ))
+                .unwrap();
         }
 
         Ok(())

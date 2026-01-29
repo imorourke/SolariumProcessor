@@ -131,13 +131,13 @@
 .oper 0x3400
 ; Define the location for the serial device
 :dev_serial_loc
-    .u32 0xA000
+    .u32 0xFFFFA000
 
 :dev_clock_loc
-    .u32 0xA022
+    .u32 0xFFFFA022
 
 :dev_clock_int
-    .u32 0xA02A
+    .u32 0xFFFFA02A
 
 :msg_init
 .text "Starting Program..."

@@ -25,11 +25,7 @@ impl DataType {
     ];
 
     pub fn coerced(a: Self, b: Self) -> Self {
-        if a > b {
-            a
-        } else {
-            b
-        }
+        if a > b { a } else { b }
     }
 
     pub fn byte_size(&self) -> usize {

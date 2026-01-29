@@ -25,7 +25,7 @@ impl fmt::Display for MemoryError {
         match self {
             Self::InvalidMemoryAccess(loc) => write!(f, "Invalid Memory Access 0x{loc:08x}"),
             Self::InvalidMemoryWrite(loc, data) => {
-                write!(f, "Invalid Memory Access 0x{loc:08x}[{data}]")
+                write!(f, "Invalid Memory Access 0x{loc:08x} = {data}")
             }
             Self::ReadOnlyMemory(loc) => write!(f, "Read Only Memory 0x{loc:08x}"),
             Self::OverlappingSegment(loc) => write!(f, "Overlapping Segment at 0x{loc:08x}"),
@@ -46,6 +46,17 @@ pub trait MemorySegment {
     /// Provides the word at the requested memory location
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError>;
 
+    /// Provides the range of values at the specified memory location
+    fn get_range(&self, offset: u32, vals: &mut [u8]) -> Result<(), MemorySegmentError> {
+        if !self.within(offset) {
+            return Err(MemorySegmentError::InvalidMemoryAccess(offset));
+        }
+        for (i, x) in vals.iter_mut().enumerate() {
+            *x = self.get(offset + i as u32)?;
+        }
+        Ok(())
+    }
+
     /// Provides the word at the requested memory location without affecting the device state
     fn inspect(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         self.get(offset)
@@ -54,6 +65,17 @@ pub trait MemorySegment {
     /// Sets the word at the requested memory location with the given data
     /// Returns true if the value could be set; otherwise returns false
     fn set(&mut self, offset: u32, val: u8) -> Result<(), MemorySegmentError>;
+
+    /// Sets the word at the provided memory location with the given data values
+    fn set_range(&mut self, offset: u32, vals: &[u8]) -> Result<(), MemorySegmentError> {
+        if !self.within(offset) {
+            return Err(MemorySegmentError::InvalidMemoryAccess(offset));
+        }
+        for (i, x) in vals.iter().enumerate() {
+            self.set(offset + i as u32, *x)?;
+        }
+        Ok(())
+    }
 
     /// Provides the length of the memory segment
     fn len(&self) -> u32;

@@ -1,10 +1,11 @@
-use alloc::vec::Vec;
+use alloc::boxed::Box;
+use alloc::vec;
 
 use super::{MemorySegment, MemorySegmentError};
 
 /// Provides a read-write memory segment type
 pub struct ReadWriteSegment {
-    data: Vec<u8>,
+    data: Box<[u8]>,
 }
 
 impl ReadWriteSegment {
@@ -12,7 +13,7 @@ impl ReadWriteSegment {
     pub fn new(size: usize) -> Self {
         // Create the memory segment
         Self {
-            data: (0..size).map(|_| 0).collect(),
+            data: vec![0; size].into(),
         }
     }
 }
@@ -28,10 +29,21 @@ impl MemorySegment for ReadWriteSegment {
     }
 
     /// Sets the word at the requested memory location with the given data
-    /// Returns true if the value could be set; otherwise returns false
     fn set(&mut self, offset: u32, data: u8) -> Result<(), MemorySegmentError> {
         if self.within(offset) {
             self.data[offset as usize] = data;
+            Ok(())
+        } else {
+            Err(MemorySegmentError::InvalidMemoryAccess(offset))
+        }
+    }
+
+    /// Sets the requested word range at the provided base address
+    fn set_range(&mut self, offset: u32, vals: &[u8]) -> Result<(), MemorySegmentError> {
+        if self.within(offset) && offset + vals.len() as u32 <= self.len() {
+            for (i, v) in vals.iter().enumerate() {
+                self.data[offset as usize + i] = *v;
+            }
             Ok(())
         } else {
             Err(MemorySegmentError::InvalidMemoryAccess(offset))
