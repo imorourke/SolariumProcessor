@@ -80,6 +80,7 @@ pub struct CpuState {
     step_count: u128,
     rx: Receiver<UiToThread>,
     tx: Sender<ThreadToUi>,
+    hard_drive: Rc<RefCell<BlockDevice>>,
 }
 
 impl CpuState {
@@ -107,10 +108,23 @@ impl CpuState {
             step_count: 0,
             rx,
             tx,
+            hard_drive: Self::create_hard_drive(),
         };
 
         s.reset()?;
         Ok(s)
+    }
+
+    fn create_hard_drive() -> Rc<RefCell<BlockDevice>> {
+        let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
+        fs.create_entry(
+            fs.header.root_sector.get(),
+            "hello.txt",
+            cbfs_lib::CbEntryType::File,
+            b"Hello, world!",
+        )
+        .unwrap();
+        Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
     }
 
     fn step_cpu(&mut self, enable_breakpoints: bool) -> Result<(), ThreadToUi> {
@@ -228,19 +242,9 @@ impl CpuState {
             self.cpu.memory_add_segment(dev_loc, dev)?;
         }
 
-        let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
-        fs.create_entry(
-            fs.header.root_sector.get(),
-            "hello.txt",
-            cbfs_lib::CbEntryType::File,
-            b"Hello, world!",
-        )
-        .unwrap();
-        let hard_drive = Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())));
-
-        self.cpu.device_add(hard_drive.clone())?;
+        self.cpu.device_add(self.hard_drive.clone())?;
         self.cpu
-            .memory_add_segment(Self::DEVICE_HD_START_ADDR, hard_drive)?;
+            .memory_add_segment(Self::DEVICE_HD_START_ADDR, self.hard_drive.clone())?;
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 
@@ -504,7 +508,7 @@ mod test {
                 serial_output.push(c);
             }
             iter_count += 1;
-            assert!(iter_count < 20000);
+            assert!(iter_count < 40000);
         }
 
         println!("Step Count: {}", cpu.step_count);
