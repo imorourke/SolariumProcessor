@@ -517,6 +517,7 @@ impl eframe::App for VisualJib {
                     let serial_txt = TextEdit::singleline(&mut self.text_serial_input)
                         .desired_width(ui.available_width())
                         .return_key(Some(RETURN_SHORTCUT))
+                        .code_editor()
                         .show(ui)
                         .response;
 
@@ -535,6 +536,7 @@ impl eframe::App for VisualJib {
                         .show(ui, |ui| {
                             TextEdit::multiline(&mut self.log_serial)
                                 .interactive(false)
+                                .code_editor()
                                 .desired_width(ui.available_width())
                                 .show(ui);
                         });
