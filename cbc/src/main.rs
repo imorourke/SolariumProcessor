@@ -4,7 +4,7 @@ use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preproces
 use clap::Parser;
 use jib_asm::assemble_tokens;
 
-#[derive(Default, Debug, clap::Parser)]
+#[derive(Default, Debug, Parser)]
 #[command(version, about)]
 struct CompilerArguments {
     #[arg()]
