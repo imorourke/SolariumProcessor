@@ -393,7 +393,7 @@ Jib computers, by default, utilize the following character map. This is similar 
 \section{Devices}
 \label{sec:devices}
 
-Devices are memory-mapped in Jib. This means that reading or writing to special regions in memory facilitate the communication with these external devices. In a typical Jib computer, the device region consists of up to 64 devices, starting at memory address \texttt{0xA000}, with each device allocating up to 32 bytes of memory. Not all devices will make use all the available memory slots for a given device. In these cases, a memory exception will be provided if any of these invalid addresses are read from or written to.
+Devices are memory-mapped in Jib. This means that reading or writing to special regions in memory facilitate the communication with these external devices. In a typical Jib computer, the device region consists of up to 64 devices, starting at memory address \texttt{0xFFFFA000}, with each device allocating up to 32 bytes of memory. Not all devices will make use all the available memory slots for a given device. In these cases, a memory exception will be provided if any of these invalid addresses are read from or written to.
 
 \subsection{Serial Input and Output}
 
@@ -464,7 +464,7 @@ Listing \ref{listing:example-infinite-counter} makes use of some additional func
 
 \subsection{Hello World}
 
-Listing  \ref{listing:hello-world} provides a program that will infinitely write "hello, world" to the serial device, expected to be memory-mapped into the Jib at \texttt{0xA000}. This makes use of the \texttt{.loadtext} command, which loads the text, and an additional null-terminator at the end, directly into memory. It also makes use of a print-string function call to handle printing string values to the serial output devices.
+Listing  \ref{listing:hello-world} provides a program that will infinitely write "hello, world" to the serial device, expected to be memory-mapped into the Jib at \texttt{0xFFFFA000}. This makes use of the \texttt{.loadtext} command, which loads the text, and an additional null-terminator at the end, directly into memory. It also makes use of a print-string function call to handle printing string values to the serial output devices.
 
 \lstinputlisting[caption={Infinite "hello, world!" program}, label={listing:hello-world}]{../jib-asm/examples/hello_world.jsm}
 
@@ -472,7 +472,7 @@ Listing  \ref{listing:hello-world} provides a program that will infinitely write
 
 \subsection{Serial Echo}
 
-Listing \ref{listing:serial-echo} provides a serial echo program, which echos any text provided by the default serial input device back out via the serial echo device. This serial device is expected to be provided at the starting location \texttt{0xA000}.
+Listing \ref{listing:serial-echo} provides a serial echo program, which echos any text provided by the default serial input device back out via the serial echo device. This serial device is expected to be provided at the starting location \texttt{0xFFFFA000}.
 
 \lstinputlisting[caption={Serial echo program reads in text characters and immediately outputs via the output device}, label={listing:serial-echo}]{../jib-asm/examples/serial_echo.jsm}
 
