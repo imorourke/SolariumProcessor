@@ -7,6 +7,7 @@ pub enum UiToThread {
     CpuStart,
     CpuStop,
     CpuReset,
+    DiskReset,
     CpuIrq(u8),
     SetCode(AssemblerOutput),
     SerialInput(String),

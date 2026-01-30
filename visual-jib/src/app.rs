@@ -419,9 +419,12 @@ impl eframe::App for VisualJib {
                     });
                 });
 
-                ui.menu_button("Memory", |ui| {
-                    if ui.button("New View").clicked() {
+                ui.menu_button("Devices", |ui| {
+                    if ui.button("Memory View").clicked() {
                         self.open_memory_window();
+                    }
+                    if ui.button("Reset Disk").clicked() {
+                        self.tx_ui.send(UiToThread::DiskReset).unwrap();
                     }
                 });
             });

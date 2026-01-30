@@ -323,6 +323,10 @@ impl CpuState {
                         .send(ThreadToUi::ResponseMemory(base, resp_memory))
                         .unwrap();
                 }
+                UiToThread::DiskReset => {
+                    state.hard_drive = CpuState::create_hard_drive();
+                    state.reset().unwrap();
+                }
             }
 
             Ok(None)
