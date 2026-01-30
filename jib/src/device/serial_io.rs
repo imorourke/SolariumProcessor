@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice};
 
 use crate::{
-    device::DeviceType,
+    device::{DeviceAction, DeviceType},
     memory::{MemorySegment, MemorySegmentError},
 };
 
@@ -14,6 +14,9 @@ pub struct SerialInputOutputDevice {
     input_queue: RefCell<VecDeque<u8>>,
     output_queue: VecDeque<u8>,
     buffer_size: usize,
+    interrupt_char: u8,
+    interrupt_num: u8,
+    interrupt_triggered: bool,
 }
 
 /// Defines constant values for the memory address offsets
@@ -25,6 +28,8 @@ impl SerialInputOutputDevice {
     const OFFSET_OUTPUT_DATA: u32 = 5;
     const OFFSET_INPUT_RESET_IN: u32 = 6;
     const OFFSET_INPUT_RESET_OUT: u32 = 7;
+    const OFFSET_INTERRUPT_NUM: u32 = 8;
+    const OFFSET_INTERRUPT_CHAR: u32 = 9;
 
     /// Constructs a new serial device
     pub fn new(buffer_size: usize) -> SerialInputOutputDevice {
@@ -33,6 +38,9 @@ impl SerialInputOutputDevice {
             input_queue: RefCell::new(VecDeque::new()),
             output_queue: VecDeque::new(),
             buffer_size,
+            interrupt_char: 0,
+            interrupt_num: 0,
+            interrupt_triggered: false,
         }
     }
 
@@ -50,6 +58,9 @@ impl SerialInputOutputDevice {
     pub fn push_input(&mut self, val: u8) -> bool {
         if self.input_queue.borrow().len() < self.buffer_size {
             self.input_queue.borrow_mut().push_back(val);
+            if self.interrupt_char != 0 && val == self.interrupt_char {
+                self.interrupt_triggered = true;
+            }
             true
         } else {
             false
@@ -78,6 +89,8 @@ impl SerialInputOutputDevice {
                 Some(v) => Ok(*v),
                 None => Ok(0),
             },
+            Self::OFFSET_INTERRUPT_NUM => Ok(self.interrupt_num),
+            Self::OFFSET_INTERRUPT_CHAR => Ok(self.interrupt_char),
             _ => Ok(0),
         }
     }
@@ -132,6 +145,14 @@ impl MemorySegment for SerialInputOutputDevice {
                 }
                 Ok(())
             }
+            Self::OFFSET_INTERRUPT_NUM => {
+                self.interrupt_num = data;
+                Ok(())
+            }
+            Self::OFFSET_INTERRUPT_CHAR => {
+                self.interrupt_char = data;
+                Ok(())
+            }
             _ => Err(MemorySegmentError::InvalidMemoryWrite(offset, data)),
         }
     }
@@ -151,5 +172,14 @@ impl MemorySegment for SerialInputOutputDevice {
 impl ProcessorDevice for SerialInputOutputDevice {
     fn device_type(&self) -> DeviceType {
         DeviceType::SerialIO
+    }
+
+    fn on_step(&mut self) -> Option<DeviceAction> {
+        if self.interrupt_triggered && self.interrupt_num != 0 {
+            self.interrupt_triggered = false;
+            Some(DeviceAction::CallInterrupt(self.interrupt_num as u32))
+        } else {
+            None
+        }
     }
 }
