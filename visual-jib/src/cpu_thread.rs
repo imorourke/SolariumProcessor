@@ -67,6 +67,7 @@ impl<T: Clone + PartialEq + Eq, const S: usize> Default for CircularBuffer<T, S>
 
 pub struct CpuState {
     running: bool,
+    running_requested: bool,
     running_prev: bool,
     multiplier: f64,
     #[cfg(not(target_arch = "wasm32"))]
@@ -97,6 +98,7 @@ impl CpuState {
             #[cfg(not(target_arch = "wasm32"))]
             run_thread: true,
             running: false,
+            running_requested: false,
             running_prev: false,
             multiplier: 1.0,
             cpu: Processor::default(),
@@ -266,8 +268,10 @@ impl CpuState {
                         return Ok(Some(e));
                     }
                 }
-                UiToThread::CpuStart => state.running = true,
-                UiToThread::CpuStop => state.running = false,
+                UiToThread::CpuRun(set) => {
+                    state.running = set;
+                    state.running_requested = set;
+                }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::Exit => state.run_thread = false,
                 UiToThread::CpuReset => {
@@ -279,6 +283,10 @@ impl CpuState {
                         return Ok(Some(ThreadToUi::LogMessage(format!(
                             "irq {irq} not triggered"
                         ))));
+                    }
+
+                    if state.running_requested && !state.running && state.cpu.step_devices()? {
+                        state.running = true;
                     }
                 }
                 UiToThread::SetMultiplier(m) => {
@@ -299,13 +307,20 @@ impl CpuState {
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
                 UiToThread::SerialInput(s) => {
-                    for c in s.chars().chain(['\n'; 1]) {
+                    for c in s.chars().chain(['\n']) {
                         match jib::text::character_to_byte(c) {
                             Ok(word) => {
                                 if !state.dev_serial_io.borrow_mut().push_input(word) {
                                     return Ok(Some(ThreadToUi::LogMessage(
                                         "device serial input buffer full".to_string(),
                                     )));
+                                } else {
+                                    if state.running_requested
+                                        && !state.running
+                                        && state.cpu.step_devices()?
+                                    {
+                                        state.running = true;
+                                    }
                                 }
                             }
                             Err(e) => return Ok(Some(ThreadToUi::LogMessage(e.to_string()))),

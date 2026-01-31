@@ -58,7 +58,7 @@ impl SerialInputOutputDevice {
     pub fn push_input(&mut self, val: u8) -> bool {
         if self.input_queue.borrow().len() < self.buffer_size {
             self.input_queue.borrow_mut().push_back(val);
-            if self.interrupt_char != 0 && val == self.interrupt_char {
+            if self.interrupt_char != 0 && val == self.interrupt_char && self.interrupt_num != 0 {
                 self.interrupt_triggered = true;
             }
             true
@@ -175,9 +175,13 @@ impl ProcessorDevice for SerialInputOutputDevice {
     }
 
     fn on_step(&mut self) -> Option<DeviceAction> {
-        if self.interrupt_triggered && self.interrupt_num != 0 {
+        if self.interrupt_triggered {
             self.interrupt_triggered = false;
-            Some(DeviceAction::CallInterrupt(self.interrupt_num as u32))
+            if self.interrupt_num != 0 {
+                Some(DeviceAction::CallInterrupt(self.interrupt_num as u32))
+            } else {
+                None
+            }
         } else {
             None
         }

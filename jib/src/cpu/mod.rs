@@ -694,16 +694,7 @@ impl Processor {
     }
 
     pub fn step(&mut self) -> Result<(), ProcessorError> {
-        // Run the next interrupt if there is an interrupt queued and either:
-        // (1) no interrupt is currently running
-        // (2) the next interrupt has a lower number
-        if let Some(next_interrupt) = self.interrupt_controller.has_interrupt()
-            && self
-                .get_executing_interrupt()?
-                .is_none_or(|x| next_interrupt < x)
-        {
-            self.call_interrupt(next_interrupt.try_into()?, None)?;
-        }
+        self.step_devices()?;
 
         let mut inst_jump = Some(1);
 
@@ -996,8 +987,6 @@ impl Processor {
                 .set(Register::ProgramCounter, pc + jmp_val * 4)?;
         }
 
-        self.step_devices()?;
-
         Ok(())
     }
 
@@ -1013,6 +1002,19 @@ impl Processor {
                 }
             }
         }
+
+        // Run the next interrupt if there is an interrupt queued and either:
+        // (1) no interrupt is currently running
+        // (2) the next interrupt has a lower number
+        triggered |= if let Some(next_interrupt) = self.interrupt_controller.has_interrupt()
+            && self
+                .get_executing_interrupt()?
+                .is_none_or(|x| next_interrupt < x)
+        {
+            self.call_interrupt(next_interrupt.try_into()?, None)?
+        } else {
+            false
+        };
 
         Ok(triggered)
     }

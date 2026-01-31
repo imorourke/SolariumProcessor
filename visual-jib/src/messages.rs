@@ -4,8 +4,7 @@ use jib_asm::AssemblerOutput;
 #[derive(Debug, Clone)]
 pub enum UiToThread {
     CpuStep,
-    CpuStart,
-    CpuStop,
+    CpuRun(bool),
     CpuReset,
     DiskReset,
     CpuIrq(u8),

@@ -54,18 +54,20 @@ fn os_split_args(input: *u8, args: **u8) i32 {
 }
 
 fn os_main() void {
-    k_device_init(0);
-    k_io_init();
-
     k_io_print("Starting C/Buoy OS\n");
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [OS_ARG_SIZE]*u8;
     def valid: u8 = 1;
+    def auto_halt: u8 = 0;
     def disk: *k_fs_disk_t = 0;
     def current_dir: u16 = 0;
 
     while (valid) {
         k_io_print("~> ");
+        if (auto_halt && SERIAL_DEV->input_size == 0) {
+            asm { "halt"; }
+        }
+
         if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
             k_io_print(input_buffer);
             def count: i32 = os_split_args(input_buffer, &arg_buffer);
@@ -97,18 +99,19 @@ fn os_main() void {
                 if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0) {
                     k_io_print("CB/OS v0.1\n");
                     k_io_print("Supported Commands:\n");
-                    k_io_print("  ? / help     -> shows this help command\n");
-                    k_io_print("  date         -> shows the current date/time\n");
-                    k_io_print("  dbg          -> prints current debug output status\n");
-                    k_io_print("  dbg [on/off] -> enables/disables debug output\n");
-                    k_io_print("  mem          -> shows the current heap allocations\n");
-                    k_io_print("  mount        -> mounts the current disk\n");
-                    k_io_print("  umount       -> umounts the current disk\n");
-                    k_io_print("  reset        -> resets the processor\n");
-                    k_io_print("  ls           -> lists entries in the current directory\n");
-                    k_io_print("  pwd          -> prints the current directory\n");
-                    k_io_print("  reset        -> resets the processor\n");
-                    k_io_print("  halt         -> halts the CPU\n");
+                    k_io_print("  ? / help      -> shows this help command\n");
+                    k_io_print("  date          -> shows the current date/time\n");
+                    k_io_print("  dbg           -> prints current debug output status\n");
+                    k_io_print("  dbg [on/off]  -> enables/disables debug output\n");
+                    k_io_print("  mem           -> shows the current heap allocations\n");
+                    k_io_print("  mount         -> mounts the current disk\n");
+                    k_io_print("  umount        -> umounts the current disk\n");
+                    k_io_print("  reset         -> resets the processor\n");
+                    k_io_print("  ls            -> lists entries in the current directory\n");
+                    k_io_print("  pwd           -> prints the current directory\n");
+                    k_io_print("  reset         -> resets the processor\n");
+                    k_io_print("  halt          -> halts the CPU\n");
+                    k_io_print("  halt [on/off] -> turns on/off auto-halt\n");
                 } else if (strcmp(cmd, "ls") == 0) {
                     if (current_dir != 0) {
                         k_io_print("Not implemented\n");
@@ -116,7 +119,17 @@ fn os_main() void {
                         k_io_print("No disk mounted\n");
                     }
                 } else if (strcmp(cmd, "halt") == 0) {
-                    asm { "brk"; }
+                    if (count == 1) {
+                        asm { "brk"; }
+                    } else if (strcmp(arg_buffer[1], "on") == 0) {
+                        auto_halt = 1;
+                    } else if (strcmp(arg_buffer[1], "off") == 0) {
+                        auto_halt = 0;
+                    } else {
+                        k_io_print("Unknown halt command ");
+                        k_io_print(arg_buffer[1]);
+                        k_io_print("\n");
+                    }
                 } else if (strcmp(cmd, "pwd") == 0) {
                     if (current_dir != 0) {
                         k_io_print("/\n");
@@ -200,11 +213,21 @@ fn os_main() void {
 
 global K_OS_THREAD: [4096]u8;
 
+fnint irq_noop() void {}
+
 fn main() void {
+    k_device_init(0);
+    k_io_init();
+
+    SERIAL_DEV->interrupt_num = 2;
+    SERIAL_DEV->interrupt_char = '\n';
+
     k_tsk_init(os_main, K_OS_THREAD);
 
     k_irq_set(1, k_tsk_yield);
     k_clock_configure(1000, 1);
+
+    k_irq_set(2, irq_noop);
 
     k_tsk_main();
     k_cpu_reset();

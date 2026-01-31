@@ -54,7 +54,6 @@ fnint k_tsk_yield() void {
         "ld 14:u32 14";
         "ld 14:u32 14";
         "copy $sp 14";
-        "retint";
     }
 }
 

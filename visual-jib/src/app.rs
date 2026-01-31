@@ -140,7 +140,7 @@ impl Default for VisualJib {
         )
         .compile_cbuoy();
 
-        tx_ui.send(UiToThread::CpuStart).unwrap();
+        tx_ui.send(UiToThread::CpuRun(true)).unwrap();
 
         Self {
             cpu_run_requested: false,
@@ -235,7 +235,7 @@ impl VisualJib {
         Some(Duration::from_millis(if self.cpu_run_requested {
             CpuState::THREAD_LOOP_MS
         } else {
-            1000
+            5000
         }))
     }
 
@@ -426,6 +426,14 @@ impl eframe::App for VisualJib {
                     if ui.button("Reset Disk").clicked() {
                         self.tx_ui.send(UiToThread::DiskReset).unwrap();
                     }
+
+                    ui.menu_button("IRQ", |ui| {
+                        for i in 0..16 {
+                            if ui.button(format!("IRQ{}", i)).clicked() {
+                                self.tx_ui.send(UiToThread::CpuIrq(i)).unwrap();
+                            }
+                        }
+                    });
                 });
             });
 
@@ -438,11 +446,11 @@ impl eframe::App for VisualJib {
                         }
 
                         if ui.button("Start").clicked() {
-                            self.tx_ui.send(UiToThread::CpuStart).unwrap();
+                            self.tx_ui.send(UiToThread::CpuRun(true)).unwrap();
                         }
 
                         if ui.button("Stop").clicked() {
-                            self.tx_ui.send(UiToThread::CpuStop).unwrap();
+                            self.tx_ui.send(UiToThread::CpuRun(false)).unwrap();
                         }
 
                         if ui.button("Reset").clicked() {
