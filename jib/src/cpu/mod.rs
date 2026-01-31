@@ -996,18 +996,25 @@ impl Processor {
                 .set(Register::ProgramCounter, pc + jmp_val * 4)?;
         }
 
-        // Check for any actions
+        self.step_devices()?;
+
+        Ok(())
+    }
+
+    pub fn step_devices(&mut self) -> Result<bool, ProcessorError> {
+        let mut triggered = false;
+
         for dev in self.devices.clone() {
             if let Some(action) = dev.borrow_mut().on_step() {
                 match action {
                     DeviceAction::CallInterrupt(num) => {
-                        self.queue_interrupt(Interrupt::Hardware(num))?;
+                        triggered |= self.queue_interrupt(Interrupt::Hardware(num))?;
                     }
                 }
             }
         }
 
-        Ok(())
+        Ok(triggered)
     }
 
     fn stack_push(&mut self, val: u32) -> Result<(), ProcessorError> {
