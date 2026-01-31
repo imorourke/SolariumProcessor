@@ -423,9 +423,6 @@ impl eframe::App for VisualJib {
                     if ui.button("Memory View").clicked() {
                         self.open_memory_window();
                     }
-                    if ui.button("Reset Disk").clicked() {
-                        self.tx_ui.send(UiToThread::DiskReset).unwrap();
-                    }
 
                     ui.menu_button("IRQ", |ui| {
                         for i in 0..16 {
@@ -434,6 +431,10 @@ impl eframe::App for VisualJib {
                             }
                         }
                     });
+
+                    if ui.button("Reset Disk").clicked() {
+                        self.tx_ui.send(UiToThread::DiskReset).unwrap();
+                    }
                 });
             });
 
@@ -455,10 +456,6 @@ impl eframe::App for VisualJib {
 
                         if ui.button("Reset").clicked() {
                             self.tx_ui.send(UiToThread::CpuReset).unwrap();
-                        }
-
-                        if ui.button("IRQ1").clicked() {
-                            self.tx_ui.send(UiToThread::CpuIrq(1)).unwrap();
                         }
                     });
 
