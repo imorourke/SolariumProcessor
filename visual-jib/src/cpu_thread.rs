@@ -126,6 +126,16 @@ impl CpuState {
             b"Hello, world!",
         )
         .unwrap();
+        let root_dir = fs
+            .create_entry(
+                fs.header.root_sector.get(),
+                "root",
+                cbfs_lib::CbEntryType::Directory,
+                &[],
+            )
+            .unwrap();
+        fs.create_entry(root_dir, "version", cbfs_lib::CbEntryType::File, b"CB/OS")
+            .unwrap();
         Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
     }
 
@@ -224,11 +234,11 @@ impl CpuState {
             ))),
         )?;
 
-        let blank_dev = Rc::new(RefCell::new(BlankDevice::default()));
+        let blank_dev = Rc::new(RefCell::new(BlankDevice));
         let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
             self.dev_serial_io.clone(),
             Rc::new(RefCell::new(InterruptClockDevice::default())),
-            Rc::new(RefCell::new(RtcClockDevice::default())),
+            Rc::new(RefCell::new(RtcClockDevice)),
         ];
 
         for i in 0..Self::DEVICE_COUNT {
@@ -314,13 +324,11 @@ impl CpuState {
                                     return Ok(Some(ThreadToUi::LogMessage(
                                         "device serial input buffer full".to_string(),
                                     )));
-                                } else {
-                                    if state.running_requested
-                                        && !state.running
-                                        && state.cpu.step_devices()?
-                                    {
-                                        state.running = true;
-                                    }
+                                } else if state.running_requested
+                                    && !state.running
+                                    && state.cpu.step_devices()?
+                                {
+                                    state.running = true;
                                 }
                             }
                             Err(e) => return Ok(Some(ThreadToUi::LogMessage(e.to_string()))),
