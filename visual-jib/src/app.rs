@@ -537,6 +537,9 @@ impl eframe::App for VisualJib {
                     }
 
                     ui.heading("Serial Log");
+                    if ui.button("Clear").clicked() {
+                        self.log_serial = String::new();
+                    }
                     ScrollArea::vertical()
                         .id_salt("serial_log")
                         .stick_to_bottom(true)
