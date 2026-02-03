@@ -362,6 +362,7 @@ impl CpuState {
                     state.hard_drive = CpuState::create_hard_drive();
                     state.reset().unwrap();
                 }
+                #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
                     let fs =
                         cbfs_lib::CbFileSystem::read_from_bytes(&state.hard_drive.borrow().data)

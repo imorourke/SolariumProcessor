@@ -7,6 +7,7 @@ pub enum UiToThread {
     CpuRun(bool),
     CpuReset,
     DiskReset,
+    #[cfg(not(target_arch = "wasm32"))]
     DiskSave,
     CpuIrq(u8),
     SetCode(AssemblerOutput),
