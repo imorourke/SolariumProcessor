@@ -187,7 +187,7 @@ fn os_main() void {
                             if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
                                 def entry_hdr: k_fs_entry_header_t;
                                 if (k_fs_read_entry_header(disk, out_entry.base_block, &entry_hdr) == 0) {
-                                    const DATA_SIZE: u32 = 32;
+                                    const DATA_SIZE: u32 = 128;
                                     def run_data: [DATA_SIZE]u8;
                                     def current_size: u32 = 0;
                                     while (current_size < entry_hdr.payload_size) {
