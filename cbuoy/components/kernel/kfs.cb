@@ -241,15 +241,20 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
         *size = entry_hdr.payload_size - offset;
     }
 
+    def data_size: u32 = *size;
     def sector_base: u32 = sector_size * entry;
     def disk_offset: u32 = total_offset;
     def local_offset: u32 = 0;
 
-    while (local_offset < *size) {
-        def copy_size: u32 = *size;
+    while (local_offset < data_size) {
+        def copy_size: u32 = data_size;
         def move_sector: u8 = 0;
         if (copy_size > dev->ctl->memory_size) {
             copy_size = dev->ctl->memory_size;
+        }
+
+        if (local_offset + copy_size > data_size) {
+            copy_size = data_size - local_offset;
         }
 
         if (disk_offset + copy_size > sector_size) {
