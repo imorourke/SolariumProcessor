@@ -169,7 +169,7 @@ fn os_main() void {
                                 } else {
                                     k_io_print("entry '");
                                     k_io_print(arg_buffer[1]);
-                                    k_io_print("' is not a directory entry");
+                                    k_io_print("' is not a directory entry\n");
                                 }
                             } else {
                                 k_io_print("unable to find entry with name '");
@@ -212,7 +212,7 @@ fn os_main() void {
                             } else {
                                 k_io_print("entry '");
                                 k_io_print(arg_buffer[1]);
-                                k_io_print("' is not a file entry");
+                                k_io_print("' is not a file entry\n");
                             }
                         } else {
                             k_io_print("unable to find entry with name '");
