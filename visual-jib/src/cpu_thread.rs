@@ -148,14 +148,6 @@ impl CpuState {
             }
         }
 
-        fs.create_entry(
-            fs.header.root_sector.get(),
-            "os.cb",
-            cbfs_lib::CbEntryType::File,
-            include_bytes!("../../cbuoy/components/os.cb"),
-        )
-        .unwrap();
-
         Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
     }
 
