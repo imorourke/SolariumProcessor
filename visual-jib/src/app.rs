@@ -435,6 +435,11 @@ impl eframe::App for VisualJib {
                     if ui.button("Reset Disk").clicked() {
                         self.tx_ui.send(UiToThread::DiskReset).unwrap();
                     }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if ui.button("Save Disk").clicked() {
+                        self.tx_ui.send(UiToThread::DiskSave).unwrap();
+                    }
                 });
             });
 

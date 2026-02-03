@@ -247,6 +247,105 @@ impl CbFileSystem {
         Ok(fs)
     }
 
+    /// Reads raw data stream into a CBFS file system
+    pub fn read_from_bytes(data: &[u8]) -> Result<CbFileSystem, CbfsError> {
+        Self::read_data_inner(data, false)
+    }
+
+    /// Reads raw data into a CBFS file system
+    fn read_data_inner<T: Read>(mut f: T, sparse: bool) -> Result<CbFileSystem, CbfsError> {
+        let mut header_bytes = [0u8; std::mem::size_of::<CbVolumeHeader>()];
+        f.read_exact(&mut header_bytes)?;
+        let header = CbVolumeHeader::read_from_bytes(&header_bytes).unwrap();
+
+        let sect_size = header.sector_size.get() as usize;
+        let sect_count = header.sector_count.get() as usize;
+
+        let mut fs = if sparse {
+            let mut entries: Box<[u16]> = std::iter::repeat_n(0, sect_count).collect();
+            for v in entries.iter_mut() {
+                let mut n = U16::new_zeroed();
+                f.read_exact(n.as_mut_bytes())?;
+                *v = n.get();
+            }
+
+            let data_size = header.data_sector_size() as usize;
+            let mut fs = CbFileSystem {
+                header,
+                entries,
+                data: std::iter::repeat_n(0, data_size).collect(),
+                base_entries: HashSet::new(),
+            };
+
+            let mut num_read_sectors = U16::new_zeroed();
+            f.read_exact(num_read_sectors.as_mut_bytes())?;
+
+            for _ in 0..num_read_sectors.get() {
+                let mut sector_id = U16::new_zeroed();
+                f.read_exact(sector_id.as_mut_bytes())?;
+
+                let mut sector_data = vec![0u8; sect_size];
+                f.read_exact(&mut sector_data)?;
+
+                for (dst, src) in fs
+                    .get_sector_data_mut(sector_id.get())?
+                    .iter_mut()
+                    .zip(sector_data.into_iter())
+                {
+                    *dst = src;
+                }
+            }
+
+            fs
+        } else {
+            let mut throw_data: Box<[u8]> =
+                std::iter::repeat_n(0u8, sect_size - header_bytes.len()).collect();
+            f.read_exact(&mut throw_data)?;
+
+            let mut entries: Box<[u16]> = std::iter::repeat_n(0u16, sect_count).collect();
+            for e in entries.iter_mut() {
+                let mut n = U16::new_zeroed();
+                f.read_exact(n.as_mut_bytes())?;
+                *e = n.get();
+            }
+
+            let entry_size = sect_count * std::mem::size_of::<u16>();
+            let remaining_data = (sect_size - (entry_size % sect_size)) % sect_size;
+
+            if remaining_data > 0 {
+                let mut throw_data = vec![0u8; remaining_data];
+                f.read_exact(&mut throw_data)?;
+            }
+
+            let mut data: Box<[u8]> =
+                std::iter::repeat_n(0u8, header.data_sector_size() as usize).collect();
+            f.read_exact(&mut data)?;
+
+            CbFileSystem {
+                header,
+                entries,
+                data,
+                base_entries: HashSet::new(),
+            }
+        };
+
+        // Perform DFS to read the base/primary node lists
+        let mut entry_stack = vec![fs.header.root_sector.get()];
+        while let Some(e) = entry_stack.pop() {
+            if fs.base_entries.insert(e) {
+                if fs.entry_is_dir(e)? {
+                    for d in fs.directory_listing(e)? {
+                        entry_stack.push(d.base_block.get());
+                    }
+                }
+            } else {
+                panic!("duplicate file mapping provided!");
+            }
+        }
+
+        Ok(fs)
+    }
+
     /// Opens a filesystem disk image and loads into memory
     pub fn open(path: &Path) -> Result<(CbFileHeader, Self), CbfsError> {
         let mut f = std::fs::File::open(path)?;
@@ -256,103 +355,10 @@ impl CbFileSystem {
         let file_header = CbFileHeader::read_from_bytes(&file_header_bytes).unwrap();
         file_header.check_data()?;
 
-        fn read_inner<T: Read>(mut f: T, sparse: bool) -> Result<CbFileSystem, CbfsError> {
-            let mut header_bytes = [0u8; std::mem::size_of::<CbVolumeHeader>()];
-            f.read_exact(&mut header_bytes)?;
-            let header = CbVolumeHeader::read_from_bytes(&header_bytes).unwrap();
-
-            let sect_size = header.sector_size.get() as usize;
-            let sect_count = header.sector_count.get() as usize;
-
-            let mut fs = if sparse {
-                let mut entries: Box<[u16]> = std::iter::repeat_n(0, sect_count).collect();
-                for v in entries.iter_mut() {
-                    let mut n = U16::new_zeroed();
-                    f.read_exact(n.as_mut_bytes())?;
-                    *v = n.get();
-                }
-
-                let data_size = header.data_sector_size() as usize;
-                let mut fs = CbFileSystem {
-                    header,
-                    entries,
-                    data: std::iter::repeat_n(0, data_size).collect(),
-                    base_entries: HashSet::new(),
-                };
-
-                let mut num_read_sectors = U16::new_zeroed();
-                f.read_exact(num_read_sectors.as_mut_bytes())?;
-
-                for _ in 0..num_read_sectors.get() {
-                    let mut sector_id = U16::new_zeroed();
-                    f.read_exact(sector_id.as_mut_bytes())?;
-
-                    let mut sector_data = vec![0u8; sect_size];
-                    f.read_exact(&mut sector_data)?;
-
-                    for (dst, src) in fs
-                        .get_sector_data_mut(sector_id.get())?
-                        .iter_mut()
-                        .zip(sector_data.into_iter())
-                    {
-                        *dst = src;
-                    }
-                }
-
-                fs
-            } else {
-                let mut throw_data: Box<[u8]> =
-                    std::iter::repeat_n(0u8, sect_size - header_bytes.len()).collect();
-                f.read_exact(&mut throw_data)?;
-
-                let mut entries: Box<[u16]> = std::iter::repeat_n(0u16, sect_count).collect();
-                for e in entries.iter_mut() {
-                    let mut n = U16::new_zeroed();
-                    f.read_exact(n.as_mut_bytes())?;
-                    *e = n.get();
-                }
-
-                let entry_size = sect_count * std::mem::size_of::<u16>();
-                let remaining_data = (sect_size - (entry_size % sect_size)) % sect_size;
-
-                if remaining_data > 0 {
-                    let mut throw_data = vec![0u8; remaining_data];
-                    f.read_exact(&mut throw_data)?;
-                }
-
-                let mut data: Box<[u8]> =
-                    std::iter::repeat_n(0u8, header.data_sector_size() as usize).collect();
-                f.read_exact(&mut data)?;
-
-                CbFileSystem {
-                    header,
-                    entries,
-                    data,
-                    base_entries: HashSet::new(),
-                }
-            };
-
-            // Perform DFS to read the base/primary node lists
-            let mut entry_stack = vec![fs.header.root_sector.get()];
-            while let Some(e) = entry_stack.pop() {
-                if fs.base_entries.insert(e) {
-                    if fs.entry_is_dir(e)? {
-                        for d in fs.directory_listing(e)? {
-                            entry_stack.push(d.base_block.get());
-                        }
-                    }
-                } else {
-                    panic!("duplicate file mapping provided!");
-                }
-            }
-
-            Ok(fs)
-        }
-
         let fs = if file_header.is_compressed() {
             #[cfg(feature = "gzip")]
             {
-                read_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())?
+                Self::read_data_inner(flate2::read::GzDecoder::new(f), file_header.is_sparse())?
             }
             #[cfg(not(feature = "gzip"))]
             {
@@ -361,7 +367,7 @@ impl CbFileSystem {
                 ));
             }
         } else {
-            read_inner(f, file_header.is_sparse())?
+            Self::read_data_inner(f, file_header.is_sparse())?
         };
 
         Ok((file_header, fs))

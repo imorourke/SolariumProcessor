@@ -362,6 +362,13 @@ impl CpuState {
                     state.hard_drive = CpuState::create_hard_drive();
                     state.reset().unwrap();
                 }
+                UiToThread::DiskSave => {
+                    let fs =
+                        cbfs_lib::CbFileSystem::read_from_bytes(&state.hard_drive.borrow().data)
+                            .unwrap();
+                    fs.write_fs_to_file(std::path::Path::new("hd.cbfs"), false, false)
+                        .unwrap();
+                }
             }
 
             Ok(None)

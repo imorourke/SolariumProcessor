@@ -10,7 +10,7 @@ use crate::{
 type BlockSyncFunc = dyn Fn(&[u8]) -> bool;
 
 pub struct BlockDevice {
-    data: Vec<u8>,
+    pub data: Vec<u8>,
     current_offset: u32,
     target_offset: u32,
     parked: bool,
