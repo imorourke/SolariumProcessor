@@ -214,10 +214,19 @@ fn k_fs_read_entry_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_hea
 fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32) i32 {
     if (!k_fs_entry_valid(entry)) {
         *size = 0;
+        k_io_print("\nInvalid Entry: ");
+        k_io_print_uint(entry);
+        k_io_print("\n");
         return -1;
     }
 
     dev->ctl->memory_size = 0;
+
+    def entry_hdr: k_fs_entry_header_t;
+    if (k_fs_read_entry_header(dev, entry, &entry_hdr) != 0) {
+        *size = 0;
+        return -1;
+    }
 
     def sector_size: u32 = dev->vol_hdr.sector_size;
     def total_offset: u32 = offset + sizeof(k_fs_entry_header_t);
@@ -228,13 +237,6 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
             return -1;
         }
         total_offset = total_offset - sector_size;
-    }
-
-    def entry_hdr: k_fs_entry_header_t;
-
-    if (k_fs_read_entry_header(dev, entry, &entry_hdr) != 0) {
-        *size = 0;
-        return -1;
     }
 
     if (offset + *size > entry_hdr.payload_size) {
