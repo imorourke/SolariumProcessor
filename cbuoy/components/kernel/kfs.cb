@@ -7,6 +7,8 @@
 #include krtc.cb
 #include kserialio.cb
 
+#include <std/string.cb>
+
 const K_FS_ENTRY_END: u16 = 0xFFFF;
 
 const K_FS_VOL_NAME_LEN: u32 = 16;
@@ -21,7 +23,6 @@ struct k_fs_vol_header_t {
     sector_count: u16;
     volume_name: [K_FS_VOL_NAME_LEN]u8;
     root_sector: u16;
-    //padding[40]u8
 }
 
 struct k_fs_directory_entry_t {
@@ -75,6 +76,19 @@ fn k_fs_disk_move(ctl: *k_fs_disk_control_t, offset: u32) void {
 
 fn k_fs_entry_valid(entry: u16) u8 {
     return entry != 0 && entry != K_FS_ENTRY_END;
+}
+
+fn k_fs_next_sector(dev: *k_fs_disk_t, entry: u16) u16 {
+    if (!k_fs_entry_valid(entry)) {
+        return 0;
+    }
+
+    def next: u16 = dev->entry_table[entry];
+    if (k_fs_entry_valid(next)) {
+        return next;
+    } else {
+        return 0;
+    }
 }
 
 fn k_fs_data_write(dev: *k_fs_disk_t, disk_offset: u32, data: *u8, size: u32) i32 {
@@ -187,8 +201,8 @@ fn k_fs_write_disk_table(dev: *k_fs_disk_t) i32 {
     return 0;
 }
 
-fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) i32 {
-    if (dev->entry_table[entry] == 0) {
+fn k_fs_read_entry_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t) i32 {
+    if (!k_fs_entry_valid(entry)) {
         return -1;
     }
     k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size * entry);
@@ -197,12 +211,69 @@ fn k_fs_read_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_header_t)
     return 0;
 }
 
-fn k_fs_get_dir_entry_by_name(dev: *k_fs_disk_t, name: *u8, entry: *k_fs_directory_entry_t) i32 {
-    return -1;
-}
+fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32) i32 {
+    if (!k_fs_entry_valid(entry)) {
+        *size = 0;
+        return -1;
+    }
 
-fn k_fs_read_entry_data(dev: *k_fs_disk_t, header: *k_fs_entry_header_t, entry: u16, data: *u8, size: u32, offset: u32) i32 {
-    return -1;
+    dev->ctl->memory_size = 0;
+
+    def sector_size: u32 = dev->vol_hdr.sector_size;
+    def total_offset: u32 = offset + sizeof(k_fs_entry_header_t);
+    while (total_offset >= sector_size) {
+        entry = k_fs_next_sector(dev, entry);
+        if (entry == 0) {
+            *size = 0;
+            return -1;
+        }
+        total_offset = total_offset - sector_size;
+    }
+
+    def entry_hdr: k_fs_entry_header_t;
+
+    if (k_fs_read_entry_header(dev, entry, &entry_hdr) != 0) {
+        *size = 0;
+        return -1;
+    }
+
+    if (offset + *size > entry_hdr.payload_size) {
+        *size = entry_hdr.payload_size - offset;
+    }
+
+    def sector_base: u32 = sector_size * entry;
+    def disk_offset: u32 = total_offset;
+    def local_offset: u32 = 0;
+
+    while (local_offset < *size) {
+        def copy_size: u32 = *size;
+        def move_sector: u8 = 0;
+        if (copy_size > dev->ctl->memory_size) {
+            copy_size = dev->ctl->memory_size;
+        }
+
+        if (disk_offset + copy_size > sector_size) {
+            copy_size = sector_size - disk_offset;
+            move_sector = 1;
+        }
+
+        k_fs_disk_move(dev->ctl, sector_base + disk_offset);
+
+        k_memcpy(data + local_offset, &dev->ctl->data, copy_size);
+        local_offset = local_offset + copy_size;
+        disk_offset = disk_offset + copy_size;
+
+        if (move_sector) {
+            disk_offset = disk_offset - sector_size;
+            entry = k_fs_next_sector(dev, entry);
+            if (entry == 0) {
+                return -1;
+            }
+            sector_base = sector_size * entry;
+        }
+    }
+
+    return 0;
 }
 
 fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_directory_entry_t, entry_size: *u32, entry_offset: u32) i32 {
@@ -215,33 +286,66 @@ fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_dir
     }
 
     def header: k_fs_entry_header_t;
-    if (k_fs_read_header(dev, entry, &header) != 0) {
+    if (k_fs_read_entry_header(dev, entry, &header) != 0) {
         return -1;
     } else if (header.entry_type != K_FS_ENTRY_TYPE_DIR) {
         return -1;
     }
 
-    def current_offset: u32 = sizeof(k_fs_entry_header_t) + entry_offset * sizeof(k_fs_directory_entry_t);
-    def local_offset: u32 = current_offset;
-    def sector_size: u16 = (dev->vol_hdr).sector_size;
+    def total_size: u32 = header.payload_size / sizeof(k_fs_directory_entry_t);
+    if (entry_offset >= total_size) {
+        *entry_size = 0;
+        return 0;
+    }
+    total_size = total_size - entry_offset;
 
-    while (local_offset >= sector_size) {
-        entry = dev->entry_table[entry];
-        local_offset = local_offset - sector_size;
-        if (!k_fs_entry_valid(entry)) {
-            return -1;
+
+    def byte_offset: u32 = entry_offset * sizeof(k_fs_directory_entry_t);
+    def allowed_size: u32 = *entry_size;
+    if (total_size < allowed_size) {
+        *entry_size = total_size;
+        allowed_size = total_size;
+    }
+
+    def read_size: u32 = allowed_size * sizeof(k_fs_directory_entry_t);
+    return k_fs_read_entry_data(dev, entry, entries, &read_size, byte_offset);
+}
+
+fn k_fs_get_dir_entry_by_name(dev: *k_fs_disk_t, parent: u16, name: *u8, entry: *k_fs_directory_entry_t) i32 {
+    def offset: u32 = 0;
+    def entry_size: u32 = 1;
+    def tmp: k_fs_directory_entry_t;
+    def tmp_name: [K_FS_ENTRY_NAME_LEN + 1]u8;
+    k_memset(&tmp_name, 0, K_FS_ENTRY_NAME_LEN + 1);
+
+    while ((k_fs_read_directory_entries(dev, parent, &tmp, &entry_size, offset) == 0) && (entry_size > 0)) {
+        k_memcpy(&tmp_name, &tmp.name, K_FS_ENTRY_NAME_LEN);
+        if (strcmp(name, &tmp_name) == 0) {
+            *entry = tmp;
+            return 0;
         }
+
+        offset = offset + 1;
     }
 
-    def current_value: u32 = 0;
-    def overall_size: u32 = header.payload_size + sizeof(k_fs_entry_header_t);
+    return -1;
+}
 
-    while (current_value < *entry_size && current_offset < overall_size) {
-        //entries[current_value] =
-        return -1; // TODO - Finish here
+fn k_fs_get_dir_entry_by_id(dev: *k_fs_disk_t, parent: u16, base_block: u16, entry: *k_fs_directory_entry_t) i32 {
+    def offset: u32 = 0;
+    def entry_size: u32 = 1;
+    def tmp: k_fs_directory_entry_t;
+
+    while ((k_fs_read_directory_entries(dev, parent, &tmp, &entry_size, offset) == 0) && (entry_size > 0)) {
+        if (tmp.base_block == base_block) {
+            *entry = tmp;
+            return 0;
+        }
+
+        offset = offset + 1;
     }
 
-    return -1; // TODO - Finish here
+    return -1;
 }
 
 fn k_fs_disk_close(dev: *k_fs_disk_t) void {

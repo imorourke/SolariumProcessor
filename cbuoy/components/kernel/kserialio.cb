@@ -30,6 +30,10 @@ fn k_io_init() void {
     }
 }
 
+fn k_io_put(c: u8) void {
+    SERIAL_DEV->output_data = c;
+}
+
 #ifdef K_SERIAL_IO_CBUOY_PRINT
 fn k_io_print_intf(out_dev: *u8, c: *u8) void {
     while (*c != 0) {
