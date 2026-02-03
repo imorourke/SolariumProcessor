@@ -136,6 +136,26 @@ impl CpuState {
             .unwrap();
         fs.create_entry(root_dir, "version", cbfs_lib::CbEntryType::File, b"CB/OS")
             .unwrap();
+        let src = fs
+            .create_entry(root_dir, "src", cbfs_lib::CbEntryType::Directory, &[])
+            .unwrap();
+
+        for (path, code) in cbuoy::DEFAULT_FILES.iter().cloned() {
+            let name = path.split('/').last().unwrap();
+            if name.len() < cbfs_lib::CbDirectoryEntry::NAME_SIZE {
+                fs.create_entry(src, name, cbfs_lib::CbEntryType::File, code.as_bytes())
+                    .unwrap();
+            }
+        }
+
+        fs.create_entry(
+            fs.header.root_sector.get(),
+            "os.cb",
+            cbfs_lib::CbEntryType::File,
+            include_bytes!("../../cbuoy/components/os.cb"),
+        )
+        .unwrap();
+
         Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
     }
 
