@@ -283,6 +283,75 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
     return 0;
 }
 
+fn k_fs_next_free_entry(dev: *k_fs_disk_t) u16 {
+    def i: u32 = 0;
+    def sc: u32 = dev->vol_hdr.sector_count;
+    while (i < sc) {
+        if (dev->entry_table[i] == 0) {
+            return i : u16;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn k_fs_set_entry_size(dev: *k_fs_disk_t, entry: u16, hdr: *k_fs_entry_header_t) i32 {
+    def required_sectors: u32 = hdr->payload_size / dev->vol_hdr.sector_size;
+    if (hdr->payload_size % dev->vol_hdr.sector_size != 0) {
+        required_sectors = required_sectors + 1;
+    }
+
+    def i: u32 = 0;
+    def sector: u16 = entry;
+
+    while ((i + 1) < required_sectors) {
+        if (dev->entry_table[sector] == K_FS_ENTRY_END) {
+            def next: u16 = k_fs_next_free_entry(dev);
+            if (next == 0) {
+                k_io_print("disk full!\n");
+                return -1;
+            }
+            dev->entry_table[sector] = next;
+            dev->entry_table_dirty = 1;
+            dev->entry_table[next] = K_FS_ENTRY_END;
+        }
+        sector = dev->entry_table[sector];
+        i = i + 1;
+    }
+
+    def remaining_start: u16 = dev->entry_table[sector];
+    dev->entry_table[sector] = K_FS_ENTRY_END;
+    sector = remaining_start;
+
+    while (sector != K_FS_ENTRY_END) {
+        def next: u16 = dev->entry_table[sector];
+        dev->entry_table[sector] = 0;
+        sector = next;
+    }
+
+    return 0;
+}
+
+fn k_fs_write_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: u32, offset: u32) i32 {
+    if (!k_fs_entry_valid(entry)) {
+        k_io_print("\nInvalid Entry: ");
+        k_io_print_uint(entry);
+        k_io_print("\n");
+        return -1;
+    }
+
+    def entry_hdr: k_fs_entry_header_t;
+    if (k_fs_read_entry_header(dev, entry, &entry_hdr) != 0) {
+        return -1;
+    }
+
+    if (offset + size > entry_hdr.payload_size) {
+        return -1;
+    }
+
+    return -1;
+}
+
 fn k_fs_read_directory_entries(dev: *k_fs_disk_t, entry: u16, entries: *k_fs_directory_entry_t, entry_size: *u32, entry_offset: u32) i32 {
     if (entries == 0) {
         return -1;
