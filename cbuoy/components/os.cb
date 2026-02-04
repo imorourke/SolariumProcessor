@@ -7,6 +7,7 @@
 #include <kernel/kdbg.cb>
 #include <kernel/kirq.cb>
 #include <kernel/kclock.cb>
+#include <kernel/kshell.cb>
 #include <kernel/krtc.cb>
 #include <std/list.cb>
 #include <std/string.cb>
@@ -58,13 +59,12 @@ fn os_main() void {
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [OS_ARG_SIZE]*u8;
     def valid: u8 = 1;
-    def auto_halt: u8 = 0;
-    def disk: *k_fs_disk_t = 0;
-    def current_dir: u16 = 0;
+    def sh_state: k_shell_state_t;
+    k_memset(&sh_state, 0, sizeof(k_shell_state_t));
 
     while (valid) {
         k_io_print("~> ");
-        if (auto_halt && SERIAL_DEV->input_size == 0) {
+        if (sh_state.auto_halt && SERIAL_DEV->input_size == 0) {
             asm { "halt"; }
         }
 
@@ -96,258 +96,41 @@ fn os_main() void {
                     k_io_print("\n");
                 }
 
+                def sh_fn: fn(*k_shell_state_t,**u8,u32) i32 = 0;
+
                 if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0) {
-                    k_io_print("CB/OS v0.1\n");
-                    k_io_print("Supported Commands:\n");
-                    k_io_print("  ? / help      -> shows this help command\n");
-                    k_io_print("  date          -> shows the current date/time\n");
-                    k_io_print("  dbg           -> prints current debug output status\n");
-                    k_io_print("  dbg [on/off]  -> enables/disables debug output\n");
-                    k_io_print("  mem           -> shows the current heap allocations\n");
-                    k_io_print("  mount         -> mounts the current disk\n");
-                    k_io_print("  umount        -> umounts the current disk\n");
-                    k_io_print("  reset         -> resets the processor\n");
-                    k_io_print("  pwd           -> prints the current directory\n");
-                    k_io_print("  ls            -> lists entries in the current directory\n");
-                    k_io_print("  cat [file]    -> pipes the contents of the file into serial output\n");
-                    k_io_print("  cd [file]     -> changes directory to the provided folder\n");
-                    k_io_print("                   or parent directory if '..' provided\n");
-                    k_io_print("  reset         -> resets the processor\n");
-                    k_io_print("  halt          -> halts the CPU\n");
-                    k_io_print("  halt [on/off] -> turns on/off auto-halt\n");
+                    sh_fn = k_shell_fn_help;
                 } else if (strcmp(cmd, "ls") == 0) {
-                    if (current_dir != 0) {
-                        def test_entries: [10]k_fs_directory_entry_t;
-                        def test_entry_size: u32 = 10;
-                        def res: i32 = k_fs_read_directory_entries(disk, current_dir, &test_entries, &test_entry_size, 0);
-                        if (res == 0) {
-                            def ii: u32 = 0;
-                            def name_tmp: [K_FS_ENTRY_NAME_LEN+1]u8;
-                            k_memset(&name_tmp, 0, K_FS_ENTRY_NAME_LEN + 1);
-                            while (ii < test_entry_size) {
-                                def ent: *k_fs_directory_entry_t = &test_entries[ii];
-                                k_memcpy(&name_tmp, &(ent->name), K_FS_ENTRY_NAME_LEN);
-                                if (ent->entry_type == K_FS_ENTRY_TYPE_FILE) {
-                                    k_io_print("f: ");
-                                    k_io_print(name_tmp);
-                                    k_io_print("\n");
-                                } else if (ent->entry_type == K_FS_ENTRY_TYPE_DIR) {
-                                    k_io_print("d: ");
-                                    k_io_print(name_tmp);
-                                    k_io_print("/\n");
-                                } else {
-                                    k_io_print("?: ");
-                                    k_io_print(name_tmp);
-                                    k_io_print("\n");
-                                }
-                                ii = ii + 1;
-                            }
-                        } else {
-                            k_io_print("Error getting entries\n  ");
-                            k_io_print_int(res);
-                            k_io_print("\n");
-                        }
-                    } else {
-                        k_io_print("No disk mounted\n");
-                    }
+                    sh_fn = k_shell_fn_ls;
                 } else if (strcmp(cmd, "cd") == 0) {
-                    if (count == 2) {
-                        if (strcmp(arg_buffer[1], "..") == 0) {
-                            def out_entry: k_fs_entry_header_t;
-                            if (current_dir == disk->vol_hdr.root_sector) {
-                                k_io_print("already at root sector\n");
-                            } else if (0 == k_fs_read_entry_header(disk, current_dir, &out_entry)) {
-                                current_dir = out_entry.parent;
-                            } else {
-                                k_io_print("unknown error\n");
-                            }
-                        } else {
-                            def out_entry: k_fs_directory_entry_t;
-                            if (k_fs_get_dir_entry_by_name(disk, current_dir, arg_buffer[1], &out_entry) == 0) {
-                                if (out_entry.entry_type == K_FS_ENTRY_TYPE_DIR) {
-                                    current_dir = out_entry.base_block;
-                                } else {
-                                    k_io_print("entry '");
-                                    k_io_print(arg_buffer[1]);
-                                    k_io_print("' is not a directory entry\n");
-                                }
-                            } else {
-                                k_io_print("unable to find entry with name '");
-                                k_io_print(arg_buffer[1]);
-                                k_io_print("'\n");
-                            }
-                        }
-                    } else {
-                        k_io_print("unexpected number of entries for cd\n");
-                    }
+                    sh_fn = k_shell_fn_cd;
                 } else if (strcmp(cmd, "cat") == 0) {
-                    if (count == 2) {
-                        def out_entry: k_fs_directory_entry_t;
-                        if (k_fs_get_dir_entry_by_name(disk, current_dir, arg_buffer[1], &out_entry) == 0) {
-                            if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
-                                def entry_hdr: k_fs_entry_header_t;
-                                if (k_fs_read_entry_header(disk, out_entry.base_block, &entry_hdr) == 0) {
-                                    const DATA_SIZE: u32 = 128;
-                                    def run_data: [DATA_SIZE]u8;
-                                    def current_size: u32 = 0;
-                                    while (current_size < entry_hdr.payload_size) {
-                                        def read_size: u32 = DATA_SIZE;
-
-                                        if (k_fs_read_entry_data(disk, out_entry.base_block, &run_data, &read_size, current_size) != 0) {
-                                            k_io_print("READ ERROR\n");
-                                            break;
-                                        }
-
-                                        def ii: i32 = 0;
-                                        while (ii < read_size) {
-                                            k_io_put(run_data[ii]);
-                                            ii = ii + 1;
-                                        }
-
-                                        current_size = current_size + read_size;
-                                    }
-                                    k_io_print("\n");
-                                }
-
-                            } else {
-                                k_io_print("entry '");
-                                k_io_print(arg_buffer[1]);
-                                k_io_print("' is not a file entry\n");
-                            }
-                        } else {
-                            k_io_print("unable to find entry with name '");
-                            k_io_print(arg_buffer[1]);
-                            k_io_print("'\n");
-                        }
-                    } else {
-                        k_io_print("unexpected number of entries for cat\n");
-                    }
+                    sh_fn = k_shell_fn_cat;
                 } else if (strcmp(cmd, "halt") == 0) {
-                    if (count == 1) {
-                        asm { "brk"; }
-                    } else if (strcmp(arg_buffer[1], "on") == 0) {
-                        auto_halt = 1;
-                    } else if (strcmp(arg_buffer[1], "off") == 0) {
-                        auto_halt = 0;
-                    } else {
-                        k_io_print("Unknown halt command ");
-                        k_io_print(arg_buffer[1]);
-                        k_io_print("\n");
-                    }
+                    sh_fn = k_shell_fn_halt;
                 } else if (strcmp(cmd, "pwd") == 0) {
-                    if (current_dir != 0) {
-                        def entry_stack: [100]u16;
-                        def entry_count: u32 = 0;
-
-                        def entry_i: u16 = current_dir;
-
-                        while (entry_i != disk->vol_hdr.root_sector) {
-                            def entry_hdr: k_fs_entry_header_t;
-                            if (0 != k_fs_read_entry_header(disk, entry_i, &entry_hdr)) {
-                                k_io_print("error processing folder values\n");
-                                entry_count = 0;
-                                break;
-                            }
-                            entry_stack[entry_count] = entry_i;
-                            entry_count = entry_count + 1;
-                            entry_i = entry_hdr.parent;
-                        }
-                        entry_stack[entry_count] = disk->vol_hdr.root_sector;
-
-                        def name_array: [K_FS_ENTRY_NAME_LEN + 1]u8;
-                        k_memset(&name_array, 0, K_FS_ENTRY_NAME_LEN + 1);
-
-                        if (entry_count > 0) {
-                            while (entry_count != 0) {
-                                k_io_print("/");
-                                def parent: u16 = entry_stack[entry_count];
-                                entry_count = entry_count - 1;
-                                def current: u16 = entry_stack[entry_count];
-
-                                def folder_entry: k_fs_directory_entry_t;
-                                if (k_fs_get_dir_entry_by_id(disk, parent, current, &folder_entry) == 0) {
-                                    k_memcpy(&name_array, &folder_entry.name, K_FS_ENTRY_NAME_LEN);
-                                    k_io_print(&name_array);
-                                } else {
-                                    k_io_print("err::");
-                                    k_io_print("(");
-                                    k_io_print_uint(current);
-                                    k_io_print(":");
-                                    k_io_print_uint(parent);
-                                    k_io_print(")");
-                                }
-                            }
-                        } else {
-                            k_io_print("/");
-                        }
-
-                        k_io_print("\n");
-                    } else {
-                        k_io_print("No disk mounted\n");
-                    }
+                    sh_fn = k_shell_fn_pwd;
                 } else if (strcmp(cmd, "reset") == 0) {
-                    if (disk != 0) {
-                        k_fs_disk_close(disk);
-                        disk = 0;
-                        current_dir = 0;
-                    }
-                    k_cpu_reset();
+                    sh_fn = k_shell_fn_reset;
                 } else if (strcmp(cmd, "date") == 0) {
-                    def dt: k_datetime_t = k_rtc_current();
-                    k_io_print_uint(dt.year);
-                    k_io_print("-");
-                    k_io_print_uint(dt.month);
-                    k_io_print("-");
-                    k_io_print_uint(dt.day + 1);
-                    k_io_print(" ");
-                    k_io_print_uint(dt.hour);
-                    k_io_print(":");
-                    k_io_print_uint(dt.minute);
-                    k_io_print(":");
-                    k_io_print_uint(dt.second);
-                    k_io_print("\n");
+                    sh_fn = k_shell_fn_date;
                 } else if (strcmp(cmd, "mem") == 0) {
-                    k_heap_print();
+                    sh_fn = k_shell_fn_mem;
                 } else if (strcmp(cmd, "mount") == 0) {
-                    if (disk == 0) {
-                        k_io_print("Starting Mount...\n");
-                        disk = k_fs_disk_open(0);
-                        k_io_print("Disk ");
-                        k_io_print("Disk Mounted\n");
-                        k_io_print("  ");
-                        k_io_print_uint((disk->vol_hdr).sector_size : u32);
-                        k_io_print(" # ");
-                        k_io_print_uint((disk->vol_hdr).sector_count : u32);
-                        k_io_print("\n");
-                        current_dir = (disk->vol_hdr).root_sector;
-                    } else {
-                        k_io_print("Disk already mounted\n");
-                    }
+                    sh_fn = k_shell_fn_mount;
                 } else if (strcmp(cmd, "umount") == 0) {
-                    if (disk != 0) {
-                        k_fs_disk_close(disk);
-                        disk = 0;
-                        current_dir = 0;
-                        k_io_print("Disk Unmounted\n");
-                    } else {
-                        k_io_print("Disk Not Mounted\n");
-                    }
+                    sh_fn = k_shell_fn_umount;
                 } else if (strcmp(cmd, "dbg") == 0) {
-                    if (count == 1) {
-                        k_io_print("Debug Output ");
-                        if (K_DBG_ENABLED) {
-                            k_io_print("Enabled");
-                        } else {
-                            k_io_print("Disabled");
-                        }
-                        k_io_print("\n");
-                    } else if (strcmp(arg_buffer[1], "on") == 0) {
-                        K_DBG_ENABLED = 1;
-                    } else if (strcmp(arg_buffer[1], "off") == 0) {
-                        K_DBG_ENABLED = 0;
-                    } else {
-                        k_io_print("Unknown dbg command ");
-                        k_io_print(arg_buffer[1]);
+                    sh_fn = k_shell_fn_dbg;
+                }
+
+                if (sh_fn != 0) {
+                    def res: i32 = sh_fn(&sh_state, &arg_buffer, count);
+                    if (res != 0) {
+                        k_io_print("^! Error running ");
+                        k_io_print(cmd);
+                        k_io_print("\n   Return Code: ");
+                        k_io_print_int(res);
                         k_io_print("\n");
                     }
                 } else {

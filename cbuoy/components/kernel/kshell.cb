@@ -1,0 +1,358 @@
+#ifndef K_SHELL
+#define K_SHELL
+
+#include kdbg.cb
+#include kfs.cb
+#include kmalloc.cb
+#include kserialio.cb
+
+struct k_shell_state_t {
+    cwd: u16; // Current Directory
+    disk: *k_fs_disk_t; // Current Disk
+    auto_halt: u8;
+}
+
+fn k_shell_disk_open(state: *k_shell_state_t) i32 {
+    if (state->disk == 0) {
+        k_io_print("Starting Mount...\n");
+        state->disk = k_fs_disk_open(0);
+        if (state->disk != 0) {
+            k_io_print("Disk ");
+            k_io_print("Disk Mounted\n");
+            k_io_print("  ");
+            k_io_print_uint(state->disk->vol_hdr.sector_size : u32);
+            k_io_print(" # ");
+            k_io_print_uint(state->disk->vol_hdr.sector_count : u32);
+            k_io_print("\n");
+            state->cwd = state->disk->vol_hdr.root_sector;
+            return 0;
+        } else {
+            k_io_print("Error mounting disk\n");
+            return 1;
+        }
+    } else {
+        k_io_print("Disk already mounted\n");
+        return 1;
+    }
+}
+
+fn k_shell_disk_close(state: *k_shell_state_t) i32 {
+    if (state->disk != 0) {
+        k_fs_disk_close(state->disk);
+        state->disk = 0;
+        state->cwd = 0;
+    }
+    return 0;
+}
+
+fn k_shell_fn_help(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    k_io_print("CB/OS v0.1\n");
+    k_io_print("Supported Commands:\n");
+    k_io_print("  ? / help      -> shows this help command\n");
+    k_io_print("  date          -> shows the current date/time\n");
+    k_io_print("  dbg           -> prints current debug output status\n");
+    k_io_print("  dbg [on/off]  -> enables/disables debug output\n");
+    k_io_print("  mem           -> shows the current heap allocations\n");
+    k_io_print("  mount         -> mounts the current disk\n");
+    k_io_print("  umount        -> umounts the current disk\n");
+    k_io_print("  reset         -> resets the processor\n");
+    k_io_print("  pwd           -> prints the current directory\n");
+    k_io_print("  ls            -> lists entries in the current directory\n");
+    k_io_print("  cat [file]    -> pipes the contents of the file into serial output\n");
+    k_io_print("  cd [file]     -> changes directory to the provided folder\n");
+    k_io_print("                   or parent directory if '..' provided\n");
+    k_io_print("  reset         -> resets the processor\n");
+    k_io_print("  halt          -> halts the CPU\n");
+    k_io_print("  halt [on/off] -> turns on/off auto-halt\n");
+    return 0;
+}
+
+fn k_shell_fn_ls(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (state->cwd != 0) {
+        def test_entries: [10]k_fs_directory_entry_t;
+        def test_entry_size: u32 = 10;
+        def res: i32 = k_fs_read_directory_entries(state->disk, state->cwd, &test_entries, &test_entry_size, 0);
+        if (res == 0) {
+            def ii: u32 = 0;
+            def name_tmp: [K_FS_ENTRY_NAME_LEN+1]u8;
+            k_memset(&name_tmp, 0, K_FS_ENTRY_NAME_LEN + 1);
+            while (ii < test_entry_size) {
+                def ent: *k_fs_directory_entry_t = &test_entries[ii];
+                k_memcpy(&name_tmp, &(ent->name), K_FS_ENTRY_NAME_LEN);
+                if (ent->entry_type == K_FS_ENTRY_TYPE_FILE) {
+                    k_io_print("f: ");
+                    k_io_print(name_tmp);
+                    k_io_print("\n");
+                } else if (ent->entry_type == K_FS_ENTRY_TYPE_DIR) {
+                    k_io_print("d: ");
+                    k_io_print(name_tmp);
+                    k_io_print("/\n");
+                } else {
+                    k_io_print("?: ");
+                    k_io_print(name_tmp);
+                    k_io_print("\n");
+                }
+                ii = ii + 1;
+            }
+            return 0;
+        } else {
+            k_io_print("Error getting entries\n  ");
+            k_io_print_int(res);
+            k_io_print("\n");
+            return -1;
+        }
+    } else {
+        k_io_print("No disk mounted\n");
+        return -1;
+    }
+}
+
+fn k_shell_fn_cd(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if ((state : u32 == 0) || (state->disk : u32 == 0) || (state->cwd == 0)) {
+        k_io_print("no valid disk mounted for ");
+        k_io_print(argv[0]);
+        k_io_print("\n");
+        return -1;
+    }
+
+    if (argc < 2) {
+        state->cwd = state->disk->vol_hdr.root_sector;
+        return 0;
+    } else if (argc == 2) {
+        if (strcmp(argv[1], "..") == 0) {
+            def out_entry: k_fs_entry_header_t;
+            if (state->cwd == state->disk->vol_hdr.root_sector) {
+                k_io_print("already at root sector\n");
+            } else if (0 == k_fs_read_entry_header(state->disk, state->cwd, &out_entry)) {
+                state->cwd = out_entry.parent;
+            } else {
+                k_io_print("unknown error\n");
+                return -1;
+            }
+
+            return 0;
+        } else {
+            def out_entry: k_fs_directory_entry_t;
+            if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
+                if (out_entry.entry_type == K_FS_ENTRY_TYPE_DIR) {
+                    state->cwd = out_entry.base_block;
+                } else {
+                    k_io_print("entry '");
+                    k_io_print(argv[1]);
+                    k_io_print("' is not a directory entry\n");
+                    return -2;
+                }
+            } else {
+                k_io_print("unable to find entry with name '");
+                k_io_print(argv[1]);
+                k_io_print("'\n");
+                return -3;
+            }
+        }
+    } else {
+        k_io_print("unexpected number of entries for cd\n");
+    }
+}
+
+fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if ((state : u32 == 0) || (state->disk : u32 == 0) || (state->cwd == 0)) {
+        return -1;
+    }
+
+    if (argc == 2) {
+        def out_entry: k_fs_directory_entry_t;
+        if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
+            if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
+                def entry_hdr: k_fs_entry_header_t;
+                if (k_fs_read_entry_header(state->disk, out_entry.base_block, &entry_hdr) == 0) {
+                    const DATA_SIZE: u32 = 128;
+                    def run_data: [DATA_SIZE]u8;
+                    def current_size: u32 = 0;
+                    while (current_size < entry_hdr.payload_size) {
+                        def read_size: u32 = DATA_SIZE;
+
+                        if (k_fs_read_entry_data(state->disk, out_entry.base_block, &run_data, &read_size, current_size) != 0) {
+                            k_io_print("READ ERROR\n");
+                            break;
+                        }
+
+                        def i: i32 = 0;
+                        while (i < read_size) {
+                            k_io_put(run_data[i]);
+                            i = i + 1;
+                        }
+
+                        current_size = current_size + read_size;
+                    }
+                    k_io_print("\n");
+                }
+
+                return 0;
+            } else {
+                k_io_print("entry '");
+                k_io_print(argv[1]);
+                k_io_print("' is not a file entry\n");
+                return -2;
+            }
+        } else {
+            k_io_print("unable to find entry with name '");
+            k_io_print(argv[1]);
+            k_io_print("'\n");
+            return -3;
+        }
+    } else {
+        k_io_print("unexpected number of entries for ");
+        k_io_print(argv[0]);
+        k_io_print("\n");
+        return -1;
+    }
+}
+
+fn k_shell_fn_pwd(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (state == 0) {
+        return -1;
+    }
+
+    if (state->cwd != 0) {
+        def entry_stack: [100]u16;
+        def entry_count: u32 = 0;
+
+        def entry_i: u16 = state->cwd;
+
+        while (entry_i != state->disk->vol_hdr.root_sector) {
+            def entry_hdr: k_fs_entry_header_t;
+            if (0 != k_fs_read_entry_header(state->disk, entry_i, &entry_hdr)) {
+                k_io_print("error processing folder values\n");
+                entry_count = 0;
+                break;
+            }
+            entry_stack[entry_count] = entry_i;
+            entry_count = entry_count + 1;
+            entry_i = entry_hdr.parent;
+        }
+        entry_stack[entry_count] = state->disk->vol_hdr.root_sector;
+
+        def name_array: [K_FS_ENTRY_NAME_LEN + 1]u8;
+        k_memset(&name_array, 0, K_FS_ENTRY_NAME_LEN + 1);
+
+        if (entry_count > 0) {
+            while (entry_count != 0) {
+                k_io_print("/");
+                def parent: u16 = entry_stack[entry_count];
+                entry_count = entry_count - 1;
+                def current: u16 = entry_stack[entry_count];
+
+                def folder_entry: k_fs_directory_entry_t;
+                if (k_fs_get_dir_entry_by_id(state->disk, parent, current, &folder_entry) == 0) {
+                    k_memcpy(&name_array, &folder_entry.name, K_FS_ENTRY_NAME_LEN);
+                    k_io_print(&name_array);
+                } else {
+                    k_io_print("err::");
+                    k_io_print("(");
+                    k_io_print_uint(current);
+                    k_io_print(":");
+                    k_io_print_uint(parent);
+                    k_io_print(")");
+                }
+            }
+        } else {
+            k_io_print("/");
+        }
+
+        k_io_print("\n");
+        return 0;
+    } else {
+        k_io_print("No disk mounted\n");
+        return -1;
+    }
+}
+
+fn k_shell_fn_reset(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    k_shell_disk_close(state);
+    k_cpu_reset();
+    return 0;
+}
+
+fn k_shell_fn_mount(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (state->disk == 0) {
+        return k_shell_disk_open(state);
+    } else {
+        k_io_print("Disk already mounted\n");
+        return 1;
+    }
+}
+
+fn k_shell_fn_umount(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (state->disk != 0) {
+        def res: i32 = k_shell_disk_close(state);
+        k_io_print("Disk Unmounted\n");
+        return res;
+    } else {
+        k_io_print("Disk Not Mounted\n");
+        return -1;
+    }
+}
+
+fn k_shell_fn_date(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    def dt: k_datetime_t = k_rtc_current();
+    k_io_print_uint(dt.year);
+    k_io_print("-");
+    k_io_print_uint(dt.month);
+    k_io_print("-");
+    k_io_print_uint(dt.day + 1);
+    k_io_print(" ");
+    k_io_print_uint(dt.hour);
+    k_io_print(":");
+    k_io_print_uint(dt.minute);
+    k_io_print(":");
+    k_io_print_uint(dt.second);
+    k_io_print("\n");
+    return 0;
+}
+
+fn k_shell_fn_mem(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    k_heap_print();
+    return 0;
+}
+
+fn k_shell_fn_dbg(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (argc == 1) {
+        k_io_print("Debug Output ");
+        if (K_DBG_ENABLED) {
+            k_io_print("Enabled");
+        } else {
+            k_io_print("Disabled");
+        }
+        k_io_print("\n");
+    } else if (strcmp(argv[1], "on") == 0) {
+        K_DBG_ENABLED = 1;
+    } else if (strcmp(argv[1], "off") == 0) {
+        K_DBG_ENABLED = 0;
+    } else {
+        k_io_print("Unknown dbg command ");
+        k_io_print(argv[1]);
+        k_io_print("\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+fn k_shell_fn_halt(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if (argc == 1) {
+        asm { "brk"; }
+    } else if (strcmp(argv[1], "on") == 0) {
+        state->auto_halt = 1;
+    } else if (strcmp(argv[1], "off") == 0) {
+        state->auto_halt = 0;
+    } else {
+        k_io_print("Unknown halt command ");
+        k_io_print(argv[1]);
+        k_io_print("\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+#endif // K_SHELL

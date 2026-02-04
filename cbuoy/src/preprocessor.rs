@@ -53,6 +53,10 @@ pub static DEFAULT_FILES: &[(&str, &str)] = &[
         include_str!("../components/kernel/kserialio.cb"),
     ),
     (
+        ("kernel/kshell.cb"),
+        include_str!("../components/kernel/kshell.cb"),
+    ),
+    (
         "kernel/ktsk.cb",
         include_str!("../components/kernel/ktsk.cb"),
     ),
