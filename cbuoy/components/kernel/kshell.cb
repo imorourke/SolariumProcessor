@@ -295,17 +295,17 @@ fn k_shell_fn_umount(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
 
 fn k_shell_fn_date(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     def dt: k_datetime_t = k_rtc_current();
-    k_io_print_uint(dt.year);
+    k_io_print_uint_width(dt.year, 4);
     k_io_print("-");
-    k_io_print_uint(dt.month);
+    k_io_print_uint_width(dt.month, 2);
     k_io_print("-");
-    k_io_print_uint(dt.day + 1);
+    k_io_print_uint_width(dt.day + 1, 2);
     k_io_print(" ");
-    k_io_print_uint(dt.hour);
+    k_io_print_uint_width(dt.hour, 2);
     k_io_print(":");
-    k_io_print_uint(dt.minute);
+    k_io_print_uint_width(dt.minute, 2);
     k_io_print(":");
-    k_io_print_uint(dt.second);
+    k_io_print_uint_width(dt.second, 2);
     k_io_print("\n");
     return 0;
 }

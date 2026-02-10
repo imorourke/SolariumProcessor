@@ -49,6 +49,10 @@ fn k_io_print_digit_intf(out_dev: *u8, v: u8) void {
         *out_dev = '?';
     }
 }
+
+fn k_io_digit_to_u8(v: u8) u8 {
+    return '0' + v;
+}
 #else
 asmfn k_io_print_intf(out_dev: *u8, c: *u8) void {
     "push $stat";
@@ -88,6 +92,15 @@ asmfn k_io_print_digit_intf(out_dev: *u8, v: u8) void {
     "sav 11:u8 10";
     "ret";
 }
+
+asmfn k_io_digit_to_u8(v: u8) u8 {
+    "ldi 8:u16 @{v}@";
+    "add 8:u32 $arg 8";
+    "ld 8:u8 8";
+    "ldi 9:u16 '0'";
+    "add $ret:u8 8 9";
+    "ret";
+}
 #endif
 
 fn k_io_print(c: *u8) void {
@@ -99,11 +112,12 @@ fn k_io_print_digit(v: u8) void {
 }
 
 fn k_io_print_uint(v: u32) void {
-    def chars: [12]u8;
-    def cp: *u8 = chars;
+    const CHAR_SIZE: u32 = 12;
+    def chars: [CHAR_SIZE]u8;
     if (v == 0) {
         k_io_print_digit(0);
     } else {
+        def cp: *u8 = chars;
         while (v != 0) {
             *cp = v % 10;
             v = v / 10;
@@ -114,6 +128,39 @@ fn k_io_print_uint(v: u32) void {
             k_io_print_digit(*cp);
         }
     }
+}
+
+fn k_io_print_uint_width_default(v: u32, width: u32, default: u8) void {
+    const CHAR_SIZE: u32 = 12;
+    def chars: [CHAR_SIZE]u8;
+    k_memset(&chars, default, CHAR_SIZE);
+    if (width > CHAR_SIZE) {
+        width = CHAR_SIZE;
+    }
+    if (v == 0) {
+        def i: u32 = 1;
+        while (i < width) {
+            i = i + 1;
+            k_io_put(default);
+        }
+        k_io_print_digit(0);
+    } else {
+        def cp: *u8 = chars;
+        while (v != 0) {
+            *cp = k_io_digit_to_u8(v % 10);
+            v = v / 10;
+            cp = cp + 1;
+        }
+        cp = chars + width;
+        while (cp != chars) {
+            cp = cp - 1;
+            k_io_put(*cp);
+        }
+    }
+}
+
+fn k_io_print_uint_width(v: u32, width: u32) void {
+    k_io_print_uint_width_default(v, width, '0');
 }
 
 fn k_io_print_int(v: i32) void {
