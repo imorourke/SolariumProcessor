@@ -22,7 +22,7 @@ impl CbDirectoryEntry {
         CbEntryType::from(self.entry_type)
     }
 
-    pub const NAME_SIZE: usize = 12;
+    pub const NAME_SIZE: usize = 60;
 
     pub fn get_name(&self) -> String {
         array_to_string(&self.name)

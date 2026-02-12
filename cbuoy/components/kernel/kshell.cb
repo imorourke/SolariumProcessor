@@ -4,6 +4,7 @@
 #include kdbg.cb
 #include kfs.cb
 #include kmalloc.cb
+#include kmalloc_dbg.cb
 #include kserialio.cb
 
 struct k_shell_state_t {
@@ -353,6 +354,37 @@ fn k_shell_fn_halt(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     }
 
     return 0;
+}
+
+fn k_shell_split_args(input: *u8, args: **u8) i32 {
+    def count: i32 = 0;
+    def c: *u8 = input;
+
+    while (*c != '\0') {
+        // Skip any leading spaces
+        while ((*c == ' ') || (*c == '\n')) {
+            c = c + 1;
+        }
+
+        // Add the argument if it is not the end
+        if (*c == '\0') {
+            break;
+        }
+
+        args[count] = c;
+        count = count + 1;
+
+        while ((*c != '\0') && (*c != ' ') && (*c != '\n')) {
+            c = c + 1;
+        }
+
+        if (*c != '\0') {
+            *c = '\0';
+            c = c + 1;
+        }
+    }
+
+    return count;
 }
 
 #endif // K_SHELL

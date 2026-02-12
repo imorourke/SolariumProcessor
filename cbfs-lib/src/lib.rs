@@ -91,9 +91,8 @@ pub struct CbVolumeHeader {
     pub version: U16,
     pub sector_size: U16,
     pub sector_count: U16,
-    pub volume_name: [u8; 16],
     pub root_sector: U16,
-    reserved: [u8; 40],
+    pub volume_name: [u8; 32],
 }
 
 impl CbVolumeHeader {
@@ -122,7 +121,6 @@ impl CbVolumeHeader {
             sector_count: sector_count.into(),
             root_sector: 0.into(),
             volume_name: string_to_array("")?,
-            reserved: [0; _],
         };
 
         let table_size = (header.sector_count.get() as usize) * Self::ENTRY_TABLE_ELEMENT_SIZE;

@@ -1,5 +1,4 @@
 #include <kernel/kmalloc.cb>
-#include <kernel/kmalloc_dbg.cb>
 #include <kernel/kserialio.cb>
 #include <kernel/kdevice.cb>
 #include <kernel/kfs.cb>
@@ -12,57 +11,18 @@
 #include <std/list.cb>
 #include <std/string.cb>
 
-const FD_SIZE_TABLE: u32 = 1024;
-const FD_THREAD: u32 = 1;
-struct fd_type_t {
-    type: u32;
-    val: *u32;
-}
-global FD_TABLE: [FD_SIZE_TABLE]fd_type_t;
-
 const OS_INPUT_BUFFER_SIZE: u32 = 128;
 const OS_ARG_SIZE: u32 = 128;
-
-fn os_split_args(input: *u8, args: **u8) i32 {
-    def count: i32 = 0;
-    def c: *u8 = input;
-
-    while (*c != '\0') {
-        // Skip any leading spaces
-        while ((*c == ' ') || (*c == '\n')) {
-            c = c + 1;
-        }
-
-        // Add the argument if it is not the end
-        if (*c == '\0') {
-            break;
-        }
-
-        args[count] = c;
-        count = count + 1;
-
-        while ((*c != '\0') && (*c != ' ') && (*c != '\n')) {
-            c = c + 1;
-        }
-
-        if (*c != '\0') {
-            *c = '\0';
-            c = c + 1;
-        }
-    }
-
-    return count;
-}
 
 fn os_main() void {
     k_io_print("Starting C/Buoy OS\n");
     def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [OS_ARG_SIZE]*u8;
-    def valid: u8 = 1;
+    def run_shell: u8 = 1;
     def sh_state: k_shell_state_t;
     k_memset(&sh_state, 0, sizeof(k_shell_state_t));
 
-    while (valid) {
+    while (run_shell) {
         k_io_print("~> ");
         if (sh_state.auto_halt && SERIAL_DEV->input_size == 0) {
             asm { "halt"; }
@@ -70,7 +30,7 @@ fn os_main() void {
 
         if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
             k_io_print(input_buffer);
-            def count: i32 = os_split_args(input_buffer, &arg_buffer);
+            def count: i32 = k_shell_split_args(input_buffer, &arg_buffer);
 
             if (K_DBG_ENABLED) {
                 k_io_print("Arg Count: ");
