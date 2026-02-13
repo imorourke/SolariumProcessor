@@ -348,6 +348,7 @@ impl fuser::Filesystem for CbfsFuse {
                 entry,
                 self.get_entry_id(newparent),
                 Some(newname.to_str().unwrap()),
+                true,
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => reply.error(CbFuseErr::from(e).get_code()),

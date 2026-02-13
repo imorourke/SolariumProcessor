@@ -931,6 +931,7 @@ impl CbFileSystem {
         entry: u16,
         new_parent: u16,
         new_name: Option<&str>,
+        overwrite: bool,
     ) -> Result<(), CbfsError> {
         assert!(self.entry_is_primary(entry)?);
         assert!(self.entry_is_primary(new_parent)?);
@@ -952,7 +953,11 @@ impl CbFileSystem {
 
         for e in self.directory_listing(new_parent)? {
             if e.get_name() == target_name {
-                return Err(CbfsError::DuplicateName(target_name));
+                if overwrite {
+                    self.remove_entry_from_directory(new_parent, e.base_block.get())?;
+                } else {
+                    return Err(CbfsError::DuplicateName(target_name));
+                }
             }
         }
 
