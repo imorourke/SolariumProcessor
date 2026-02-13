@@ -2,6 +2,7 @@
 #define K_RTC_DEV
 
 #include kconfig.cb
+#include kdevice.cb
 
 struct k_datetime_t {
     year: i16;
@@ -18,10 +19,38 @@ struct k_rtc_control_t {
     datetime: k_datetime_t;
 }
 
-global K_RTC_BASE: *k_rtc_control_t = K_LOC_DEVICE_START + 0x40u32;
+struct k_rtc_timer_t {
+    device_id: u16;
+    irq: u8;
+    repeats: u8;
+    msec: u32;
+}
+
+global K_RTC_BASE: *k_rtc_control_t = 0;
+global K_RTC_TIMER: *k_rtc_timer_t = 0;
+
+fn k_rtc_init() void {
+    def dev: *k_device_t = 0;
+
+    dev = k_device_first_of_type(K_DEVICE_ID_RTC_CLOCK);
+    if (dev != 0) {
+        K_RTC_BASE = dev->data;
+    } else {
+        K_RTC_BASE = 0;
+    }
+
+    dev = k_device_first_of_type(K_DEVICE_ID_RTC_TIMER);
+    if (dev != 0) {
+        K_RTC_TIMER = dev->data;
+    } else {
+        K_RTC_TIMER = 0;
+    }
+}
 
 fn k_rtc_current() k_datetime_t {
-    return K_RTC_BASE->datetime;
+    if (K_RTC_BASE != 0) {
+        return K_RTC_BASE->datetime;
+    }
 }
 
 #endif // K_RTC_DEV

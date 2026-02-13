@@ -21,6 +21,7 @@ fn os_main() void {
     def run_shell: u8 = 1;
     def sh_state: k_shell_state_t;
     k_memset(&sh_state, 0, sizeof(k_shell_state_t));
+    sh_state.auto_halt = 1;
 
     while (run_shell) {
         k_io_print("~> ");
@@ -110,6 +111,7 @@ fnint irq_noop() void {}
 fn main() void {
     k_device_init(0);
     k_io_init();
+    k_rtc_init();
 
     SERIAL_DEV->interrupt_num = 2;
     SERIAL_DEV->interrupt_char = '\n';

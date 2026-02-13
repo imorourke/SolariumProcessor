@@ -2,11 +2,14 @@ mod block_device;
 mod irq_clock;
 #[cfg(feature = "rtcdev")]
 mod rtc_clock;
+#[cfg(feature = "rtcdev")]
+mod rtc_timer;
 mod serial_io;
 
 pub use block_device::BlockDevice;
 pub use irq_clock::InterruptClockDevice;
 pub use rtc_clock::RtcClockDevice;
+pub use rtc_timer::RtcTimerDevice;
 pub use serial_io::SerialInputOutputDevice;
 
 use crate::memory::{MemorySegment, MemorySegmentError};
@@ -21,6 +24,7 @@ pub enum DeviceType {
     SerialIO,
     IrqClock,
     RtcClock,
+    RtcTimer,
     BlockDevice,
 }
 
@@ -31,7 +35,8 @@ impl DeviceType {
             Self::SerialIO => 1,
             Self::IrqClock => 2,
             Self::RtcClock => 3,
-            Self::BlockDevice => 4,
+            Self::RtcTimer => 4,
+            Self::BlockDevice => u16::MAX,
         }
     }
 }

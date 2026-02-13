@@ -10,6 +10,7 @@ const K_DEVICE_COUNT: u32 = 128;
 const K_DEVICE_ID_SERIALIO: u16 = 1;
 const K_DEVICE_ID_IRQ_CLOCK: u16 = 2;
 const K_DEVICE_ID_RTC_CLOCK: u16 = 3;
+const K_DEVICE_ID_RTC_TIMER: u16 = 4;
 
 struct k_device_t {
     slot: u16;

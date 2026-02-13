@@ -3,7 +3,7 @@ use jib::{
     cpu::{Processor, ProcessorError},
     device::{
         BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
-        RtcClockDevice, SerialInputOutputDevice,
+        RtcClockDevice, RtcTimerDevice, SerialInputOutputDevice,
     },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
@@ -74,6 +74,7 @@ pub struct CpuState {
     run_thread: bool,
     cpu: Processor,
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
+    dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
     last_code: Vec<u8>,
     inst_history: CircularBuffer<String, 10>,
     inst_map: InstructionList,
@@ -103,6 +104,7 @@ impl CpuState {
             multiplier: 1.0,
             cpu: Processor::default(),
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
+            dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
             last_code: Vec::new(),
             inst_history: Default::default(),
             inst_map: InstructionList::default(),
@@ -251,6 +253,7 @@ impl CpuState {
             self.dev_serial_io.clone(),
             Rc::new(RefCell::new(InterruptClockDevice::default())),
             Rc::new(RefCell::new(RtcClockDevice)),
+            self.dev_rtc_timer.clone(),
         ];
 
         for i in 0..Self::DEVICE_COUNT {
@@ -323,7 +326,6 @@ impl CpuState {
                         data.bytes
                     };
 
-                    state.running = false;
                     state.last_code = code;
                     state.reset()?;
                     return Ok(Some(ThreadToUi::ProcessorReset));
@@ -397,12 +399,16 @@ impl CpuState {
                 }
             }
         } else {
-            let resp = if blocking {
+            let resp = if blocking && !self.running_requested {
                 match self.rx.recv() {
                     Ok(msg) => self.handle_msg(msg),
                     Err(RecvError) => return Err(()),
                 }
             } else {
+                if self.running_requested && self.cpu.step_devices().unwrap() {
+                    self.running = true;
+                }
+
                 match self.rx.try_recv() {
                     Ok(msg) => self.handle_msg(msg),
                     Err(TryRecvError::Empty) => return Ok(()),
@@ -417,7 +423,6 @@ impl CpuState {
             }
         }
 
-        // Step if required
         if self.running {
             let step_repeat_count = self.multiplier as i64;
 
@@ -502,7 +507,7 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
             break;
         }
 
-        if state.running {
+        if state.running_requested {
             std::thread::sleep(std::time::Duration::from_millis(CpuState::THREAD_LOOP_MS));
         }
     }
