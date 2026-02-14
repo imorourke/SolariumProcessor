@@ -193,11 +193,6 @@ impl fuser::Filesystem for CbfsFuse {
             && hdr.get_entry_type() == CbEntryType::Directory
         {
             let dirs = self.fs.directory_listing(n).unwrap();
-            //.unwrap()
-            //.into_iter()
-            //.map(|h| (h.base_block.get() as u64, self.fs.entry_header(h.base_block.get())))
-            //.collect::<Vec<_>>();
-
             let parent_dirs = [
                 CbDirectoryEntry {
                     attributes: 0,
