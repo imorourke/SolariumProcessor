@@ -74,6 +74,7 @@ pub struct CpuState {
     run_thread: bool,
     cpu: Processor,
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
+    #[cfg(not(target_arch = "wasm32"))]
     dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
     last_code: Vec<u8>,
     inst_history: CircularBuffer<String, 10>,
@@ -104,6 +105,7 @@ impl CpuState {
             multiplier: 1.0,
             cpu: Processor::default(),
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
+            #[cfg(not(target_arch = "wasm32"))]
             dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
             last_code: Vec::new(),
             inst_history: Default::default(),
@@ -253,6 +255,7 @@ impl CpuState {
             self.dev_serial_io.clone(),
             Rc::new(RefCell::new(InterruptClockDevice::default())),
             Rc::new(RefCell::new(RtcClockDevice)),
+            #[cfg(not(target_arch = "wasm32"))]
             self.dev_rtc_timer.clone(),
         ];
 
