@@ -1,6 +1,7 @@
 //! CBFS is a simple file-allocation-table style filesystem that allows for simple
 //! data storage within the SPC and C/Buoy systems.
 
+mod compat;
 mod datetime;
 mod entries;
 mod names;
@@ -20,6 +21,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
+use crate::names::array_to_string;
 pub use crate::{
     datetime::CbDateTime,
     entries::{CbDirectoryEntry, CbEntryHeader, CbEntryType},
@@ -82,6 +84,9 @@ impl CbFileHeader {
     }
 }
 
+/// The number of characters allowed in the volume header
+pub const VOLUME_NAME_SIZE: usize = 32;
+
 /// The volume header is present at the beginning of the filesystem, starting
 /// from byte 0 of the disk format.
 #[repr(C)]
@@ -92,13 +97,13 @@ pub struct CbVolumeHeader {
     pub sector_size: U16,
     pub sector_count: U16,
     pub root_sector: U16,
-    pub volume_name: [u8; 32],
+    pub volume_name: [u8; VOLUME_NAME_SIZE],
 }
 
 impl CbVolumeHeader {
     /// The current version of the filesystem, allowing for processing of
     /// different-verisoned disks if the format changes over time.
-    pub const CURRENT_VERSION: u16 = 1;
+    const CURRENT_VERSION: u16 = 1;
 
     /// The size of each table element
     const ENTRY_TABLE_ELEMENT_SIZE: usize = std::mem::size_of::<u16>();
@@ -138,6 +143,11 @@ impl CbVolumeHeader {
     pub fn set_name(&mut self, name: &str) -> Result<(), CbfsError> {
         self.volume_name = string_to_array(name)?;
         Ok(())
+    }
+
+    /// Provides the name for the filesystem
+    pub fn get_name(&self) -> String {
+        array_to_string(&self.volume_name)
     }
 
     /// Provides the overall volume byte size
@@ -196,7 +206,7 @@ pub struct CbFileSystem {
     /// not include the entry sectors or the header sector
     data: Box<[u8]>,
     /// Defines which entries are base/primary entries
-    base_entries: HashSet<u16>,
+    pub base_entries: HashSet<u16>,
 }
 
 impl CbFileSystem {
@@ -371,7 +381,7 @@ impl CbFileSystem {
         Ok((file_header, fs))
     }
 
-    /// Saves the current in-memory filesystme to the provided file
+    /// Saves the current in-memory filesystem to the provided file
     pub fn write_fs_to_file(&self, file: &Path, sparse: bool, gzip: bool) -> Result<(), CbfsError> {
         let file_header = CbFileHeader::new(sparse, gzip);
 
