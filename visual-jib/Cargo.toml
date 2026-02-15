@@ -18,6 +18,3 @@ image = "0.25"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 log = "0.4"
-
-[build-dependencies]
-cbuoy = { path = "../cbuoy", version = "*" }
