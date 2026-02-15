@@ -22,6 +22,7 @@ struct k_fs_vol_header_t {
     sector_size: u16;
     sector_count: u16;
     root_sector: u16;
+    flags: u32;
     volume_name: [K_FS_VOL_NAME_LEN]u8;
 }
 

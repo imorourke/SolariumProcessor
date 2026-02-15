@@ -3,6 +3,8 @@
 /.idea/
 /.fleet/
 *.kate-swp
+build/
+.cache/
 
 target/
 Cargo.lock

@@ -1,0 +1,15 @@
+[package]
+name = "cbfs-compat"
+version = "0.1.0"
+edition = "2024"
+
+ [lib]
+ crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+cbfs-lib = { path = "../../cbfs-lib", version = "*" }
+chrono = { version = "*" }
+
+[build-dependencies]
+cbindgen = "0.29"
+cbfs-lib = { path = "../../cbfs-lib", version = "*" }

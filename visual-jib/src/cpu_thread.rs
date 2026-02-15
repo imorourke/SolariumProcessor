@@ -146,7 +146,7 @@ impl CpuState {
 
         for (path, code) in cbuoy::DEFAULT_FILES.iter().cloned() {
             let name = path.split('/').last().unwrap();
-            if name.len() < cbfs_lib::CbDirectoryEntry::NAME_SIZE {
+            if name.len() < cbfs_lib::CbVolumeHeader::VOLUME_NAME_SIZE {
                 fs.create_entry(src, name, cbfs_lib::CbEntryType::File, code.as_bytes())
                     .unwrap();
             }
@@ -369,10 +369,15 @@ impl CpuState {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
-                    let fs =
-                        cbfs_lib::CbFileSystem::read_from_bytes(&state.hard_drive.borrow().data)
-                            .unwrap();
-                    fs.write_fs_to_file(std::path::Path::new("hd.cbfs"), false, false)
+                    use cbfs_lib::{CbContainer, CbFileHeader};
+
+                    let container = CbContainer::new(
+                        CbFileHeader::new(false, false),
+                        cbfs_lib::CbFileSystem::from_bytes(&state.hard_drive.borrow().data)
+                            .unwrap(),
+                    );
+                    container
+                        .write_fs_to_file(std::path::Path::new("hd.cbfs"))
                         .unwrap();
                 }
             }

@@ -4,37 +4,52 @@ use std::fmt::Display;
 use std::time::SystemTime;
 
 #[cfg(feature = "time")]
-use chrono::{DateTime, Datelike, Timelike, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc, TimeZone};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
 #[cfg(feature = "time")]
 use crate::CbfsError;
 
+/// Date structure used to represent dates within the CBFS file system
 #[repr(C)]
 #[repr(packed)]
-#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
+)]
 pub struct CbDate {
+    /// The current year
     pub year: I16,
+    /// The current month, starting at 1
     pub month: u8,
+    /// The current day, starting at 1
     pub day: u8,
 }
 
+/// Time structure used to represent a time stamp within the CBFS file system
 #[repr(C)]
 #[repr(packed)]
-#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
+)]
 pub struct CbTime {
+    /// The current hour
     pub hour: u8,
+    /// The current minute
     pub minute: u8,
+    /// The current second
     pub second: u8,
+    /// The current hundredths of a second
     pub hundredths: u8,
 }
 
 #[repr(C)]
 #[repr(packed)]
-#[derive(Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(
+    Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
+)]
 pub struct CbDateTime {
-    date: CbDate,
-    time: CbTime,
+    pub date: CbDate,
+    pub time: CbTime,
 }
 
 #[cfg(feature = "time")]
@@ -92,6 +107,21 @@ impl TryFrom<CbDateTime> for DateTime<Utc> {
             )
         })
         .map_or(Err(CbfsError::InvalidDateTime), |x| Ok(x.and_utc()))
+    }
+}
+
+#[cfg(feature = "time")]
+impl CbDateTime {
+    pub fn to_posix_millis(&self) -> Result<i64, CbfsError> {
+        let dt: DateTime<Utc> = self.clone().try_into()?;
+        Ok(dt.timestamp_millis())
+    }
+
+    pub fn from_posix_millis(millis: i64) -> Result<Self, CbfsError> {
+        match Utc.timestamp_millis_opt(millis) {
+            chrono::offset::LocalResult::Single(dt) => Ok(dt.into()),
+            _ => Err(CbfsError::InvalidDateTime)
+        }
     }
 }
 

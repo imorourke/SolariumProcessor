@@ -14,18 +14,22 @@ pub struct CbDirectoryEntry {
     pub base_block: U16,
     pub attributes: u8,
     pub entry_type: u8,
-    pub name: [u8; Self::NAME_SIZE],
+    pub name: [u8; Self::DIRECTORY_NAME_SIZE],
 }
 
 impl CbDirectoryEntry {
+    pub const DIRECTORY_NAME_SIZE: usize = 60;
+
     pub fn get_entry_type(&self) -> CbEntryType {
         CbEntryType::from(self.entry_type)
     }
 
-    pub const NAME_SIZE: usize = 60;
-
     pub fn get_name(&self) -> String {
         array_to_string(&self.name)
+    }
+
+    pub fn get_name_raw(&self) -> [u8; Self::DIRECTORY_NAME_SIZE] {
+        self.name
     }
 
     pub fn set_name(&mut self, s: &str) -> Result<(), CbfsError> {

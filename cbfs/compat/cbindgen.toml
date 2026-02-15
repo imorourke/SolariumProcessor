@@ -1,0 +1,7 @@
+language = "C++"
+include_guard = "CBFS_LIB"
+usize_is_size_t = true
+
+[const]
+allow_constexpr = true
+sort_by = "Name"

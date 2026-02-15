@@ -1,0 +1,15 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+IndentAccessModifiers: false
+AccessModifierOffset: -4
+FixNamespaceComments: false
+ColumnLimit: 140
+
+Cpp11BracedListStyle: false
+BinPackArguments: false
+BinPackParameters: AlwaysOnePerLine
+AlignAfterOpenBracket: BlockIndent

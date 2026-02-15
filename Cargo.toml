@@ -3,7 +3,7 @@
 members = [
     "cbuoy",
     "cbc",
-    "cbfs",
+    "cbfs/compat",
     "cbfs-lib",
     "jib-asm",
     "jib",

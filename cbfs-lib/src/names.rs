@@ -3,6 +3,8 @@ pub enum StringArrayError {
     InvalidName,
 }
 
+/// Converts an input string value into an output byte array of the specified size
+/// Returns an error if the required size is greater than the available space
 pub fn string_to_array<const N: usize, T: AsRef<str>>(s: T) -> Result<[u8; N], StringArrayError> {
     let mut vals = [0; N];
 
@@ -17,6 +19,7 @@ pub fn string_to_array<const N: usize, T: AsRef<str>>(s: T) -> Result<[u8; N], S
     Ok(vals)
 }
 
+/// Converts an input array into a string, stopping at the first null character
 pub fn array_to_string(val: &[u8]) -> String {
     val.iter()
         .take_while(|c| **c != 0)
