@@ -89,7 +89,6 @@ struct CbFuseState {
     bool save_sparse{ false };
     bool save_zeroed{ false };
     bool print_enabled{ false };
-    const char* debug_name{ nullptr };
     std::unordered_map<uint16_t, fuse_mode_t> current_modes{};
 
     bool save_fs() {
@@ -121,10 +120,6 @@ struct CbFuseState {
     }
 
     bool can_print_debug() const { return print_enabled; }
-
-    bool can_print_debug(const char* path) const {
-        return print_enabled && (debug_name == nullptr || (path != nullptr && strcmp(path, debug_name) == 0));
-    }
 
     static CbFuseState* get_instance() { return static_cast<CbFuseState*>(fuse_get_context()->private_data); }
 };
@@ -229,7 +224,7 @@ static int cbfs_fuse_getattr(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "getattr(" << path << ", " << fi << ", " << ((fi != nullptr) ? fi->fh : 0) << ")\n";
     }
 
@@ -253,7 +248,7 @@ static int cbfs_fuse_readdir(
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
 
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "readdir(" << path << ")\n";
     }
 
@@ -315,7 +310,7 @@ static int cbfs_fuse_statfs(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "statfs(" << path << ")\n";
     }
 
@@ -356,7 +351,7 @@ static int cbfs_fuse_open(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "open(" << path << ", " << std::hex << fi->flags << ")\n";
     }
 
@@ -375,7 +370,7 @@ static int cbfs_fuse_opendir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "opendir(" << path << ")\n";
     }
 
@@ -402,7 +397,7 @@ static int cbfs_fuse_read(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "read(" << path << ")\n";
     }
 
@@ -429,7 +424,7 @@ static int cbfs_fuse_mkdir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "mkdir(" << path << ")\n";
     }
 
@@ -448,7 +443,7 @@ static int cbfs_fuse_rename(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(old_path)) {
+    if (state->can_print_debug()) {
         std::cout << "mkdir(" << old_path << ", " << new_path << ")\n";
     }
     try {
@@ -462,7 +457,7 @@ static int cbfs_fuse_rename(
 static int cbfs_fuse_unlink(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "Unlinking " << path << std::endl;
     }
 
@@ -477,7 +472,7 @@ static int cbfs_fuse_unlink(const char* path) {
 static int cbfs_fuse_rmdir(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "rmdir(" << path << ")\n";
     }
 
@@ -496,7 +491,7 @@ static int cbfs_fuse_fsync(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "fsync(" << path << ")\n";
     }
 
@@ -514,7 +509,7 @@ static int cbfs_fuse_create(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "create(" << path << ", " << std::hex << mode << ", " << std::hex << fi->flags << ")\n";
     }
 
@@ -548,7 +543,7 @@ static int cbfs_fuse_write(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "write(" << path << ", " << fi << ")\n";
     }
 
@@ -585,7 +580,7 @@ static int cbfs_fuse_truncate(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "truncate(" << path << ")\n";
     }
 
@@ -604,7 +599,7 @@ static int cbfs_fuse_utimens(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug(path)) {
+    if (state->can_print_debug()) {
         std::cout << "utimens(" << path << ", " << tv << ", " << ((tv != nullptr) ? tv->tv_sec : 0) << ")\n";
     }
 
@@ -643,7 +638,6 @@ struct options_t {
     bool randomize;
     bool func_calls;
     const char* base_file;
-    const char* debug_name;
 };
 
 enum {
@@ -662,8 +656,7 @@ static const struct fuse_opt cbfs_option_spec[] = {
     CBFS_OPTION("sparse", sparse),
     CBFS_OPTION("zeroblocks", zeroblocks),
     CBFS_OPTION("rand", randomize),
-    CBFS_OPTION("funcs", func_calls),
-    CBFS_OPTION("dname=%s", debug_name),
+    CBFS_OPTION("calls", func_calls),
     FUSE_OPT_KEY("--version", KEY_VERSION),
     FUSE_OPT_KEY("-V", KEY_VERSION),
     FUSE_OPT_KEY("--help", KEY_HELP),
@@ -686,7 +679,6 @@ static void* cbfs_fuse_init(
     state->base_file = options.base_file;
     state->read_only = options.file_read_only != 0;
     state->print_enabled = (config->debug != 0) || options.func_calls;
-    state->debug_name = options.debug_name;
     state->save_gzip = options.gzip;
     state->save_sparse = options.sparse;
     state->save_zeroed = options.zeroblocks;
@@ -747,14 +739,15 @@ static int cbfs_opt_proc(
             "usage: %s [options] mountpoint\n"
             "\n"
             "cbfs options:\n"
-            "    -o seccount=NUM\n"
-            "    -o secsize=NUM\n"
-            "    -o file=PATH\n"
-            "    -o gzip\n"
-            "    -o sparse\n"
-            "    -o zeroblocks\n"
-            "    -o mem\n"
-            "    -o randomize\n",
+            "    -o seccount=NUM        number of sectors in the filesystem\n"
+            "    -o secsize=NUM         size of each sector in bytes\n"
+            "    -o file=PATH           base file to load a filesystem from\n"
+            "    -o gzip                saves a filesystem compressed with gzip\n"
+            "    -o sparse              saves filesystem in sparse format\n"
+            "    -o zeroblocks          zeros unused blocks when saving\n"
+            "    -o mem                 reads the FS from a file, but will not save\n"
+            "    -o rand                randomizes used sectors\n"
+            "    -o calls               provides information on function calls\n",
             outargs->argv[0]
         );
         fuse_opt_add_arg(outargs, "-h");
