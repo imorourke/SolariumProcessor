@@ -138,8 +138,14 @@ impl CpuState {
                 &[],
             )
             .unwrap();
-        fs.create_entry(root_dir, "version", cbfs_lib::CbEntryType::File, b"CB/OS")
-            .unwrap();
+        let build_date: &'static str = env!("BUILD_DATE");
+        fs.create_entry(
+            root_dir,
+            "version",
+            cbfs_lib::CbEntryType::File,
+            format!("CB/OS\nBuild Date {}\n", build_date).as_bytes(),
+        )
+        .unwrap();
         let src = fs
             .create_entry(root_dir, "src", cbfs_lib::CbEntryType::Directory, &[])
             .unwrap();
