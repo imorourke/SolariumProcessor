@@ -1,7 +1,10 @@
+#[cfg(feature = "rand")]
+use std::cell::RefCell;
 #[cfg(feature = "time")]
 use std::time::SystemTime;
-use std::{cell::RefCell, collections::HashSet, fmt::Debug};
+use std::{collections::HashSet, fmt::Debug};
 
+#[cfg(feature = "rand")]
 use rand::RngExt;
 use zerocopy::{
     FromBytes, IntoBytes,
@@ -27,6 +30,8 @@ pub struct CbFileSystem {
     data: Box<[u8]>,
     /// Defines which entries are base/primary entries
     pub base_entries: HashSet<u16>,
+    #[cfg(feature = "rand")]
+    /// Allows randomization of the file system entries
     randomize_entries: Option<RefCell<rand::rngs::ThreadRng>>,
 }
 
@@ -65,6 +70,7 @@ impl CbFileSystem {
             entries,
             header,
             base_entries: HashSet::new(),
+            #[cfg(feature = "rand")]
             randomize_entries: None,
         };
         fs.base_entries.insert(fs.header.root_sector.get());
@@ -96,6 +102,7 @@ impl CbFileSystem {
             entries,
             data: data.into(),
             base_entries: HashSet::new(),
+            #[cfg(feature = "rand")]
             randomize_entries: None,
         };
 
@@ -157,6 +164,8 @@ impl CbFileSystem {
         Ok(())
     }
 
+    /// Enables or disables randomization of sector values
+    #[cfg(feature = "rand")]
     pub fn randomize_sectors(&mut self, enabled: bool) {
         if enabled {
             if self.randomize_entries.is_none() {
@@ -335,6 +344,7 @@ impl CbFileSystem {
 
     /// Returns the next free sector based on the given sector algorithm
     fn next_free_sector(&self) -> Result<u16, CbfsError> {
+        #[cfg(feature = "rand")]
         if let Some(mut r) = self.randomize_entries.as_ref().map(|x| x.borrow_mut()) {
             let mut current =
                 r.random_range(self.header.root_sector.get()..self.header.sector_count.get());
@@ -349,16 +359,16 @@ impl CbFileSystem {
             }
 
             return Ok(current);
-        } else {
-            self.entries
-                .iter()
-                .enumerate()
-                .skip(self.header.root_sector.get() as usize)
-                .filter(|(_, x)| **x == 0)
-                .map(|(i, _)| i as u16)
-                .next()
-                .ok_or(CbfsError::TableFull)
         }
+
+        self.entries
+            .iter()
+            .enumerate()
+            .skip(self.header.root_sector.get() as usize)
+            .filter(|(_, x)| **x == 0)
+            .map(|(i, _)| i as u16)
+            .next()
+            .ok_or(CbfsError::TableFull)
     }
 
     /// Returns the number of free sectors remaining
@@ -811,6 +821,7 @@ mod test {
     #[test]
     fn test_file_folder_opers() {
         let mut fs = CbFileSystem::new("test", 512, 32768).unwrap();
+        #[cfg(feature = "rand")]
         fs.randomize_sectors(true);
 
         assert_eq!(1, fs.num_primary_entries());

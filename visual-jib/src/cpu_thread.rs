@@ -1,9 +1,11 @@
 use crate::messages::{ThreadToUi, UiToThread};
+#[cfg(not(target_arch = "wasm32"))]
+use jib::device::RtcTimerDevice;
 use jib::{
     cpu::{Processor, ProcessorError},
     device::{
         BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
-        RtcClockDevice, RtcTimerDevice, SerialInputOutputDevice,
+        RtcClockDevice, SerialInputOutputDevice,
     },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
