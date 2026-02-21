@@ -13,9 +13,11 @@
 
 #include "cbfs.h"
 
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_map>
 
 #ifdef WIN32
 #define fuse_file_info_t fuse_file_info
@@ -54,10 +56,17 @@ struct cbfs_error {
             return 0;
             break;
         case CbFsResult::EntryNotDirectory:
+            return -ENOTDIR;
         case CbFsResult::EntryNotFile:
         case CbFsResult::EntryNotFound:
         case CbFsResult::InvalidEntry:
             return -ENOENT;
+        case CbFsResult::NoSpace:
+            return -ENOSPC;
+        case CbFsResult::DuplicateName:
+            return -EEXIST;
+        case CbFsResult::InvalidName:
+            return -ENAMETOOLONG;
         default:
             return -ENOSYS;
         }
@@ -79,7 +88,9 @@ struct CbFuseState {
     bool save_gzip{ false };
     bool save_sparse{ false };
     bool save_zeroed{ false };
-    bool verbose{ false };
+    bool print_enabled{ false };
+    const char* debug_name{ nullptr };
+    std::unordered_map<uint16_t, fuse_mode_t> current_modes{};
 
     bool save_fs() {
         if (base_file != nullptr && !read_only) {
@@ -109,12 +120,18 @@ struct CbFuseState {
         return entry;
     }
 
+    bool can_print_debug() const { return print_enabled; }
+
+    bool can_print_debug(const char* path) const {
+        return print_enabled && (debug_name == nullptr || (path != nullptr && strcmp(path, debug_name) == 0));
+    }
+
     static CbFuseState* get_instance() { return static_cast<CbFuseState*>(fuse_get_context()->private_data); }
 };
 
 static void cbfs_fuse_destroy(void* private_data) {
     auto state = static_cast<CbFuseState*>(private_data);
-    if (state->verbose) {
+    if (state->can_print_debug()) {
         std::cout << "destroy()\n";
     }
 
@@ -140,7 +157,6 @@ static struct fuse_stat cbfs_util_getstat(
     const CbFsEntry& entry
 ) {
     struct fuse_context* ctx = fuse_get_context();
-
     struct fuse_stat stbuf{};
 
     fuse_mode_t mode_val{};
@@ -213,7 +229,7 @@ static int cbfs_fuse_getattr(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "getattr(" << path << ", " << fi << ", " << ((fi != nullptr) ? fi->fh : 0) << ")\n";
     }
 
@@ -237,7 +253,7 @@ static int cbfs_fuse_readdir(
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
 
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "readdir(" << path << ")\n";
     }
 
@@ -299,7 +315,7 @@ static int cbfs_fuse_statfs(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "statfs(" << path << ")\n";
     }
 
@@ -340,17 +356,15 @@ static int cbfs_fuse_open(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->verbose) {
-        std::cout << "open(" << path << ")\n";
+    if (state->can_print_debug(path)) {
+        std::cout << "open(" << path << ", " << std::hex << fi->flags << ")\n";
     }
 
     try {
-        const CbFsEntry entry = state->get_entry(path);
-
-        fi->fh = entry.entry_id;
-
+        fi->fh = state->get_entry(path).entry_id;
         return 0;
     } catch (const cbfs_error& err) {
+        std::cout << "Open error: " << path << '\n';
         return err.get_return_code();
     }
 }
@@ -361,7 +375,7 @@ static int cbfs_fuse_opendir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "opendir(" << path << ")\n";
     }
 
@@ -388,7 +402,7 @@ static int cbfs_fuse_read(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "read(" << path << ")\n";
     }
 
@@ -415,12 +429,12 @@ static int cbfs_fuse_mkdir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "mkdir(" << path << ")\n";
     }
 
     try {
-        cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::Directory, nullptr));
+        cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::Directory, nullptr, false));
         return 0;
     } catch (const cbfs_error& err) {
         return err.get_return_code();
@@ -434,7 +448,7 @@ static int cbfs_fuse_rename(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(old_path)) {
         std::cout << "mkdir(" << old_path << ", " << new_path << ")\n";
     }
     try {
@@ -448,7 +462,7 @@ static int cbfs_fuse_rename(
 static int cbfs_fuse_unlink(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "Unlinking " << path << std::endl;
     }
 
@@ -463,7 +477,7 @@ static int cbfs_fuse_unlink(const char* path) {
 static int cbfs_fuse_rmdir(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "rmdir(" << path << ")\n";
     }
 
@@ -482,7 +496,7 @@ static int cbfs_fuse_fsync(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "fsync(" << path << ")\n";
     }
 
@@ -493,32 +507,6 @@ static int cbfs_fuse_fsync(
     }
 }
 
-static int cbfs_fuse_mknod(
-    const char* path,
-    fuse_mode_t mode,
-    dev_t
-) {
-    const auto state = CbFuseState::get_instance();
-    std::unique_lock lk(state->lock);
-    if (state->verbose) {
-        std::cout << "mknod(" << path << ")\n";
-    }
-
-    try {
-        if (((mode & S_IFMT) == S_IFREG) || ((mode & S_IFMT) == 0)) {
-            cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::File, nullptr));
-            return 0;
-        } else if ((mode & S_IFMT) == S_IFDIR) {
-            cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::Directory, nullptr));
-            return 0;
-        } else {
-            return -ENOSYS;
-        }
-    } catch (const cbfs_error& err) {
-        return err.get_return_code();
-    }
-}
-
 static int cbfs_fuse_create(
     const char* path,
     fuse_mode_t mode,
@@ -526,25 +514,29 @@ static int cbfs_fuse_create(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
-        std::cout << "create(" << path << ", " << mode << ")\n";
+    if (state->can_print_debug(path)) {
+        std::cout << "create(" << path << ", " << std::hex << mode << ", " << std::hex << fi->flags << ")\n";
     }
+
+    const bool can_truncate = (mode & (O_CREAT | O_TRUNC)) == (O_CREAT | O_TRUNC);
 
     try {
         CbFsEntry entry{};
-        if ((mode & S_IFMT) == S_IFREG || (mode & S_IFMT) == 0) {
-            cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::File, &entry));
-        } else if ((mode & S_IFMT) == S_IFDIR) {
-            cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::Directory, &entry));
-        } else {
-            return -ENOSYS;
-        }
-
+        cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::File, &entry, can_truncate));
         fi->fh = entry.entry_id;
         return 0;
     } catch (const cbfs_error& err) {
         return err.get_return_code();
     }
+}
+
+static int cbfs_fuse_mknod(
+    const char* path,
+    fuse_mode_t mode,
+    dev_t
+) {
+    struct fuse_file_info fi{};
+    return cbfs_fuse_create(path, mode, &fi);
 }
 
 static int cbfs_fuse_write(
@@ -556,7 +548,7 @@ static int cbfs_fuse_write(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "write(" << path << ", " << fi << ")\n";
     }
 
@@ -593,7 +585,7 @@ static int cbfs_fuse_truncate(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
+    if (state->can_print_debug(path)) {
         std::cout << "truncate(" << path << ")\n";
     }
 
@@ -612,8 +604,8 @@ static int cbfs_fuse_utimens(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->verbose) {
-        std::cout << "utimens(" << path << ")\n";
+    if (state->can_print_debug(path)) {
+        std::cout << "utimens(" << path << ", " << tv << ", " << ((tv != nullptr) ? tv->tv_sec : 0) << ")\n";
     }
 
     try {
@@ -629,11 +621,9 @@ static int cbfs_fuse_utimens(
 #endif
 
         if (tv != nullptr && tv->tv_nsec != UTIME_NOW) {
-            std::cout << "  Setting to " << tv->tv_sec << ", " << tv->tv_nsec << '\n';
             const CbFsTime tvi = cbfs_millis_to_time(timespec_to_millis(*tv));
             cbfs_error::check_return(cbfs_set_time(state->fs, hdl, &tvi));
         } else {
-            std::cout << "  Setting to current\n";
             cbfs_error::check_return(cbfs_set_time(state->fs, hdl, nullptr));
         }
         return 0;
@@ -651,7 +641,9 @@ struct options_t {
     bool gzip;
     bool zeroblocks;
     bool randomize;
+    bool func_calls;
     const char* base_file;
+    const char* debug_name;
 };
 
 enum {
@@ -670,6 +662,8 @@ static const struct fuse_opt cbfs_option_spec[] = {
     CBFS_OPTION("sparse", sparse),
     CBFS_OPTION("zeroblocks", zeroblocks),
     CBFS_OPTION("rand", randomize),
+    CBFS_OPTION("funcs", func_calls),
+    CBFS_OPTION("dname=%s", debug_name),
     FUSE_OPT_KEY("--version", KEY_VERSION),
     FUSE_OPT_KEY("-V", KEY_VERSION),
     FUSE_OPT_KEY("--help", KEY_HELP),
@@ -685,16 +679,14 @@ static void* cbfs_fuse_init(
 ) {
     const options_t options = *static_cast<options_t*>(fuse_get_context()->private_data);
 
-    config->use_ino = true;
+    config->use_ino = false;
     config->kernel_cache = true;
-    config->attr_timeout = 1.0;
-    config->entry_timeout = 1.0;
-    config->remember = -1;
 
     std::unique_ptr<CbFuseState> state = std::make_unique<CbFuseState>();
     state->base_file = options.base_file;
     state->read_only = options.file_read_only != 0;
-    state->verbose = config->debug != 0;
+    state->print_enabled = (config->debug != 0) || options.func_calls;
+    state->debug_name = options.debug_name;
     state->save_gzip = options.gzip;
     state->save_sparse = options.sparse;
     state->save_zeroed = options.zeroblocks;

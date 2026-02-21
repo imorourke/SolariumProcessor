@@ -628,21 +628,26 @@ pub extern "C" fn cbfs_create_entry(
     path: *const c_char,
     entry_type: CbFsEntryType,
     entry_out: *mut CbFsEntry,
+    truncate: bool,
 ) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_mut() }
         && let Some(path) = get_path(path)
     {
         if let Ok(entry) = entry_for_path(fs, Some(&path)) {
-            if entry_type == entry.get_entry_type().into() {
-                if entry.get_entry_type() == CbEntryType::File {
-                    match fs.0.set_entry_payload_byte_size(entry.base_block.get(), 0) {
-                        Ok(()) => (),
-                        Err(e) => return e.into(),
-                    };
+            if truncate {
+                if entry_type == entry.get_entry_type().into() {
+                    if entry.get_entry_type() == CbEntryType::File {
+                        match fs.0.set_entry_payload_byte_size(entry.base_block.get(), 0) {
+                            Ok(()) => (),
+                            Err(e) => return e.into(),
+                        };
+                    }
+                    CbFsResult::Success
+                } else {
+                    CbFsResult::EntryNotFile
                 }
-                CbFsResult::Success
             } else {
-                CbFsResult::NullProvided
+                CbFsResult::DuplicateName
             }
         } else if let Ok(parent) = entry_for_path(fs, path.parent()) {
             let new_name = path.file_name().unwrap().to_str().unwrap();
