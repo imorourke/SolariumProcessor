@@ -170,7 +170,7 @@ pub enum CbFsResult {
 impl From<CbfsError> for CbFsResult {
     fn from(value: CbfsError) -> Self {
         match value {
-            CbfsError::DuplicateName(_) => Self::DuplicateName,
+            CbfsError::NameExists(_) => Self::DuplicateName,
             CbfsError::EntryInvalid(_) => Self::InvalidEntry,
             CbfsError::EntryNotDirectory(_) => Self::EntryNotDirectory,
             CbfsError::EntryNotFile(_) => Self::EntryNotFile,

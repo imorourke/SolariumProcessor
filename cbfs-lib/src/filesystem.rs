@@ -526,7 +526,7 @@ impl CbFileSystem {
         // Check for a dupliate name within a directory
         for d in self.directory_listing(parent)? {
             if d.get_name() == name {
-                return Err(CbfsError::DuplicateName(name.into()));
+                return Err(CbfsError::NameExists(name.into()));
             }
         }
 
@@ -714,7 +714,7 @@ impl CbFileSystem {
                 if overwrite {
                     self.delete_entry(e.base_block.get())?;
                 } else {
-                    return Err(CbfsError::DuplicateName(target_name));
+                    return Err(CbfsError::NameExists(target_name));
                 }
             }
         }

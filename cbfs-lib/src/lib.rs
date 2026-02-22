@@ -16,9 +16,9 @@ pub use crate::{
     names::{StringArrayError, string_to_array},
 };
 
+pub use container::{CbContainer, CbFileHeader};
 pub use filesystem::CbFileSystem;
 pub use volume::CbVolumeHeader;
-pub use container::{CbContainer, CbFileHeader};
 
 /// Provides error message information regarding issues with the filesystem
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub enum CbfsError {
     EntryNotFile(u16),
     EntryNotDirectory(u16),
     NonZeroDirectoryData,
-    DuplicateName(String),
+    NameExists(String),
     PathNotFound(String),
     UnknownEntryType(u8),
     InvalidName,
