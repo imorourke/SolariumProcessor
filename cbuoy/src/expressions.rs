@@ -465,6 +465,20 @@ impl BinaryArithmeticOperation {
         Self::BitShiftRight,
     ];
 
+    pub const fn is_boolean(&self) -> bool {
+        match self {
+            Self::And
+            | Self::Or
+            | Self::Equals
+            | Self::NotEquals
+            | Self::Greater
+            | Self::GreaterEqual
+            | Self::Less
+            | Self::LessEqual => true,
+            _ => false,
+        }
+    }
+
     pub const fn get_priority(&self) -> i32 {
         match self {
             Self::Plus => -5,
@@ -556,6 +570,14 @@ impl Expression for BinaryArithmeticExpression {
         let ta = self.lhs.get_type()?;
         let tb = self.rhs.get_type()?;
 
+        fn pointer_type_val(t: Type, op: BinaryArithmeticOperation) -> Type {
+            if op.is_boolean() {
+                Type::Primitive(DataType::U32)
+            } else {
+                t
+            }
+        }
+
         if let Some(sa) = Self::get_ptr_size(&ta)
             && let Some(sb) = Self::get_ptr_size(&tb)
         {
@@ -567,9 +589,9 @@ impl Expression for BinaryArithmeticExpression {
                 )))
             }
         } else if ta.is_pointer() {
-            Ok(ta)
+            Ok(pointer_type_val(ta, self.operation))
         } else if tb.is_pointer() {
-            Ok(tb)
+            Ok(pointer_type_val(tb, self.operation))
         } else if let Some(Type::Primitive(a)) = ta.base_type() {
             if let Some(Type::Primitive(b)) = tb.base_type() {
                 Ok(Type::Primitive(Type::coerce_type(a, b)))
