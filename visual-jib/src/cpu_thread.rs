@@ -3,7 +3,7 @@ use cbuoy::{CodeGenerationOptions, ProgramType};
 #[cfg(not(target_arch = "wasm32"))]
 use jib::device::RtcTimerDevice;
 use jib::{
-    cpu::{Processor, ProcessorError},
+    cpu::{Instruction, Processor, ProcessorError},
     device::{
         BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
         RtcClockDevice, SerialInputOutputDevice,
@@ -82,7 +82,7 @@ pub struct CpuState {
     #[cfg(not(target_arch = "wasm32"))]
     dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
     last_code: Option<(u32, Vec<u8>)>,
-    inst_history: CircularBuffer<String, 10>,
+    inst_history: CircularBuffer<(u32, Instruction), 10>,
     inst_map: InstructionList,
     breakpoint: Option<u32>,
     step_count: u128,
@@ -199,18 +199,26 @@ impl CpuState {
         Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
     }
 
+    fn get_inst_history(&self) -> Vec<String> {
+        self.inst_history
+            .list()
+            .into_iter()
+            .map(|(pc, inst)| {
+                format!(
+                    "0x{pc:08x} = {}",
+                    self.inst_map
+                        .get_display_inst(inst)
+                        .unwrap_or("??".to_string())
+                )
+            })
+            .collect::<Vec<_>>()
+    }
+
     fn step_cpu(&mut self, enable_breakpoints: bool) -> Result<(), ThreadToUi> {
-        let mut inst_details = "??".to_string();
-
         let pc = self.cpu.get_current_pc().unwrap_or(0);
-        if let Ok(inst) = self.cpu.get_current_inst()
-            && let Some(disp_val) = self.inst_map.get_display_inst(inst)
-        {
-            inst_details = disp_val;
+        if let Ok(inst) = self.cpu.get_current_inst() {
+            self.inst_history.push((pc, inst));
         }
-
-        inst_details = format!("0x{pc:08x} = {inst_details}");
-        self.inst_history.push(inst_details.clone());
 
         if let Some(brk) = self.breakpoint
             && brk == pc
@@ -220,8 +228,7 @@ impl CpuState {
 
             let msg = format!(
                 "Breaking at 0x{brk:08x}\n{}",
-                self.inst_history
-                    .list()
+                self.get_inst_history()
                     .into_iter()
                     .map(|s| format!("    {s}"))
                     .collect::<Vec<_>>()
@@ -243,8 +250,7 @@ impl CpuState {
             let msg = format!(
                 "{}\n{}",
                 e,
-                self.inst_history
-                    .list()
+                self.get_inst_history()
                     .into_iter()
                     .map(|s| format!("    {s}"))
                     .collect::<Vec<_>>()
