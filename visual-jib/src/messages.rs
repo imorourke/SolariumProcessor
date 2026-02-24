@@ -5,6 +5,7 @@ use jib_asm::AssemblerOutput;
 pub enum UiToThread {
     CpuStep,
     CpuRun(bool),
+    UseBootloader(bool),
     CpuReset,
     DiskReset,
     #[cfg(not(target_arch = "wasm32"))]
@@ -29,4 +30,5 @@ pub enum ThreadToUi {
     #[cfg(not(target_arch = "wasm32"))]
     ThreadExit,
     CpuRunning(bool),
+    BootloaderState(bool),
 }

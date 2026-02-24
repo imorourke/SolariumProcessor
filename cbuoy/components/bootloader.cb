@@ -1,0 +1,77 @@
+#include <kernel/kcpu.cb>
+#include <kernel/kdevice.cb>
+#include <kernel/kfs.cb>
+#include <kernel/kserialio.cb>
+
+global BOOT_KERNEL_NAME: *u8 = "boot.bin";
+const LOAD_LOC: u32 = 0x2000u32;
+
+fn main() void {
+    k_device_init(0);
+    k_io_init();
+
+    def cwd: u16; // Current Directory
+
+    k_io_print("Opening disk...\n");
+    def disk: *k_fs_disk_t = k_fs_disk_open(0);
+    if (disk != 0) {
+        cwd = disk->vol_hdr.root_sector;
+    }
+
+    k_io_print("Looking for '");
+    k_io_print(BOOT_KERNEL_NAME);
+    k_io_print("'...\n");
+
+    def out_entry: k_fs_directory_entry_t;
+    if (k_fs_get_dir_entry_by_name(disk, cwd, BOOT_KERNEL_NAME, &out_entry) == 0) {
+        if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
+            def entry_hdr: k_fs_entry_header_t;
+            if (k_fs_read_entry_header(disk, out_entry.base_block, &entry_hdr) == 0) {
+                const DATA_SIZE: u32 = 128;
+                def run_data: [DATA_SIZE]u8;
+                def current_size: u32 = 0;
+                def loc: *u8 = LOAD_LOC;
+                def print_i: u32 = 0;
+
+                while (current_size < entry_hdr.payload_size) {
+                    def read_size: u32 = DATA_SIZE;
+
+                    if (k_fs_read_entry_data(disk, out_entry.base_block, &run_data, &read_size, current_size) != 0) {
+                        break;
+                    }
+
+                    def i: i32 = 0;
+                    while (i < read_size) {
+                        *(loc : *u32) = *((&run_data[i]) : *u32);
+                        loc = loc + 4;
+                        i = i + 4;
+                    }
+
+
+                    current_size = current_size + read_size;
+
+                    print_i = (print_i + 1) % 8;
+                    if (print_i == 0) {
+                        k_io_print_uint(current_size);
+                        k_io_print(" / ");
+                        k_io_print_int(entry_hdr.payload_size);
+                        k_io_print("\n");
+                    }
+                }
+
+                asm {
+                    "ldi 8:u16 0x2000";
+                    "jmp 8";
+                }
+            } else {
+                k_io_print("unable to load boot file\n");
+            }
+        } else {
+            k_io_print("no boot file found - directory found instead\n");
+        }
+    } else {
+        k_io_print("no boot file found\n");
+    }
+
+    asm { "halt"; }
+}

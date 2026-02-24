@@ -120,6 +120,7 @@ pub struct VisualJib {
     code_window_id: usize,
     memory_windows: Vec<MemoryViewWindow>,
     memory_window_id: usize,
+    use_bootloader: bool,
 }
 
 impl Default for VisualJib {
@@ -166,6 +167,7 @@ impl Default for VisualJib {
             code_window_id: 0,
             memory_windows: Vec::new(),
             memory_window_id: 0,
+            use_bootloader: false,
         }
     }
 }
@@ -216,6 +218,7 @@ impl VisualJib {
                     }
                 }
                 ThreadToUi::CpuRunning(running) => self.cpu_run_requested = running,
+                ThreadToUi::BootloaderState(bootloader) => self.use_bootloader = bootloader,
                 #[cfg(not(target_arch = "wasm32"))]
                 ThreadToUi::ThreadExit => std::process::exit(1),
             };
@@ -446,6 +449,14 @@ impl eframe::App for VisualJib {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("Commands");
+                    if ui
+                        .checkbox(&mut self.use_bootloader, "Use Bootloader")
+                        .changed()
+                    {
+                        self.tx_ui
+                            .send(UiToThread::UseBootloader(self.use_bootloader))
+                            .unwrap();
+                    }
                     Grid::new("cpu_commands").show(ui, |ui| {
                         if ui.button("Step").clicked() {
                             self.tx_ui.send(UiToThread::CpuStep).unwrap();

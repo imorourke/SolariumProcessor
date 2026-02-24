@@ -347,15 +347,16 @@ pub enum ProgramType {
 }
 
 impl ProgramType {
-    pub const DEFAULT_KERNEL: Self = ProgramType::Kernel {
-        stack_loc: 0x1000,
-        start_offset: 0x2000,
-    };
+    pub const DEFAULT_STACK_LOC: u32 = 0x1000;
+    pub const DEFAULT_START_OFFSET: u32 = 0x2000;
 }
 
 impl Default for ProgramType {
     fn default() -> Self {
-        Self::DEFAULT_KERNEL
+        Self::Kernel {
+            stack_loc: Self::DEFAULT_STACK_LOC,
+            start_offset: Self::DEFAULT_START_OFFSET,
+        }
     }
 }
 
@@ -440,11 +441,9 @@ impl CompilingState {
             start_offset,
         } = &self.options.prog_type
         {
-            vec![
-                Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
-                Self::blank_token_loc(AsmToken::LoadLoc(init_label.clone())),
-                Self::blank_token_loc(AsmToken::ChangeAddress(*start_offset)),
-            ]
+            vec![Self::blank_token_loc(AsmToken::ChangeAddress(
+                *start_offset,
+            ))]
         } else {
             Vec::new()
         };

@@ -1,4 +1,5 @@
 use crate::messages::{ThreadToUi, UiToThread};
+use cbuoy::{CodeGenerationOptions, ProgramType};
 #[cfg(not(target_arch = "wasm32"))]
 use jib::device::RtcTimerDevice;
 use jib::{
@@ -12,6 +13,7 @@ use jib::{
 use jib_asm::InstructionList;
 use std::{
     cell::RefCell,
+    path::Path,
     rc::Rc,
     sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
 };
@@ -71,6 +73,7 @@ pub struct CpuState {
     running: bool,
     running_requested: bool,
     running_prev: bool,
+    use_bootloader: bool,
     multiplier: f64,
     #[cfg(not(target_arch = "wasm32"))]
     run_thread: bool,
@@ -90,6 +93,7 @@ pub struct CpuState {
 
 impl CpuState {
     const INIT_MEMORY_SIZE: u32 = 0x40000000;
+    pub const BOOTLOADER_START: u32 = 0xFFFF0000;
     const DEVICE_START_ADDR: u32 = 0xFFFFA000;
     const DEVICE_HD_START_ADDR: u32 = 0xFFFFB000;
     const DEVICE_COUNT: usize =
@@ -104,6 +108,7 @@ impl CpuState {
             running: false,
             running_requested: false,
             running_prev: false,
+            use_bootloader: false,
             multiplier: 1.0,
             cpu: Processor::default(),
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
@@ -119,17 +124,48 @@ impl CpuState {
             hard_drive: Self::create_hard_drive(),
         };
 
+        s.tx.send(ThreadToUi::BootloaderState(s.use_bootloader))
+            .unwrap();
+
         s.reset()?;
         Ok(s)
     }
 
     fn create_hard_drive() -> Rc<RefCell<BlockDevice>> {
+        // Compile OS into a file
+        let kernel_data = {
+            let preprocessed = cbuoy::preprocess_code_as_file(
+                &include_str!("../../cbuoy/components/os.cb"),
+                Path::new("os.cb"),
+                [].into_iter(),
+            )
+            .unwrap();
+
+            let tokens = preprocessed.tokenize().unwrap();
+
+            let mut options = CodeGenerationOptions::default();
+            options.prog_type = ProgramType::default();
+
+            let tokens = cbuoy::parse(tokens, options)
+                .and_then(|x| x.get_assembler())
+                .unwrap();
+            let bin = jib_asm::assemble_tokens(tokens).unwrap();
+            bin.bytes
+        };
+
         let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
         fs.create_entry(
             fs.header.root_sector.get(),
             "hello.txt",
             cbfs_lib::CbEntryType::File,
             b"Hello, world!",
+        )
+        .unwrap();
+        fs.create_entry(
+            fs.header.root_sector.get(),
+            "boot.bin",
+            cbfs_lib::CbEntryType::File,
+            &kernel_data,
         )
         .unwrap();
         let root_dir = fs
@@ -145,7 +181,7 @@ impl CpuState {
             root_dir,
             "version",
             cbfs_lib::CbEntryType::File,
-            format!("CB/OS\nBuild Date {}\n", build_date).as_bytes(),
+            format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
         )
         .unwrap();
         let src = fs
@@ -234,16 +270,18 @@ impl CpuState {
         self.inst_history.reset();
         self.step_count = 0;
 
-        let reset_vec_data: Vec<u8> = (0..INIT_RO_LEN)
-            .map(|i| {
-                let is = i as usize;
-                if is < self.last_code.len() {
-                    self.last_code[is]
-                } else {
-                    0
-                }
-            })
-            .collect();
+        let mut reset_vec_data: Vec<u8> = vec![0; INIT_RO_LEN as usize];
+        let start_loc = if self.use_bootloader {
+            Self::BOOTLOADER_START
+        } else {
+            ProgramType::DEFAULT_START_OFFSET
+        };
+
+        for (i, x) in start_loc.to_be_bytes().iter().enumerate() {
+            reset_vec_data[i] = *x;
+            reset_vec_data[i + std::mem::size_of::<u32>()] = *x;
+        }
+
         assert!(reset_vec_data.len() == INIT_RO_LEN as usize);
 
         self.cpu.memory_add_segment(
@@ -255,6 +293,13 @@ impl CpuState {
             INIT_RO_LEN,
             Rc::new(RefCell::new(ReadWriteSegment::new(
                 (Self::INIT_MEMORY_SIZE - INIT_RO_LEN) as usize,
+            ))),
+        )?;
+
+        self.cpu.memory_add_segment(
+            Self::BOOTLOADER_START,
+            Rc::new(RefCell::new(ReadWriteSegment::new(
+                (Self::DEVICE_START_ADDR - Self::BOOTLOADER_START) as usize,
             ))),
         )?;
 
@@ -286,10 +331,42 @@ impl CpuState {
 
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 
+        // Compile and setup bootloader
+        {
+            let preprocessed = cbuoy::preprocess_code_as_file(
+                &include_str!("../../cbuoy/components/bootloader.cb"),
+                Path::new("bootloader.cb"),
+                [].into_iter(),
+            )
+            .unwrap();
+
+            let tokens = preprocessed.tokenize().unwrap();
+
+            let mut options = CodeGenerationOptions::default();
+            options.prog_type = ProgramType::Kernel {
+                stack_loc: ProgramType::DEFAULT_STACK_LOC,
+                start_offset: Self::BOOTLOADER_START,
+            };
+
+            let tokens = cbuoy::parse(tokens, options)
+                .and_then(|x| x.get_assembler())
+                .unwrap();
+            let bin = jib_asm::assemble_tokens(tokens).unwrap();
+
+            for (i, x) in bin.bytes.iter().enumerate() {
+                self.cpu.memory_set(Self::BOOTLOADER_START + i as u32, *x)?;
+            }
+        }
+
         if self.last_code.len() > INIT_RO_LEN as usize {
             self.cpu
                 .memory_set_range(INIT_RO_LEN, &self.last_code[INIT_RO_LEN as usize..])?;
         }
+
+        if self.running_requested {
+            self.running = true;
+        }
+
         Ok(())
     }
 
@@ -299,6 +376,15 @@ impl CpuState {
             msg: UiToThread,
         ) -> Result<Option<ThreadToUi>, ProcessorError> {
             match msg {
+                UiToThread::UseBootloader(bootloader) => {
+                    state.use_bootloader = bootloader;
+                    state.reset()?;
+                    state
+                        .tx
+                        .send(ThreadToUi::BootloaderState(state.use_bootloader))
+                        .unwrap();
+                    return Ok(Some(ThreadToUi::ProcessorReset));
+                }
                 UiToThread::CpuStep => {
                     if let Err(e) = state.step_cpu(false) {
                         return Ok(Some(e));

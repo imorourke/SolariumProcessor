@@ -18,10 +18,23 @@ struct CompilerArguments {
     #[arg(
         short = 'k',
         long = "kernel",
-        default_value_t = false,
-        help = "Enables program generation in kernel mode"
+        help = "Enables program generation in kernel mode with the provided start location"
     )]
-    is_kernel_program: bool,
+    kernel_program: bool,
+    #[arg(
+        short = 'K',
+        long = "kernel-start-loc",
+        default_value_t = ProgramType::DEFAULT_START_OFFSET,
+        help="Initial program location when generating in kernel mode"
+    )]
+    kernel_start_offset: u32,
+    #[arg(
+        short = 'S',
+        long = "kernel-stack-loc",
+        default_value_t = ProgramType::DEFAULT_STACK_LOC,
+        help = "Initial stack location when generating in kernel mode",
+    )]
+    kernel_stack_loc: u32,
     #[arg(
         short = 'a',
         long = "output-ast",
@@ -115,8 +128,11 @@ fn main() -> std::process::ExitCode {
     let cbstate = match parse(
         input_tokens.clone(),
         cbuoy::CodeGenerationOptions {
-            prog_type: if args.is_kernel_program {
-                ProgramType::DEFAULT_KERNEL
+            prog_type: if args.kernel_program {
+                ProgramType::Kernel {
+                    stack_loc: args.kernel_stack_loc,
+                    start_offset: args.kernel_start_offset,
+                }
             } else {
                 ProgramType::Application
             },
