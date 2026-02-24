@@ -81,7 +81,7 @@ pub struct CpuState {
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
     #[cfg(not(target_arch = "wasm32"))]
     dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
-    last_code: Vec<u8>,
+    last_code: Option<(u32, Vec<u8>)>,
     inst_history: CircularBuffer<String, 10>,
     inst_map: InstructionList,
     breakpoint: Option<u32>,
@@ -114,7 +114,7 @@ impl CpuState {
             dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
             #[cfg(not(target_arch = "wasm32"))]
             dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
-            last_code: Vec::new(),
+            last_code: None,
             inst_history: Default::default(),
             inst_map: InstructionList::default(),
             breakpoint: None,
@@ -358,9 +358,10 @@ impl CpuState {
             }
         }
 
-        if self.last_code.len() > INIT_RO_LEN as usize {
-            self.cpu
-                .memory_set_range(INIT_RO_LEN, &self.last_code[INIT_RO_LEN as usize..])?;
+        if !self.use_bootloader
+            && let Some((start, code)) = &self.last_code
+        {
+            self.cpu.memory_set_range(*start, &code)?;
         }
 
         if self.running_requested {
@@ -415,15 +416,7 @@ impl CpuState {
                     state.multiplier = m;
                 }
                 UiToThread::SetCode(data) => {
-                    let code = if data.start_address != 0 {
-                        let mut asm_vals = vec![0; data.start_address as usize];
-                        asm_vals.extend(data.bytes);
-                        asm_vals
-                    } else {
-                        data.bytes
-                    };
-
-                    state.last_code = code;
+                    state.last_code = Some((data.start_address, data.bytes));
                     state.reset()?;
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
