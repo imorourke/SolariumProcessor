@@ -673,26 +673,26 @@ mod test {
     #[test]
     fn test_malloc() {
         const EXPECTED: &str = "A\n\
-            @65536, 10\n\
-            @65558, 12\n\
-            @65582, 30\n\
-            @65624, 45\n\
-            B\n\
-            @65558, 12\n\
-            @65582, 30\n\
-            @65624, 45\n\
-            C\n\
-            @65536, 5\n\
-            @65558, 12\n\
-            @65582, 30\n\
-            @65624, 45\n\
-            D\n\
-            No Heap Allocations\n\
-            E\n\
-            @65536, 33\n\
-            F\n\
-            No Heap Allocations\n\
-            Heap Test Pass\n";
+                @16777216, 10\n\
+                @16777238, 12\n\
+                @16777262, 30\n\
+                @16777304, 45\n\
+                B\n\
+                @16777238, 12\n\
+                @16777262, 30\n\
+                @16777304, 45\n\
+                C\n\
+                @16777216, 5\n\
+                @16777238, 12\n\
+                @16777262, 30\n\
+                @16777304, 45\n\
+                D\n\
+                No Heap Allocations\n\
+                E\n\
+                @16777216, 33\n\
+                F\n\
+                No Heap Allocations\n\
+                Heap Test Pass\n";
 
         run_cpu_serial_out_test(include_str!("../../cbuoy/tests/test_kmalloc.cb"), EXPECTED);
     }
