@@ -525,7 +525,7 @@ impl CpuState {
         }
 
         if self.running {
-            let step_repeat_count = self.multiplier as i64;
+            let step_repeat_count = 2i64.pow(self.multiplier as u32);
 
             for _ in 0..step_repeat_count {
                 if let Err(msg) = self.step_cpu(true) {
