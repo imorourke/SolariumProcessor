@@ -67,8 +67,16 @@ impl SegmentData {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct MemoryMapCache {
+    lower: u32,
+    upper: u32,
+    index: usize,
+}
+
 pub struct MemoryMap {
     segments: Vec<SegmentData>,
+    last_segment: RefCell<MemoryMapCache>,
 }
 
 macro_rules! GetSetInspectUnsignedType {
@@ -102,6 +110,7 @@ impl MemoryMap {
     pub fn new() -> Self {
         MemoryMap {
             segments: Vec::new(),
+            last_segment: RefCell::default(),
         }
     }
 
@@ -130,6 +139,9 @@ impl MemoryMap {
         }
 
         self.segments.push(new_seg);
+        self.segments.sort_by(|a, b| a.base.cmp(&b.base));
+        self.last_segment = RefCell::default();
+
         Ok(())
     }
 
@@ -162,10 +174,33 @@ impl MemoryMap {
     }
 
     fn get_segment(&self, address: u32) -> Result<&SegmentData, MemoryError> {
-        for m in self.segments.iter() {
+        let mut cache = self.last_segment.borrow_mut();
+        if address >= cache.lower
+            && address < cache.upper
+            && let Some(seg) = self.segments.get(cache.index)
+        {
+            return Ok(seg);
+        }
+
+        let mut top = self.segments.len();
+        let mut bot = 0;
+        let mut index = (top + bot) / 2;
+
+        while bot < top
+            && let Some(m) = self.segments.get(index)
+        {
             if m.within(address) {
+                cache.lower = m.base;
+                cache.upper = m.top();
+                cache.index = index;
                 return Ok(m);
+            } else if address < m.base {
+                top = index;
+            } else if address >= m.top() {
+                bot = index + 1;
             }
+
+            index = (top + bot) / 2;
         }
 
         Err(MemoryError::InvalidAddress(address))

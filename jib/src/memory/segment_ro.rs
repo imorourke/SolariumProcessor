@@ -18,8 +18,8 @@ impl ReadOnlySegment {
 impl MemorySegment for ReadOnlySegment {
     /// Provides the word at the requested memory location
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
-        if self.within(offset) {
-            Ok(self.data[offset as usize])
+        if let Some(d) = self.data.get(offset as usize) {
+            Ok(*d)
         } else {
             Err(MemorySegmentError::InvalidMemoryAccess(offset))
         }

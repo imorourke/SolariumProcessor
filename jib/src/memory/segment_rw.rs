@@ -21,8 +21,8 @@ impl ReadWriteSegment {
 impl MemorySegment for ReadWriteSegment {
     /// Provides the word at the requested memory location
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
-        if self.within(offset) {
-            Ok(self.data[offset as usize])
+        if let Some(d) = self.data.get(offset as usize) {
+            Ok(*d)
         } else {
             Err(MemorySegmentError::InvalidMemoryAccess(offset))
         }
@@ -30,8 +30,8 @@ impl MemorySegment for ReadWriteSegment {
 
     /// Sets the word at the requested memory location with the given data
     fn set(&mut self, offset: u32, data: u8) -> Result<(), MemorySegmentError> {
-        if self.within(offset) {
-            self.data[offset as usize] = data;
+        if let Some(d) = self.data.get_mut(offset as usize) {
+            *d = data;
             Ok(())
         } else {
             Err(MemorySegmentError::InvalidMemoryAccess(offset))
