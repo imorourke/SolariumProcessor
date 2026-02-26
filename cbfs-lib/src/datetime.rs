@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::time::SystemTime;
 
 #[cfg(feature = "time")]
-use chrono::{DateTime, Datelike, Timelike, Utc, TimeZone};
+use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
 #[cfg(feature = "time")]
@@ -120,7 +120,7 @@ impl CbDateTime {
     pub fn from_posix_millis(millis: i64) -> Result<Self, CbfsError> {
         match Utc.timestamp_millis_opt(millis) {
             chrono::offset::LocalResult::Single(dt) => Ok(dt.into()),
-            _ => Err(CbfsError::InvalidDateTime)
+            _ => Err(CbfsError::InvalidDateTime),
         }
     }
 }

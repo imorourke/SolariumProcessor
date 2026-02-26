@@ -8,7 +8,7 @@ mod filesystem;
 mod names;
 mod volume;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 pub use crate::{
     datetime::{CbDate, CbDateTime, CbTime},
@@ -48,6 +48,26 @@ impl From<StringArrayError> for CbfsError {
     fn from(value: StringArrayError) -> Self {
         match value {
             StringArrayError::InvalidName => Self::InvalidName,
+        }
+    }
+}
+
+impl Display for CbfsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EntryInvalid(val) => write!(f, "entry {val} invalid"),
+            Self::EntryNotFile(val) => write!(f, "entry {val} not a file"),
+            Self::EntryNotDirectory(val) => write!(f, "entry {val} not a directory"),
+            Self::NonZeroDirectoryData => write!(f, "non-zero directory data"),
+            Self::NameExists(name) => write!(f, "name {name} already exists in path"),
+            Self::PathNotFound(path) => write!(f, "path '{path}' not found"),
+            Self::UnknownEntryType(etype) => write!(f, "unknown entry type {etype} found"),
+            Self::InvalidName => write!(f, "invalid name provided"),
+            Self::TableFull => write!(f, "sector table full"),
+            Self::InvalidDateTime => write!(f, "invalid date/time detected"),
+            Self::InvalidSectorCount(count) => write!(f, "invalid sector count {count} specified"),
+            Self::SectorSizeTooSmall(size) => write!(f, "sector size {size} too small"),
+            Self::UnknownError(error) => write!(f, "unknown cbfs error: {error}"),
         }
     }
 }

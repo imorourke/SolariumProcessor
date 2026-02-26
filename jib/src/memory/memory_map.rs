@@ -140,7 +140,7 @@ impl MemoryMap {
 
         self.segments.push(new_seg);
         self.segments.sort_by(|a, b| a.base.cmp(&b.base));
-        self.last_segment = RefCell::default();
+        self.last_segment.take();
 
         Ok(())
     }

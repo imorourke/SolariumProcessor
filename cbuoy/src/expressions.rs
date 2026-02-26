@@ -466,17 +466,17 @@ impl BinaryArithmeticOperation {
     ];
 
     pub const fn is_boolean(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::And
-            | Self::Or
-            | Self::Equals
-            | Self::NotEquals
-            | Self::Greater
-            | Self::GreaterEqual
-            | Self::Less
-            | Self::LessEqual => true,
-            _ => false,
-        }
+                | Self::Or
+                | Self::Equals
+                | Self::NotEquals
+                | Self::Greater
+                | Self::GreaterEqual
+                | Self::Less
+                | Self::LessEqual
+        )
     }
 
     pub const fn get_priority(&self) -> i32 {

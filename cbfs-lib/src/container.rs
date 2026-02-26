@@ -90,13 +90,13 @@ impl CbContainer {
                 let sector_data = &raw_data[current_index + entry_size
                     ..current_index + entry_size + header.sector_size.get() as usize];
 
-                let sector_start = current_sector as usize * sector_size as usize;
-                let sector_end = sector_start + sector_size as usize;
+                let sector_start = current_sector as usize * sector_size;
+                let sector_end = sector_start + sector_size;
 
                 sector_data
                     .write_to(&mut new_data[sector_start..sector_end])
                     .unwrap();
-                current_index += sector_count as usize + entry_size;
+                current_index += sector_count + entry_size;
             }
 
             new_data

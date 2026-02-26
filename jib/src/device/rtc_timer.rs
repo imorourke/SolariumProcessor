@@ -39,7 +39,7 @@ impl MemorySegment for RtcTimerDevice {
             match index {
                 0 => Ok(self.irq),
                 1 => Ok(if self.repeats { 1 } else { 0 }),
-                x if x >= 2 && x < 6 => Ok(self.milliseconds.to_be_bytes()[x as usize - 2]),
+                x if (2..6).contains(&x) => Ok(self.milliseconds.to_be_bytes()[x as usize - 2]),
                 _ => Ok(0),
             }
         }
@@ -54,7 +54,7 @@ impl MemorySegment for RtcTimerDevice {
             match index {
                 0 => self.irq = val,
                 1 => self.repeats = val != 0,
-                x if x >= 2 && x < 6 => {
+                x if (2..6).contains(&x) => {
                     let mut ms_bytes = self.milliseconds.to_be_bytes();
                     ms_bytes[x as usize - 2] = val;
                     self.milliseconds = u32::from_be_bytes(ms_bytes);

@@ -1,5 +1,6 @@
 use crate::messages::{ThreadToUi, UiToThread};
-use cbuoy::{CodeGenerationOptions, ProgramType};
+use cbfs_lib::CbfsError;
+use cbuoy::{CodeGenerationOptions, PreprocessorError, ProgramType, TokenError};
 #[cfg(not(target_arch = "wasm32"))]
 use jib::device::RtcTimerDevice;
 use jib::{
@@ -10,9 +11,10 @@ use jib::{
     },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
 };
-use jib_asm::InstructionList;
+use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput, InstructionList};
 use std::{
     cell::RefCell,
+    fmt::Display,
     path::Path,
     rc::Rc,
     sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
@@ -101,7 +103,7 @@ impl CpuState {
     pub const THREAD_LOOP_MS: u64 = 50;
     const MSGS_PER_LOOP: u64 = 1000;
 
-    pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Result<Self, ProcessorError> {
+    pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Result<Self, ComputerError> {
         let mut s = Self {
             #[cfg(not(target_arch = "wasm32"))]
             run_thread: true,
@@ -121,7 +123,7 @@ impl CpuState {
             step_count: 0,
             rx,
             tx,
-            hard_drive: Self::create_hard_drive(),
+            hard_drive: Self::create_hard_drive()?,
         };
 
         s.tx.send(ThreadToUi::BootloaderState(s.use_bootloader))
@@ -131,72 +133,48 @@ impl CpuState {
         Ok(s)
     }
 
-    fn create_hard_drive() -> Rc<RefCell<BlockDevice>> {
+    fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_data = {
-            let preprocessed = cbuoy::preprocess_code_as_file(
-                &include_str!("../../cbuoy/components/os.cb"),
-                Path::new("os.cb"),
-                [].into_iter(),
-            )
-            .unwrap();
+        let kernel_data =
+            Self::compile_kernel_code(include_str!("../../cbuoy/components/os.cb"), None)?.bytes;
 
-            let tokens = preprocessed.tokenize().unwrap();
-
-            let mut options = CodeGenerationOptions::default();
-            options.prog_type = ProgramType::default();
-
-            let tokens = cbuoy::parse(tokens, options)
-                .and_then(|x| x.get_assembler())
-                .unwrap();
-            let bin = jib_asm::assemble_tokens(tokens).unwrap();
-            bin.bytes
-        };
-
-        let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096).unwrap();
+        let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096)?;
         fs.create_entry(
             fs.header.root_sector.get(),
             "hello.txt",
             cbfs_lib::CbEntryType::File,
             b"Hello, world!",
-        )
-        .unwrap();
+        )?;
         fs.create_entry(
             fs.header.root_sector.get(),
             "boot.bin",
             cbfs_lib::CbEntryType::File,
             &kernel_data,
-        )
-        .unwrap();
-        let root_dir = fs
-            .create_entry(
-                fs.header.root_sector.get(),
-                "root",
-                cbfs_lib::CbEntryType::Directory,
-                &[],
-            )
-            .unwrap();
+        )?;
+        let root_dir = fs.create_entry(
+            fs.header.root_sector.get(),
+            "root",
+            cbfs_lib::CbEntryType::Directory,
+            &[],
+        )?;
         let build_date: &'static str = env!("BUILD_DATE");
         fs.create_entry(
             root_dir,
             "version",
             cbfs_lib::CbEntryType::File,
             format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
-        )
-        .unwrap();
-        let src = fs
-            .create_entry(root_dir, "src", cbfs_lib::CbEntryType::Directory, &[])
-            .unwrap();
+        )?;
+        let src = fs.create_entry(root_dir, "src", cbfs_lib::CbEntryType::Directory, &[])?;
 
-        for (path, code) in cbuoy::DEFAULT_FILES.iter().cloned() {
-            let name = path.split('/').last().unwrap();
-            if name.len() < cbfs_lib::CbVolumeHeader::VOLUME_NAME_SIZE {
-                fs.create_entry(src, name, cbfs_lib::CbEntryType::File, code.as_bytes())
-                    .unwrap();
+        for (path, code) in cbuoy::DEFAULT_FILES.iter() {
+            if let Some(name) = path.split('/').next_back()
+                && name.len() < cbfs_lib::CbVolumeHeader::VOLUME_NAME_SIZE
+            {
+                fs.create_entry(src, name, cbfs_lib::CbEntryType::File, code.as_bytes())?;
             }
         }
 
-        Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes().unwrap())))
+        Ok(Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes()?))))
     }
 
     fn get_inst_history(&self) -> Vec<String> {
@@ -267,7 +245,28 @@ impl CpuState {
         }
     }
 
-    fn reset(&mut self) -> Result<(), ProcessorError> {
+    pub fn compile_kernel_code(
+        code: &str,
+        start_offset: Option<u32>,
+    ) -> Result<AssemblerOutput, ComputerError> {
+        let preprocessed =
+            cbuoy::preprocess_code_as_file(code, Path::new("bootloader.cb"), [].into_iter())?;
+
+        let tokens = preprocessed.tokenize().unwrap();
+
+        let options = CodeGenerationOptions {
+            prog_type: ProgramType::Kernel {
+                stack_loc: ProgramType::DEFAULT_STACK_LOC,
+                start_offset: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
+            },
+            ..Default::default()
+        };
+
+        let tokens = cbuoy::parse(tokens, options).and_then(|x| x.get_assembler())?;
+        Ok(jib_asm::assemble_tokens(tokens)?)
+    }
+
+    fn reset(&mut self) -> Result<(), ComputerError> {
         const INIT_RO_LEN: u32 = Processor::BASE_HW_INT_ADDR;
 
         self.cpu = Processor::default();
@@ -338,36 +337,21 @@ impl CpuState {
         self.cpu.reset(jib::cpu::ResetType::Hard)?;
 
         // Compile and setup bootloader
+        for (i, x) in Self::compile_kernel_code(
+            include_str!("../../cbuoy/components/bootloader.cb"),
+            Some(Self::BOOTLOADER_START),
+        )?
+        .bytes
+        .iter()
+        .enumerate()
         {
-            let preprocessed = cbuoy::preprocess_code_as_file(
-                &include_str!("../../cbuoy/components/bootloader.cb"),
-                Path::new("bootloader.cb"),
-                [].into_iter(),
-            )
-            .unwrap();
-
-            let tokens = preprocessed.tokenize().unwrap();
-
-            let mut options = CodeGenerationOptions::default();
-            options.prog_type = ProgramType::Kernel {
-                stack_loc: ProgramType::DEFAULT_STACK_LOC,
-                start_offset: Self::BOOTLOADER_START,
-            };
-
-            let tokens = cbuoy::parse(tokens, options)
-                .and_then(|x| x.get_assembler())
-                .unwrap();
-            let bin = jib_asm::assemble_tokens(tokens).unwrap();
-
-            for (i, x) in bin.bytes.iter().enumerate() {
-                self.cpu.memory_set(Self::BOOTLOADER_START + i as u32, *x)?;
-            }
+            self.cpu.memory_set(Self::BOOTLOADER_START + i as u32, *x)?;
         }
 
         if !self.use_bootloader
             && let Some((start, code)) = &self.last_code
         {
-            self.cpu.memory_set_range(*start, &code)?;
+            self.cpu.memory_set_range(*start, code)?;
         }
 
         if self.running_requested {
@@ -381,7 +365,7 @@ impl CpuState {
         fn inner_handler(
             state: &mut CpuState,
             msg: UiToThread,
-        ) -> Result<Option<ThreadToUi>, ProcessorError> {
+        ) -> Result<Option<ThreadToUi>, ComputerError> {
             match msg {
                 UiToThread::UseBootloader(bootloader) => {
                     state.use_bootloader = bootloader;
@@ -457,7 +441,7 @@ impl CpuState {
                         .unwrap();
                 }
                 UiToThread::DiskReset => {
-                    state.hard_drive = CpuState::create_hard_drive();
+                    state.hard_drive = CpuState::create_hard_drive()?;
                     state.reset().unwrap();
                 }
                 #[cfg(not(target_arch = "wasm32"))]
@@ -592,6 +576,65 @@ impl CpuState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ComputerError {
+    ProcessorError(ProcessorError),
+    AssemblerError(AssemblerError),
+    AssemblerErrorLoc(AssemblerErrorLoc),
+    DiskError(CbfsError),
+    TokenError(TokenError),
+    PreprocessorError(PreprocessorError),
+}
+
+impl Display for ComputerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PreprocessorError(e) => write!(f, "preprocessor => {e}"),
+            Self::AssemblerError(e) => write!(f, "assembler => {e}"),
+            Self::AssemblerErrorLoc(e) => write!(f, "assembler => {e}"),
+            Self::DiskError(e) => write!(f, "disk => {e}"),
+            Self::TokenError(e) => write!(f, "token => {e}"),
+            Self::ProcessorError(e) => write!(f, "processor => {e}"),
+        }
+    }
+}
+
+impl From<ProcessorError> for ComputerError {
+    fn from(value: ProcessorError) -> Self {
+        Self::ProcessorError(value)
+    }
+}
+
+impl From<AssemblerError> for ComputerError {
+    fn from(value: AssemblerError) -> Self {
+        Self::AssemblerError(value)
+    }
+}
+
+impl From<AssemblerErrorLoc> for ComputerError {
+    fn from(value: AssemblerErrorLoc) -> Self {
+        Self::AssemblerErrorLoc(value)
+    }
+}
+
+impl From<TokenError> for ComputerError {
+    fn from(value: TokenError) -> Self {
+        Self::TokenError(value)
+    }
+}
+
+impl From<PreprocessorError> for ComputerError {
+    fn from(value: PreprocessorError) -> Self {
+        Self::PreprocessorError(value)
+    }
+}
+
+impl From<CbfsError> for ComputerError {
+    fn from(value: CbfsError) -> Self {
+        Self::DiskError(value)
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     let mut state = match CpuState::new(rx, tx.clone()) {
@@ -619,26 +662,10 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
 #[cfg(test)]
 mod test {
     use crate::cpu_thread::CpuState;
-    use cbuoy::CodeGenerationOptions;
     use jib::cpu::Processor;
-    use std::path::Path;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let tokens = cbuoy::preprocess_code_as_file(in_code, Path::new("test.cb"), [].into_iter())
-            .unwrap()
-            .tokenize()
-            .unwrap();
-
-        let tokens = cbuoy::parse(
-            tokens,
-            CodeGenerationOptions {
-                debug_locations: true,
-                ..Default::default()
-            },
-        )
-        .and_then(|x| x.get_assembler())
-        .unwrap();
-        let asm = jib_asm::assemble_tokens(tokens).unwrap();
+        let asm = CpuState::compile_kernel_code(in_code, None).unwrap();
 
         let (tx_thread, _rx_thread) = std::sync::mpsc::channel();
         let (_tx_ui, rx_ui) = std::sync::mpsc::channel();
