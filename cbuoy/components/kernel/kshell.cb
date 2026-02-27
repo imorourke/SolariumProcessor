@@ -166,9 +166,11 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
             if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
                 def entry_hdr: k_fs_entry_header_t;
                 if (k_fs_read_entry_header(state->disk, out_entry.base_block, &entry_hdr) == 0) {
+                    // Add one to the data size for null character in the array
                     const DATA_SIZE: u32 = 128;
-                    def run_data: [DATA_SIZE]u8;
+                    def run_data: [DATA_SIZE + 1]u8;
                     def current_size: u32 = 0;
+
                     while (current_size < entry_hdr.payload_size) {
                         def read_size: u32 = DATA_SIZE;
 
@@ -177,11 +179,12 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
                             break;
                         }
 
-                        def i: i32 = 0;
-                        while (i < read_size) {
-                            k_io_put(run_data[i]);
-                            i = i + 1;
-                        }
+                        // Add the null character to the end
+                        run_data[read_size] = 0;
+
+                        // Ensure that there is enough space in the output buffer before printing
+                        while (SERIAL_DEV->output_size + read_size > 65535) {}
+                        k_io_print(&run_data);
 
                         current_size = current_size + read_size;
                     }
