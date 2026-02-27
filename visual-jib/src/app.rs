@@ -174,7 +174,7 @@ impl Default for VisualJib {
 
 impl VisualJib {
     const SPEED_MIN: i32 = 0;
-    const SPEED_MAX: i32 = 20;
+    const SPEED_MAX: i32 = 18;
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn name() -> &'static str {
