@@ -6,9 +6,9 @@
 
 struct k_serial_control_t {
     device_id: u16;
-    input_size: u8;
+    input_size: u16;
+    output_size: u16;
     input_data: u8;
-    output_size: u8;
     output_data: u8;
     reset_input: u8;
     reset_output: u8;

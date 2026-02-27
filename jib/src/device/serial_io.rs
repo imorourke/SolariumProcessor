@@ -23,13 +23,13 @@ pub struct SerialInputOutputDevice {
 impl SerialInputOutputDevice {
     // Define memory size and offset values
     const OFFSET_INPUT_SIZE: u32 = 2;
-    const OFFSET_INPUT_DATA: u32 = 3;
     const OFFSET_OUTPUT_SIZE: u32 = 4;
-    const OFFSET_OUTPUT_DATA: u32 = 5;
-    const OFFSET_INPUT_RESET_IN: u32 = 6;
-    const OFFSET_INPUT_RESET_OUT: u32 = 7;
-    const OFFSET_INTERRUPT_NUM: u32 = 8;
-    const OFFSET_INTERRUPT_CHAR: u32 = 9;
+    const OFFSET_INPUT_DATA: u32 = 6;
+    const OFFSET_OUTPUT_DATA: u32 = 7;
+    const OFFSET_INPUT_RESET_IN: u32 = 8;
+    const OFFSET_INPUT_RESET_OUT: u32 = 9;
+    const OFFSET_INTERRUPT_NUM: u32 = 10;
+    const OFFSET_INTERRUPT_CHAR: u32 = 11;
 
     /// Constructs a new serial device
     pub fn new(buffer_size: usize) -> SerialInputOutputDevice {
@@ -78,10 +78,14 @@ impl SerialInputOutputDevice {
             n if n < DEVICE_ID_SIZE => {
                 Ok(self.device_type().get_device_id().to_be_bytes()[offset as usize])
             }
-            Self::OFFSET_INPUT_SIZE => {
-                Ok((u8::MAX as usize).min(self.input_queue.borrow().len()) as u8)
-            }
-            Self::OFFSET_OUTPUT_SIZE => Ok((u8::MAX as usize).min(self.output_queue.len()) as u8),
+            x if (Self::OFFSET_INPUT_SIZE..Self::OFFSET_INPUT_SIZE + 2).contains(&x) => Ok(
+                ((u16::MAX as usize).min(self.input_queue.borrow().len()) as u16).to_be_bytes()
+                    [x as usize - Self::OFFSET_INPUT_SIZE as usize],
+            ),
+            x if (Self::OFFSET_OUTPUT_SIZE..Self::OFFSET_OUTPUT_SIZE + 2).contains(&x) => Ok(
+                ((u16::MAX as usize).min(self.output_queue.len()) as u16).to_be_bytes()
+                    [x as usize - Self::OFFSET_OUTPUT_SIZE as usize],
+            ),
             Self::OFFSET_OUTPUT_DATA
             | Self::OFFSET_INPUT_RESET_IN
             | Self::OFFSET_INPUT_RESET_OUT => Ok(0),
