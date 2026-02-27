@@ -206,7 +206,7 @@ fn k_fs_read_entry_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_hea
     if (!k_fs_entry_valid(entry)) {
         return -1;
     }
-    k_fs_disk_move(dev->ctl, dev->vol_hdr.sector_size * entry);
+    k_fs_disk_move(dev->ctl, (dev->vol_hdr.sector_size : u32) * (entry : u32));
     dev->ctl->memory_size = 0;
     k_memcpy(header, &dev->ctl->data, sizeof(k_fs_entry_header_t));
     return 0;
@@ -229,7 +229,12 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
         return -1;
     }
 
-    def sector_size: u32 = dev->vol_hdr.sector_size;
+    if (offset > entry_hdr.payload_size) {
+        *size = 0;
+        return 0;
+    }
+
+    def sector_size: u32 = dev->vol_hdr.sector_size : u32;
     def total_offset: u32 = offset + sizeof(k_fs_entry_header_t);
     while (total_offset >= sector_size) {
         entry = k_fs_next_sector(dev, entry);
@@ -245,7 +250,7 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
     }
 
     def data_size: u32 = *size;
-    def sector_base: u32 = sector_size * entry;
+    def sector_base: u32 = sector_size * (entry : u32);
     def disk_offset: u32 = total_offset;
     def local_offset: u32 = 0;
 
@@ -266,8 +271,7 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
         }
 
         k_fs_disk_move(dev->ctl, sector_base + disk_offset);
-
-        k_memcpy(data + local_offset, &dev->ctl->data, copy_size);
+        k_memcpy(data + local_offset, &dev->ctl->data[0], copy_size);
         local_offset = local_offset + copy_size;
         disk_offset = disk_offset + copy_size;
 
