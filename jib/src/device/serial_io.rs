@@ -133,6 +133,9 @@ impl MemorySegment for SerialInputOutputDevice {
                 if self.output_queue.len() < self.buffer_size {
                     self.output_queue.push_back(data);
                     Ok(())
+                } else if let Some(x) = self.output_queue.back_mut() {
+                    *x = data;
+                    Ok(())
                 } else {
                     Err(MemorySegmentError::InvalidMemoryWrite(offset, data))
                 }
