@@ -446,12 +446,18 @@ static int cbfs_fuse_rename(
         std::cout << "mkdir(" << path << ", " << new_path << ")\n";
     }
 
+#ifndef WIN32
     if ((flags & RENAME_EXCHANGE) == RENAME_EXCHANGE) {
         return -ENOSYS;
     }
+#endif
 
     try {
+#ifndef WIN32
         const bool can_replace = (flags & RENAME_NOREPLACE) == 0;
+#else
+        const bool can_replace = false;
+#endif
         cbfs_error::check_return(cbfs_rename_entry(state->fs, path, new_path, can_replace));
         return 0;
     } catch (const cbfs_error& err) {
