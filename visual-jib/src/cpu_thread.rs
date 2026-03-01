@@ -1,5 +1,5 @@
 use crate::messages::{ThreadToUi, UiToThread};
-use cbfs_lib::CbfsError;
+use cbfs_lib::CbError;
 use cbuoy::{CodeGenerationOptions, PreprocessorError, ProgramType, TokenError};
 #[cfg(not(target_arch = "wasm32"))]
 use jib::device::RtcTimerDevice;
@@ -446,10 +446,10 @@ impl CpuState {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
-                    use cbfs_lib::{CbContainer, CbFileHeader};
+                    use cbfs_lib::{CbContainer, CbContainerHeader};
 
                     let container = CbContainer::new(
-                        CbFileHeader::new(false, false),
+                        CbContainerHeader::new(false, false),
                         cbfs_lib::CbFileSystem::from_bytes(&state.hard_drive.borrow().data)
                             .unwrap(),
                     );
@@ -581,7 +581,7 @@ pub enum ComputerError {
     ProcessorError(ProcessorError),
     AssemblerError(AssemblerError),
     AssemblerErrorLoc(AssemblerErrorLoc),
-    DiskError(CbfsError),
+    DiskError(CbError),
     TokenError(TokenError),
     PreprocessorError(PreprocessorError),
 }
@@ -629,8 +629,8 @@ impl From<PreprocessorError> for ComputerError {
     }
 }
 
-impl From<CbfsError> for ComputerError {
-    fn from(value: CbfsError) -> Self {
+impl From<CbError> for ComputerError {
+    fn from(value: CbError) -> Self {
         Self::DiskError(value)
     }
 }

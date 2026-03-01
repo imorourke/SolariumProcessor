@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fuse3/fuse.h>
+#include <fuse3/fuse_opt.h>
 #include <limits>
 #include <memory>
 #include <stddef.h>
@@ -84,23 +85,12 @@ struct CbFuseState {
     std::shared_mutex lock{};
     const char* base_file{};
     bool read_only{ false };
-    bool save_gzip{ false };
-    bool save_sparse{ false };
-    bool save_zeroed{ false };
     bool print_enabled{ false };
     std::unordered_map<uint16_t, fuse_mode_t> current_modes{};
 
     bool save_fs() {
         if (base_file != nullptr && !read_only) {
-            return cbfs_save(
-                       fs,
-                       base_file,
-                       CbFsSaveOption{
-                           .gzip = save_gzip,
-                           .sparse = save_sparse,
-                           .zero_unused = save_zeroed,
-                       }
-                   ) == CbFsResult::Success;
+            return cbfs_save(fs, base_file, false) == CbFsResult::Success;
         } else {
             return true;
         }
@@ -628,9 +618,9 @@ static int cbfs_fuse_utimens(
 
         if (tv != nullptr && tv->tv_nsec != UTIME_NOW) {
             const CbFsTime tvi = cbfs_millis_to_time(timespec_to_millis(*tv));
-            cbfs_error::check_return(cbfs_set_time(state->fs, hdl, &tvi));
+            cbfs_error::check_return(cbfs_entry_set_time(state->fs, hdl, &tvi));
         } else {
-            cbfs_error::check_return(cbfs_set_time(state->fs, hdl, nullptr));
+            cbfs_error::check_return(cbfs_entry_set_time(state->fs, hdl, nullptr));
         }
         return 0;
 
@@ -640,12 +630,7 @@ static int cbfs_fuse_utimens(
 }
 
 struct options_t {
-    uint16_t sector_size{ 512 };
-    uint16_t sector_count{ 32768 };
     bool file_read_only;
-    bool sparse;
-    bool gzip;
-    bool zeroblocks;
     bool randomize;
     bool func_calls;
     const char* base_file;
@@ -659,20 +644,9 @@ enum {
 #define CBFS_OPTION(t, p) { t, offsetof(options_t, p), 1 }
 
 static const struct fuse_opt cbfs_option_spec[] = {
-    CBFS_OPTION("secsize=%hu", sector_size),
-    CBFS_OPTION("seccount=%hu", sector_count),
-    CBFS_OPTION("file=%s", base_file),
-    CBFS_OPTION("mem", file_read_only),
-    CBFS_OPTION("gzip", gzip),
-    CBFS_OPTION("sparse", sparse),
-    CBFS_OPTION("zeroblocks", zeroblocks),
-    CBFS_OPTION("rand", randomize),
-    CBFS_OPTION("calls", func_calls),
-    FUSE_OPT_KEY("--version", KEY_VERSION),
-    FUSE_OPT_KEY("-V", KEY_VERSION),
-    FUSE_OPT_KEY("--help", KEY_HELP),
-    FUSE_OPT_KEY("-h", KEY_HELP),
-    FUSE_OPT_END,
+    CBFS_OPTION("file=%s", base_file), CBFS_OPTION("mem", file_read_only),     CBFS_OPTION("rand", randomize),
+    CBFS_OPTION("calls", func_calls),  FUSE_OPT_KEY("--version", KEY_VERSION), FUSE_OPT_KEY("-V", KEY_VERSION),
+    FUSE_OPT_KEY("--help", KEY_HELP),  FUSE_OPT_KEY("-h", KEY_HELP),           FUSE_OPT_END,
 };
 
 #undef CBFS_OPTION
@@ -690,14 +664,9 @@ static void* cbfs_fuse_init(
     state->base_file = options.base_file;
     state->read_only = options.file_read_only != 0;
     state->print_enabled = (config->debug != 0) || options.func_calls;
-    state->save_gzip = options.gzip;
-    state->save_sparse = options.sparse;
-    state->save_zeroed = options.zeroblocks;
-    state->fs = cbfs_create("cbfs", options.sector_size, options.sector_count, state->base_file, options.randomize);
+    state->fs = cbfs_open(state->base_file, options.randomize);
 
     if (config->debug) {
-        std::cout << "Sector Size: " << static_cast<int>(options.sector_size) << ", SectorCount: " << options.sector_count << '\n';
-
         if (options.base_file != nullptr) {
             std::cout << "Base File: " << options.base_file << '\n';
         }
@@ -750,12 +719,7 @@ static int cbfs_opt_proc(
             "usage: %s [options] mountpoint\n"
             "\n"
             "cbfs options:\n"
-            "    -o seccount=NUM        number of sectors in the filesystem\n"
-            "    -o secsize=NUM         size of each sector in bytes\n"
             "    -o file=PATH           base file to load a filesystem from\n"
-            "    -o gzip                saves a filesystem compressed with gzip\n"
-            "    -o sparse              saves filesystem in sparse format\n"
-            "    -o zeroblocks          zeros unused blocks when saving\n"
             "    -o mem                 reads the FS from a file, but will not save\n"
             "    -o rand                randomizes used sectors\n"
             "    -o calls               provides information on function calls\n",
@@ -764,27 +728,48 @@ static int cbfs_opt_proc(
         fuse_opt_add_arg(outargs, "-h");
         outargs->argv[0][0] = '\0';
         fuse_main(outargs->argc, outargs->argv, &cbfs_fuse_oper, nullptr);
-        fuse_opt_free_args(outargs);
         exit(0);
     case KEY_VERSION:
         fprintf(stdout, "cbfs version 0.1\n");
         fuse_opt_add_arg(outargs, "--version");
         fuse_main(outargs->argc, outargs->argv, &cbfs_fuse_oper, nullptr);
-        fuse_opt_free_args(outargs);
         exit(0);
     }
     return 1;
 }
 
+struct FuseArgContainer {
+    struct fuse_args args;
+
+    FuseArgContainer(
+        int argc,
+        char* argv[]
+    ) {
+        args = FUSE_ARGS_INIT(argc, argv);
+    }
+
+    FuseArgContainer(const FuseArgContainer&) = delete;
+    FuseArgContainer(FuseArgContainer&&) = delete;
+    FuseArgContainer& operator=(FuseArgContainer&) = delete;
+    FuseArgContainer& operator=(FuseArgContainer&&) = delete;
+
+    ~FuseArgContainer() { fuse_opt_free_args(&args); }
+};
+
 int main(
     int argc,
     char* argv[]
 ) {
-    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+    FuseArgContainer args(argc, argv);
 
     options_t options{};
-    fuse_opt_parse(&args, &options, cbfs_option_spec, cbfs_opt_proc);
-    const auto ret = fuse_main(args.argc, args.argv, &cbfs_fuse_oper, &options);
-    fuse_opt_free_args(&args);
+    fuse_opt_parse(&args.args, &options, cbfs_option_spec, cbfs_opt_proc);
+
+    if (options.base_file == nullptr) {
+        std::cerr << "Unable to open base file - please specify\n";
+        return 1;
+    }
+
+    const auto ret = fuse_main(args.args.argc, args.args.argv, &cbfs_fuse_oper, &options);
     return ret;
 }

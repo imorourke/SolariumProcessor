@@ -5,7 +5,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbfsError, filesystem::CbFileSystem, names::array_to_string};
+use crate::{CbError, filesystem::CbFileSystem, names::array_to_string};
 pub use crate::{
     entries::{CbDirectoryEntry, CbEntryHeader},
     names::string_to_array,
@@ -37,15 +37,15 @@ impl CbVolumeHeader {
     const ENTRY_TABLE_ELEMENT_SIZE: usize = std::mem::size_of::<u16>();
 
     /// Creates a new disk format with the provided sector size and sector count entries
-    pub fn new(sector_size: u16, sector_count: u16) -> Result<Self, CbfsError> {
+    pub fn new(sector_size: u16, sector_count: u16) -> Result<Self, CbError> {
         let min_sector_size = std::mem::size_of::<Self>()
             .max(std::mem::size_of::<CbEntryHeader>())
             .max(std::mem::size_of::<CbDirectoryEntry>());
 
         if (sector_size as usize) < min_sector_size {
-            return Err(CbfsError::SectorSizeTooSmall(sector_size));
+            return Err(CbError::SectorSizeTooSmall(sector_size));
         } else if sector_count == CbFileSystem::NODE_END {
-            return Err(CbfsError::InvalidSectorCount(sector_count));
+            return Err(CbError::InvalidSectorCount(sector_count));
         }
 
         let mut header = Self {
@@ -62,14 +62,14 @@ impl CbVolumeHeader {
             U16::new((table_size.div_ceil(header.sector_size.get() as usize) + 1) as u16);
 
         if header.root_sector.get() >= sector_count {
-            return Err(CbfsError::InvalidSectorCount(sector_count));
+            return Err(CbError::InvalidSectorCount(sector_count));
         }
 
         Ok(header)
     }
 
     /// Sets the name for the filesystem
-    pub fn set_name(&mut self, name: &str) -> Result<(), CbfsError> {
+    pub fn set_name(&mut self, name: &str) -> Result<(), CbError> {
         self.volume_name = string_to_array(name)?;
         Ok(())
     }

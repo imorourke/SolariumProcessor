@@ -7,7 +7,7 @@ members = [
     "cbfs-lib",
     "jib-asm",
     "jib",
-    "visual-jib",
+    "visual-jib", "cbfs-util",
 ]
 default-members = ["visual-jib"]
 resolver = "2"

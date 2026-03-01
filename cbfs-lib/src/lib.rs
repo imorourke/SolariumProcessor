@@ -16,13 +16,13 @@ pub use crate::{
     names::{StringArrayError, string_to_array},
 };
 
-pub use container::{CbContainer, CbFileHeader};
+pub use container::{CbContainer, CbContainerHeader};
 pub use filesystem::CbFileSystem;
 pub use volume::CbVolumeHeader;
 
 /// Provides error message information regarding issues with the filesystem
 #[derive(Debug, Clone)]
-pub enum CbfsError {
+pub enum CbError {
     EntryInvalid(u16),
     EntryNotFile(u16),
     EntryNotDirectory(u16),
@@ -39,13 +39,13 @@ pub enum CbfsError {
     ContainerError(String),
 }
 
-impl From<std::io::Error> for CbfsError {
+impl From<std::io::Error> for CbError {
     fn from(value: std::io::Error) -> Self {
         Self::UnknownError(format!("IO error - {value}"))
     }
 }
 
-impl From<StringArrayError> for CbfsError {
+impl From<StringArrayError> for CbError {
     fn from(value: StringArrayError) -> Self {
         match value {
             StringArrayError::InvalidName => Self::InvalidName,
@@ -53,7 +53,7 @@ impl From<StringArrayError> for CbfsError {
     }
 }
 
-impl Display for CbfsError {
+impl Display for CbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EntryInvalid(val) => write!(f, "entry {val} invalid"),

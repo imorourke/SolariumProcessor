@@ -4,14 +4,18 @@ use std::{
 };
 
 use cbfs_lib::{
-    CbContainer, CbDate, CbDateTime, CbDirectoryEntry, CbEntryType, CbFileHeader, CbFileSystem,
-    CbTime, CbfsError,
+    CbContainer, CbContainerHeader, CbDate, CbDateTime, CbDirectoryEntry, CbEntryType, CbError,
+    CbFileSystem, CbTime,
 };
 
 pub const CBFS_VOLUME_NAME_SIZE: usize = 32;
 pub const CBFS_DIRECTORY_NAME_SIZE: usize = 60;
 
-pub struct CbFs(CbFileSystem);
+#[derive(Debug)]
+pub struct CbFs {
+    fs: CbFileSystem,
+    flags: CbContainerHeader,
+}
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -54,10 +58,13 @@ pub struct CbFsTime {
     pub hundredths: u8,
 }
 
+/// Converts the given time structure to a millisecond count
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFsTime structure
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_time_to_millis(time: *const CbFsTime) -> i64 {
+pub unsafe extern "C" fn cbfs_time_to_millis(time: *const CbFsTime) -> i64 {
     if let Some(t) = unsafe { time.as_ref() } {
-        let dt: CbDateTime = t.clone().into();
+        let dt: CbDateTime = (*t).into();
         dt.to_posix_millis().unwrap_or_default()
     } else {
         0
@@ -135,7 +142,7 @@ pub struct CbFsStats {
     pub free_blocks: u16,
     pub entry_blocks: u16,
     pub root_node: u16,
-    pub name: [c_char; CBFS_VOLUME_NAME_SIZE as usize],
+    pub name: [c_char; CBFS_VOLUME_NAME_SIZE],
 }
 
 #[derive(Default, Clone)]
@@ -168,23 +175,23 @@ pub enum CbFsResult {
     UnknownError,
 }
 
-impl From<CbfsError> for CbFsResult {
-    fn from(value: CbfsError) -> Self {
+impl From<CbError> for CbFsResult {
+    fn from(value: CbError) -> Self {
         match value {
-            CbfsError::NameExists(_) => Self::DuplicateName,
-            CbfsError::EntryInvalid(_) => Self::InvalidEntry,
-            CbfsError::EntryNotDirectory(_) => Self::EntryNotDirectory,
-            CbfsError::EntryNotFile(_) => Self::EntryNotFile,
-            CbfsError::InvalidDateTime => Self::InvalidDateTime,
-            CbfsError::InvalidName => Self::InvalidName,
-            CbfsError::InvalidSectorCount(_) => Self::InvalidConfig,
-            CbfsError::NonZeroDirectoryData => Self::InvalidConfig,
-            CbfsError::SectorSizeTooSmall(_) => Self::InvalidConfig,
-            CbfsError::PathNotFound(_) => Self::EntryNotFound,
-            CbfsError::TableFull => Self::NoSpace,
-            CbfsError::UnknownEntryType(_) => Self::InvalidEntry,
-            CbfsError::ContainerError(_) => Self::ContainerError,
-            CbfsError::UnknownError(_) => Self::UnknownError,
+            CbError::NameExists(_) => Self::DuplicateName,
+            CbError::EntryInvalid(_) => Self::InvalidEntry,
+            CbError::EntryNotDirectory(_) => Self::EntryNotDirectory,
+            CbError::EntryNotFile(_) => Self::EntryNotFile,
+            CbError::InvalidDateTime => Self::InvalidDateTime,
+            CbError::InvalidName => Self::InvalidName,
+            CbError::InvalidSectorCount(_) => Self::InvalidConfig,
+            CbError::NonZeroDirectoryData => Self::InvalidConfig,
+            CbError::SectorSizeTooSmall(_) => Self::InvalidConfig,
+            CbError::PathNotFound(_) => Self::EntryNotFound,
+            CbError::TableFull => Self::NoSpace,
+            CbError::UnknownEntryType(_) => Self::InvalidEntry,
+            CbError::ContainerError(_) => Self::ContainerError,
+            CbError::UnknownError(_) => Self::UnknownError,
         }
     }
 }
@@ -197,21 +204,10 @@ fn get_path(p: *const c_char) -> Option<PathBuf> {
     }
 }
 
-fn c_to_str(c: *const c_char) -> Option<String> {
-    if c.is_null() {
-        None
-    } else {
-        Some(unsafe { CStr::from_ptr(c) }.to_str().unwrap().to_string())
-    }
-}
-
-fn entry_for_path<T: AsRef<Path>>(
-    fs: &CbFs,
-    path: Option<T>,
-) -> Result<CbDirectoryEntry, CbfsError> {
+fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<CbDirectoryEntry, CbError> {
     if let Some(path) = path {
         let mut current_entry = CbDirectoryEntry {
-            base_block: fs.0.header.root_sector,
+            base_block: fs.fs.header.root_sector,
             attributes: 0,
             entry_type: CbEntryType::Directory.into(),
             name: [0; _],
@@ -219,7 +215,7 @@ fn entry_for_path<T: AsRef<Path>>(
 
         if path.as_ref().has_root() {
             'parts: for p in path.as_ref().iter().skip(1) {
-                let dirs = fs.0.directory_listing(current_entry.base_block.get())?;
+                let dirs = fs.fs.directory_listing(current_entry.base_block.get())?;
                 for d in dirs {
                     if d.get_name() == p.to_str().unwrap() {
                         current_entry = d;
@@ -227,60 +223,59 @@ fn entry_for_path<T: AsRef<Path>>(
                     }
                 }
 
-                return Err(CbfsError::PathNotFound(p.to_str().unwrap().to_string()));
+                return Err(CbError::PathNotFound(p.to_str().unwrap().to_string()));
             }
 
             Ok(current_entry)
         } else {
-            Err(CbfsError::InvalidName)
+            Err(CbError::InvalidName)
         }
     } else {
-        Err(CbfsError::InvalidName)
+        Err(CbError::InvalidName)
     }
 }
 
 /// Compatibility function to create a filesystem with the provided parameters
+/// # Safety
+/// This function should be called with a non-null pointer to a C string
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_create(
-    name: *const c_char,
-    sector_size: u16,
-    sector_count: u16,
-    backing_file: *const c_char,
-    randomize: bool,
-) -> *mut CbFs {
-    let name_str = c_to_str(name).unwrap_or(String::default());
+pub unsafe extern "C" fn cbfs_open(backing_file: *const c_char, randomize: bool) -> *mut CbFs {
     let file_path = get_path(backing_file);
 
-    let mut cbfs = if let Some(fp) = &file_path
+    let (header, mut cbfs) = if let Some(fp) = &file_path
         && fp.exists()
     {
         if let Ok(container) = CbContainer::open(fp) {
-            Some(container.filesystem) // TODO - Save Container?
+            (container.header, container.filesystem)
         } else {
-            None
+            return std::ptr::null_mut();
         }
     } else {
-        CbFileSystem::new(&name_str, sector_size, sector_count).ok()
+        return std::ptr::null_mut();
     };
 
-    if let Some(fs) = cbfs.as_mut() {
-        fs.randomize_sectors(randomize);
-    }
+    cbfs.randomize_sectors(randomize);
 
-    cbfs.map_or(std::ptr::null_mut(), |fs| Box::into_raw(Box::new(CbFs(fs))))
+    Box::into_raw(Box::new(CbFs {
+        flags: header,
+        fs: cbfs,
+    }))
 }
 
+/// Provides statistics for the filesystem
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs structure and CbFsStats structure
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_get_stats(fs: *const CbFs, stats: *mut CbFsStats) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_get_stats(fs: *const CbFs, stats: *mut CbFsStats) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(stats) = unsafe { stats.as_mut() }
     {
-        stats.num_blocks = fs.0.header.sector_count.get();
-        stats.block_size = fs.0.header.sector_size.get();
-        stats.entry_blocks = fs.0.base_entries.len() as u16;
-        stats.free_blocks = fs.0.num_free_sectors() as u16;
-        stats.name = fs.0.header.volume_name.map(|x| x as i8);
-        stats.root_node = fs.0.header.root_sector.get();
+        stats.num_blocks = fs.fs.header.sector_count.get();
+        stats.block_size = fs.fs.header.sector_size.get();
+        stats.entry_blocks = fs.fs.base_entries.len() as u16;
+        stats.free_blocks = fs.fs.num_free_sectors() as u16;
+        stats.name = fs.fs.header.volume_name.map(|x| x as i8);
+        stats.root_node = fs.fs.header.root_sector.get();
 
         CbFsResult::Success
     } else {
@@ -288,15 +283,22 @@ pub extern "C" fn cbfs_get_stats(fs: *const CbFs, stats: *mut CbFsStats) -> CbFs
     }
 }
 
+/// Provides the parent of a node, if one exists
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs structure and node pointer
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_get_parent_node(fs: *const CbFs, node: u16, parent: *mut u16) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_get_parent_node(
+    fs: *const CbFs,
+    node: u16,
+    parent: *mut u16,
+) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(parent) = unsafe { parent.as_mut() }
     {
-        *parent = if node == fs.0.header.root_sector.get() {
+        *parent = if node == fs.fs.header.root_sector.get() {
             0
         } else {
-            match fs.0.entry_header(node) {
+            match fs.fs.entry_header(node) {
                 Ok(x) => x.get_parent(),
                 Err(e) => return e.into(),
             }
@@ -308,10 +310,13 @@ pub extern "C" fn cbfs_get_parent_node(fs: *const CbFs, node: u16, parent: *mut 
     }
 }
 
+/// Sets the entry payload size of a given entry
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs structure
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_truncate(fs: *mut CbFs, id: u16, size: u32) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_truncate(fs: *mut CbFs, id: u16, size: u32) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_mut() } {
-        match fs.0.set_entry_payload_byte_size(id, size) {
+        match fs.fs.set_entry_payload_byte_size(id, size) {
             Ok(_) => CbFsResult::Success,
             Err(e) => e.into(),
         }
@@ -320,10 +325,17 @@ pub extern "C" fn cbfs_truncate(fs: *mut CbFs, id: u16, size: u32) -> CbFsResult
     }
 }
 
+/// Sets the modification time of a given entry by id
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs and CbFsTime
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_set_time(fs: *mut CbFs, id: u16, time: *const CbFsTime) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_entry_set_time(
+    fs: *mut CbFs,
+    id: u16,
+    time: *const CbFsTime,
+) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_mut() } {
-        let mut hdr = match fs.0.entry_header(id) {
+        let mut hdr = match fs.fs.entry_header(id) {
             Err(e) => return e.into(),
             Ok(h) => h,
         };
@@ -333,7 +345,7 @@ pub extern "C" fn cbfs_set_time(fs: *mut CbFs, id: u16, time: *const CbFsTime) -
             hdr.modification_time = chrono::Utc::now().into();
         }
 
-        match fs.0.set_entry_header(id, hdr) {
+        match fs.fs.set_entry_header(id, hdr) {
             Ok(_) => (),
             Err(e) => return e.into(),
         };
@@ -344,10 +356,11 @@ pub extern "C" fn cbfs_set_time(fs: *mut CbFs, id: u16, time: *const CbFsTime) -
     }
 }
 
+/// Provides the dentry for a directory header value
 fn cbfs_entry_from_dir_val(
     fs: &CbFileSystem,
     dir_hdr: &CbDirectoryEntry,
-) -> Result<CbFsEntry, CbfsError> {
+) -> Result<CbFsEntry, CbError> {
     let hdr = fs.entry_header(dir_hdr.base_block.get())?;
 
     Ok(CbFsEntry {
@@ -360,8 +373,11 @@ fn cbfs_entry_from_dir_val(
     })
 }
 
+/// Provides the given entry header by path
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs and CbFsEntry
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_get_entry_by_path(
+pub unsafe extern "C" fn cbfs_get_entry_by_path(
     fs: *const CbFs,
     path: *const c_char,
     entry: *mut CbFsEntry,
@@ -374,7 +390,7 @@ pub extern "C" fn cbfs_get_entry_by_path(
             Err(e) => return e.into(),
         };
 
-        let inner = match cbfs_entry_from_dir_val(&fs.0, &dir_entry) {
+        let inner = match cbfs_entry_from_dir_val(&fs.fs, &dir_entry) {
             Ok(x) => x,
             Err(e) => return e.into(),
         };
@@ -389,29 +405,36 @@ pub extern "C" fn cbfs_get_entry_by_path(
     }
 }
 
+/// Provides the given entry header by entry id
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs and CbFsEntry
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_get_entry(fs: *const CbFs, id: u16, entry: *mut CbFsEntry) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_get_entry(
+    fs: *const CbFs,
+    id: u16,
+    entry: *mut CbFsEntry,
+) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_ref() } {
-        let entry_hdr = match fs.0.entry_header(id) {
+        let entry_hdr = match fs.fs.entry_header(id) {
             Ok(v) => v,
             Err(e) => return e.into(),
         };
 
         let dir_entry = if entry_hdr.parent.get() == 0 {
             CbDirectoryEntry {
-                base_block: fs.0.header.root_sector,
+                base_block: fs.fs.header.root_sector,
                 attributes: 0,
                 entry_type: CbEntryType::Directory.into(),
                 name: [0; _],
             }
         } else {
-            match fs.0.directory_entry(id) {
+            match fs.fs.directory_entry(id) {
                 Ok(v) => v,
                 Err(e) => return e.into(),
             }
         };
 
-        let inner = match cbfs_entry_from_dir_val(&fs.0, &dir_entry) {
+        let inner = match cbfs_entry_from_dir_val(&fs.fs, &dir_entry) {
             Ok(x) => x,
             Err(e) => return e.into(),
         };
@@ -426,8 +449,12 @@ pub extern "C" fn cbfs_get_entry(fs: *const CbFs, id: u16, entry: *mut CbFsEntry
     }
 }
 
+/// Reads the entries provided in a directory directory entry
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs,
+/// and the provided CbFsDirectoryList should be destroyed when done
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_read_dir(
+pub unsafe extern "C" fn cbfs_read_dir(
     fs: *mut CbFs,
     dir: u16,
     listing: *mut *mut CbFsDirectoryList,
@@ -435,11 +462,12 @@ pub extern "C" fn cbfs_read_dir(
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(listing) = unsafe { listing.as_mut() }
     {
-        fn compat_gen(fs: &CbFs, x: CbDirectoryEntry) -> Result<CbFsEntry, CbfsError> {
-            let tv: CbFsTime =
-                fs.0.entry_header(x.base_block.get())?
-                    .get_modification_time()
-                    .into();
+        fn compat_gen(fs: &CbFs, x: CbDirectoryEntry) -> Result<CbFsEntry, CbError> {
+            let tv: CbFsTime = fs
+                .fs
+                .entry_header(x.base_block.get())?
+                .get_modification_time()
+                .into();
 
             Ok(CbFsEntry {
                 entry_id: x.base_block.get(),
@@ -451,13 +479,13 @@ pub extern "C" fn cbfs_read_dir(
             })
         }
 
-        let dirs = match fs.0.directory_listing(dir) {
+        let dirs = match fs.fs.directory_listing(dir) {
             Ok(x) => x,
             Err(e) => return e.into(),
         };
         let dirs_compat = match dirs
             .into_iter()
-            .map(|x| compat_gen(&fs, x))
+            .map(|x| compat_gen(fs, x))
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(x) => x,
@@ -472,8 +500,11 @@ pub extern "C" fn cbfs_read_dir(
     }
 }
 
+/// Provides the size of the number of entries in the directory list
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFsDirectoryList
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_read_dir_size(listing: *const CbFsDirectoryList) -> u32 {
+pub unsafe extern "C" fn cbfs_read_dir_size(listing: *const CbFsDirectoryList) -> u32 {
     if let Some(listing) = unsafe { listing.as_ref() } {
         listing.entries.len() as u32
     } else {
@@ -481,8 +512,11 @@ pub extern "C" fn cbfs_read_dir_size(listing: *const CbFsDirectoryList) -> u32 {
     }
 }
 
+/// Reads the given index from the directory list
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFsDirectoryList entry value
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_read_dir_entry(
+pub unsafe extern "C" fn cbfs_read_dir_entry(
     listing: *const CbFsDirectoryList,
     index: u32,
     entry: *mut CbFsEntry,
@@ -501,22 +535,21 @@ pub extern "C" fn cbfs_read_dir_entry(
     }
 }
 
+/// Destroys the provided directory listing structure
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFsDirectoryList
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_read_dir_destroy(listing: *mut CbFsDirectoryList) {
+pub unsafe extern "C" fn cbfs_read_dir_destroy(listing: *mut CbFsDirectoryList) {
     if !listing.is_null() {
         drop(unsafe { Box::from_raw(listing) });
     }
 }
 
+/// Reads data from the provided entry in the filesystem
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and data
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_dir_list_destroy(listing: *mut CbFsDirectoryList) {
-    if !listing.is_null() {
-        drop(unsafe { Box::from_raw(listing) });
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn cbfs_read_entry_data(
+pub unsafe extern "C" fn cbfs_read_entry_data(
     fs: *mut CbFs,
     id: u16,
     offset: u32,
@@ -527,7 +560,7 @@ pub extern "C" fn cbfs_read_entry_data(
         && !data.is_null()
         && !size.is_null()
     {
-        let (_, entry_data) = match fs.0.entry_data(id) {
+        let (_, entry_data) = match fs.fs.entry_data(id) {
             Ok(x) => x,
             Err(e) => return e.into(),
         };
@@ -548,8 +581,11 @@ pub extern "C" fn cbfs_read_entry_data(
     }
 }
 
+/// Writes data to the provided entry in the filesystem
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and data
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_write_entry_data(
+pub unsafe extern "C" fn cbfs_write_entry_data(
     fs: *mut CbFs,
     id: u16,
     offset: u32,
@@ -560,7 +596,7 @@ pub extern "C" fn cbfs_write_entry_data(
         && !data.is_null()
         && !size.is_null()
     {
-        let (hdr, mut entry_data) = match fs.0.entry_data(id) {
+        let (hdr, mut entry_data) = match fs.fs.entry_data(id) {
             Ok(x) => x,
             Err(e) => return e.into(),
         };
@@ -577,7 +613,7 @@ pub extern "C" fn cbfs_write_entry_data(
             }
         }
 
-        match fs.0.set_entry_data(id, hdr, &entry_data) {
+        match fs.fs.set_entry_data(id, hdr, &entry_data) {
             Ok(_) => (),
             Err(e) => return e.into(),
         };
@@ -588,34 +624,28 @@ pub extern "C" fn cbfs_write_entry_data(
     }
 }
 
-#[repr(C)]
-pub struct CbFsSaveOption {
-    gzip: bool,
-    sparse: bool,
-    zero_unused: bool,
-}
-
+/// Saves the provided CbFs struct to the path provided
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and path
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_save(
+pub unsafe extern "C" fn cbfs_save(
     fs: *mut CbFs,
     backing_file: *const c_char,
-    options: CbFsSaveOption,
+    zero_unused: bool,
 ) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(backing_file) = get_path(backing_file)
     {
-        let mut fs_tmp = fs.0.clone();
+        let mut fs_tmp = fs.fs.clone();
 
-        if options.zero_unused {
+        if zero_unused {
             match fs_tmp.zero_unused_sectors() {
                 Ok(_) => (),
                 Err(e) => return e.into(),
             };
         }
 
-        match CbContainer::new(CbFileHeader::new(options.sparse, options.gzip), fs_tmp)
-            .write_fs_to_file(&backing_file)
-        {
+        match CbContainer::new(fs.flags, fs_tmp).write_fs_to_file(&backing_file) {
             Ok(_) => CbFsResult::Success,
             Err(e) => e.into(),
         }
@@ -624,8 +654,11 @@ pub extern "C" fn cbfs_save(
     }
 }
 
+/// Creates a new entry of the provided type at the given path
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and path
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_create_entry(
+pub unsafe extern "C" fn cbfs_create_entry(
     fs: *mut CbFs,
     path: *const c_char,
     entry_type: CbFsEntryType,
@@ -639,7 +672,7 @@ pub extern "C" fn cbfs_create_entry(
             if truncate {
                 if entry_type == entry.get_entry_type().into() {
                     if entry.get_entry_type() == CbEntryType::File {
-                        match fs.0.set_entry_payload_byte_size(entry.base_block.get(), 0) {
+                        match fs.fs.set_entry_payload_byte_size(entry.base_block.get(), 0) {
                             Ok(()) => (),
                             Err(e) => return e.into(),
                         };
@@ -655,7 +688,7 @@ pub extern "C" fn cbfs_create_entry(
             let new_name = path.file_name().unwrap().to_str().unwrap();
             let id_val =
                 match fs
-                    .0
+                    .fs
                     .create_entry(parent.base_block.get(), new_name, entry_type.into(), &[])
                 {
                     Ok(x) => x,
@@ -675,8 +708,11 @@ pub extern "C" fn cbfs_create_entry(
     }
 }
 
+/// Renames the provided entry
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and paths
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_rename_entry(
+pub unsafe extern "C" fn cbfs_rename_entry(
     fs: *mut CbFs,
     path: *const c_char,
     new_path: *const c_char,
@@ -691,7 +727,7 @@ pub extern "C" fn cbfs_rename_entry(
         } else if let Ok(entry) = entry_for_path(fs, Some(&path))
             && let Ok(parent) = entry_for_path(fs, new_path.parent())
         {
-            match fs.0.move_entry(
+            match fs.fs.move_entry(
                 entry.base_block.get(),
                 parent.base_block.get(),
                 Some(new_path.file_name().unwrap().to_str().unwrap()),
@@ -708,8 +744,11 @@ pub extern "C" fn cbfs_rename_entry(
     }
 }
 
+/// Removes an entry of the specified type at the provided path from the filesystem
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct and path
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_remove_entry(
+pub unsafe extern "C" fn cbfs_remove_entry(
     fs: *mut CbFs,
     path: *const c_char,
     entry_type: CbFsEntryType,
@@ -723,7 +762,7 @@ pub extern "C" fn cbfs_remove_entry(
         };
 
         if entry_type == CbFsEntryType::Unknown || (entry_type == entry.get_entry_type().into()) {
-            match fs.0.delete_entry(entry.base_block.get()) {
+            match fs.fs.delete_entry(entry.base_block.get()) {
                 Ok(_) => CbFsResult::Success,
                 Err(e) => e.into(),
             }
@@ -736,8 +775,10 @@ pub extern "C" fn cbfs_remove_entry(
 }
 
 /// Compatibility function to detroy the provided filesystem
+/// # Safety
+/// This function should be called with a non-null pointer to a CbFs struct
 #[unsafe(no_mangle)]
-pub extern "C" fn cbfs_destroy(fs: *mut CbFs) {
+pub unsafe extern "C" fn cbfs_destroy(fs: *mut CbFs) {
     if !fs.is_null() {
         unsafe { drop(Box::from_raw(fs)) }
     }

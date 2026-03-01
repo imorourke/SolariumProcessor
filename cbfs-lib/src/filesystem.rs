@@ -11,7 +11,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbfsError, volume::CbVolumeHeader};
+use crate::{CbError, volume::CbVolumeHeader};
 use crate::{
     datetime::CbDateTime,
     entries::{CbDirectoryEntry, CbEntryHeader, CbEntryType},
@@ -40,7 +40,7 @@ impl CbFileSystem {
     pub const NODE_END: u16 = 0xFFFF;
 
     /// Creates a new filesystem in memory
-    pub fn new(name: &str, sector_size: u16, sector_count: u16) -> Result<Self, CbfsError> {
+    pub fn new(name: &str, sector_size: u16, sector_count: u16) -> Result<Self, CbError> {
         let mut header = CbVolumeHeader::new(sector_size, sector_count)?;
         header.set_name(name)?;
         let sector_count = header.sector_count.get();
@@ -81,7 +81,7 @@ impl CbFileSystem {
     }
 
     /// Reads raw data stream into a CBFS file system
-    pub fn from_bytes(data: &[u8]) -> Result<CbFileSystem, CbfsError> {
+    pub fn from_bytes(data: &[u8]) -> Result<CbFileSystem, CbError> {
         let header =
             CbVolumeHeader::read_from_bytes(&data[0..std::mem::size_of::<CbVolumeHeader>()])
                 .unwrap(); // TODO
@@ -124,7 +124,7 @@ impl CbFileSystem {
     }
 
     /// Obtains the current file values as a byte sream
-    pub fn as_bytes(&self) -> Result<Vec<u8>, CbfsError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, CbError> {
         let mut voldata = vec![0u8; self.header.volume_byte_size() as usize];
         let sect_size = self.header.sector_size.get() as usize;
 
@@ -153,7 +153,7 @@ impl CbFileSystem {
     }
 
     /// Goes through each sector and zeros out any unused data sectors
-    pub fn zero_unused_sectors(&mut self) -> Result<(), CbfsError> {
+    pub fn zero_unused_sectors(&mut self) -> Result<(), CbError> {
         let sector_size = self.header.sector_size.get() as usize;
         for (i, s) in self.entries.iter().enumerate() {
             if *s == 0 {
@@ -182,52 +182,52 @@ impl CbFileSystem {
     }
 
     /// Determines if the entry value is valid, and if so, returns the validated entry
-    pub const fn get_entry_valid(&self, entry: u16) -> Result<u16, CbfsError> {
+    pub const fn get_entry_valid(&self, entry: u16) -> Result<u16, CbError> {
         if entry >= self.header.root_sector.get() && entry < self.header.sector_count.get() {
             Ok(entry)
         } else {
-            Err(CbfsError::EntryInvalid(entry))
+            Err(CbError::EntryInvalid(entry))
         }
     }
 
     /// Provides the starting index within the data vector for the provided sector
-    fn get_sector_start_idx(&self, sector: u16) -> Result<usize, CbfsError> {
+    fn get_sector_start_idx(&self, sector: u16) -> Result<usize, CbError> {
         let idx = (self.get_entry_valid(sector)? - self.header.root_sector.get()) as usize;
         Ok(idx * self.header.sector_size.get() as usize)
     }
 
     /// Provides the data slice associated with the given sector
-    pub fn get_sector_data(&self, sector: u16) -> Result<&[u8], CbfsError> {
+    pub fn get_sector_data(&self, sector: u16) -> Result<&[u8], CbError> {
         let idx = self.get_sector_start_idx(sector)?;
         Ok(&self.data[idx..(idx + self.header.sector_size.get() as usize)])
     }
 
     /// Provides the mutable data slice associated with the given sector
-    fn get_sector_data_mut(&mut self, sector: u16) -> Result<&mut [u8], CbfsError> {
+    fn get_sector_data_mut(&mut self, sector: u16) -> Result<&mut [u8], CbError> {
         let idx = self.get_sector_start_idx(sector)?;
         Ok(&mut self.data[idx..(idx + self.header.sector_size.get() as usize)])
     }
 
     /// Provides the entry type associated with the given entry
-    fn entry_type(&self, entry: u16) -> Result<CbEntryType, CbfsError> {
+    fn entry_type(&self, entry: u16) -> Result<CbEntryType, CbError> {
         match self.data.get(self.get_sector_start_idx(entry)?).copied() {
             Some(val) => Ok(CbEntryType::from(val)),
-            None => Err(CbfsError::EntryInvalid(entry)),
+            None => Err(CbError::EntryInvalid(entry)),
         }
     }
 
     /// Provides true if the given entry value is a boolean
-    fn entry_is_dir(&self, entry: u16) -> Result<bool, CbfsError> {
+    fn entry_is_dir(&self, entry: u16) -> Result<bool, CbError> {
         Ok(self.entry_type(entry)? == CbEntryType::Directory)
     }
 
     /// Iterates through the directory tree to detemrine if the entry is a root entry
-    fn entry_is_primary(&self, entry: u16) -> Result<bool, CbfsError> {
+    fn entry_is_primary(&self, entry: u16) -> Result<bool, CbError> {
         Ok(self.base_entries.contains(&entry))
     }
 
     /// Provides the full entry header for the provided entry
-    pub fn entry_header(&self, entry: u16) -> Result<CbEntryHeader, CbfsError> {
+    pub fn entry_header(&self, entry: u16) -> Result<CbEntryHeader, CbError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
         let id = self.data[idx];
@@ -236,12 +236,12 @@ impl CbFileSystem {
                 &self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())],
             )
             .unwrap(),
-            _ => return Err(CbfsError::UnknownEntryType(id)),
+            _ => return Err(CbError::UnknownEntryType(id)),
         })
     }
 
     /// Sets only the header portion of a given entry
-    pub fn set_entry_header(&mut self, entry: u16, hdr: CbEntryHeader) -> Result<(), CbfsError> {
+    pub fn set_entry_header(&mut self, entry: u16, hdr: CbEntryHeader) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
         for (dst, src) in self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())]
@@ -254,9 +254,9 @@ impl CbFileSystem {
     }
 
     /// Provides the entries associated with the current directory
-    pub fn directory_listing(&self, entry: u16) -> Result<Vec<CbDirectoryEntry>, CbfsError> {
+    pub fn directory_listing(&self, entry: u16) -> Result<Vec<CbDirectoryEntry>, CbError> {
         if !self.entry_is_dir(entry)? {
-            return Err(CbfsError::EntryNotDirectory(entry));
+            return Err(CbError::EntryNotDirectory(entry));
         }
 
         let (_, data) = self.entry_data(entry)?;
@@ -275,35 +275,44 @@ impl CbFileSystem {
     }
 
     /// Provides the directory entry associated with the given node in a parent directory
-    pub fn directory_entry(&self, target: u16) -> Result<CbDirectoryEntry, CbfsError> {
+    pub fn directory_entry(&self, target: u16) -> Result<CbDirectoryEntry, CbError> {
         let ent_hdr = self.entry_header(target)?;
-        let entry = ent_hdr.get_parent();
+        if target == self.header.root_sector.get() {
+            Ok(CbDirectoryEntry {
+                attributes: 0,
+                base_block: target.into(),
+                entry_type: CbEntryType::Directory as u8,
+                name: [0; _],
+            })
+        } else {
+            let entry = ent_hdr.get_parent();
 
-        if !self.entry_is_dir(entry)? {
-            return Err(CbfsError::EntryNotDirectory(entry));
-        }
-
-        let n = self.get_entry_valid(target)?;
-
-        let (_, data) = self.entry_data(entry)?;
-
-        for e in data
-            .chunks(std::mem::size_of::<CbDirectoryEntry>())
-            .map(|x| CbDirectoryEntry::read_from_bytes(x).unwrap())
-        {
-            if e.base_block.get() == n {
-                return Ok(e);
+            if !self.entry_is_dir(entry)? {
+                return Err(CbError::EntryNotDirectory(entry));
             }
-        }
 
-        Err(CbfsError::EntryInvalid(target))
+            let n = self.get_entry_valid(target)?;
+
+            let (_, data) = self.entry_data(entry)?;
+
+            for e in data
+                .chunks(std::mem::size_of::<CbDirectoryEntry>())
+                .map(|x| CbDirectoryEntry::read_from_bytes(x).unwrap())
+            {
+                if e.base_block.get() == n {
+                    return Ok(e);
+                }
+            }
+
+            Err(CbError::EntryInvalid(target))
+        }
     }
 
     /// Provides all the raw data (header and payload together) for the requested entry
-    fn entry_data_raw(&self, mut entry: u16) -> Result<Vec<u8>, CbfsError> {
+    fn entry_data_raw(&self, mut entry: u16) -> Result<Vec<u8>, CbError> {
         let mut raw_data = Vec::new();
         if self.entries[self.get_entry_valid(entry)? as usize] == 0 {
-            return Err(CbfsError::EntryNotFile(entry));
+            return Err(CbError::EntryNotFile(entry));
         }
 
         while entry != Self::NODE_END {
@@ -316,7 +325,7 @@ impl CbFileSystem {
     }
 
     /// Provides the data associated with the provided entry
-    pub fn entry_data(&self, entry: u16) -> Result<(CbEntryHeader, Vec<u8>), CbfsError> {
+    pub fn entry_data(&self, entry: u16) -> Result<(CbEntryHeader, Vec<u8>), CbError> {
         let raw_data = self.entry_data_raw(entry)?;
         let hdr = CbEntryHeader::read_from_bytes(&raw_data[..std::mem::size_of::<CbEntryHeader>()])
             .unwrap();
@@ -343,7 +352,7 @@ impl CbFileSystem {
     }
 
     /// Returns the next free sector based on the given sector algorithm
-    fn next_free_sector(&self) -> Result<u16, CbfsError> {
+    fn next_free_sector(&self) -> Result<u16, CbError> {
         #[cfg(feature = "rand")]
         if let Some(mut r) = self.randomize_entries.as_ref().map(|x| x.borrow_mut()) {
             let mut current =
@@ -354,7 +363,7 @@ impl CbFileSystem {
                 current = ((current + 1) % self.header.sector_count.get())
                     .max(self.header.root_sector.get());
                 if current == init {
-                    return Err(CbfsError::TableFull);
+                    return Err(CbError::TableFull);
                 }
             }
 
@@ -368,7 +377,7 @@ impl CbFileSystem {
             .filter(|(_, x)| **x == 0)
             .map(|(i, _)| i as u16)
             .next()
-            .ok_or(CbfsError::TableFull)
+            .ok_or(CbError::TableFull)
     }
 
     /// Returns the number of free sectors remaining
@@ -379,7 +388,7 @@ impl CbFileSystem {
     /// Provides the number of entries within an entry, including the current entry itself.
     /// For a file entry, this will only return 1
     /// For a directory entry, this will itself and all entries within folders and subfolders
-    pub fn num_entries_within_entry(&self, entry: u16) -> Result<usize, CbfsError> {
+    pub fn num_entries_within_entry(&self, entry: u16) -> Result<usize, CbError> {
         let hdr = self.entry_header(entry)?;
         let mut count = 1;
         if hdr.get_entry_type() == CbEntryType::Directory {
@@ -398,11 +407,7 @@ impl CbFileSystem {
     }
 
     /// Sets the number of sectors for the given entry
-    pub fn set_num_sectors_for_entry(
-        &mut self,
-        mut entry: u16,
-        count: u16,
-    ) -> Result<(), CbfsError> {
+    pub fn set_num_sectors_for_entry(&mut self, mut entry: u16, count: u16) -> Result<(), CbError> {
         // Check that there is enough space left in the table
         let num_free = self.entries.iter().copied().filter(|x| *x == 0).count();
 
@@ -411,7 +416,7 @@ impl CbFileSystem {
         let num_new = num_required as i64 - num_current as i64;
 
         if num_new > 0 && num_new > num_free as i64 {
-            return Err(CbfsError::TableFull);
+            return Err(CbError::TableFull);
         }
 
         // Set the required nodes
@@ -449,7 +454,7 @@ impl CbFileSystem {
     }
 
     /// Provides the sector ID values associated with the current entry
-    pub fn sector_ids_for_entry(&self, entry: u16) -> Result<Vec<u16>, CbfsError> {
+    pub fn sector_ids_for_entry(&self, entry: u16) -> Result<Vec<u16>, CbError> {
         let mut current = self.get_entry_valid(entry)?;
         let mut vals = Vec::new();
         while !Self::entry_is_end(current) {
@@ -471,7 +476,7 @@ impl CbFileSystem {
     }
 
     /// Sets the raw (header + payload) data together for an entry
-    pub fn set_entry_data_raw(&mut self, entry: u16, data: &[u8]) -> Result<(), CbfsError> {
+    pub fn set_entry_data_raw(&mut self, entry: u16, data: &[u8]) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
 
         let required_sectors = self.required_sectors_for_raw_size(data.len());
@@ -497,7 +502,7 @@ impl CbFileSystem {
         entry: u16,
         mut header: CbEntryHeader,
         data: &[u8],
-    ) -> Result<(), CbfsError> {
+    ) -> Result<(), CbError> {
         header.payload_size.set(data.len() as u32);
         let mut new_data = header.as_bytes().to_vec();
         new_data.extend(data);
@@ -505,13 +510,13 @@ impl CbFileSystem {
     }
 
     /// Sets the payload size for the provided entry
-    pub fn set_entry_payload_byte_size(&mut self, entry: u16, size: u32) -> Result<(), CbfsError> {
+    pub fn set_entry_payload_byte_size(&mut self, entry: u16, size: u32) -> Result<(), CbError> {
         let (hdr, mut data) = self.entry_data(entry)?;
         if hdr.get_entry_type() == CbEntryType::File {
             data.resize(size as usize, 0);
             self.set_entry_data(entry, hdr, &data)
         } else {
-            Err(CbfsError::EntryNotFile(entry))
+            Err(CbError::EntryNotFile(entry))
         }
     }
 
@@ -522,17 +527,17 @@ impl CbFileSystem {
         name: &str,
         entry_type: CbEntryType,
         data: &[u8],
-    ) -> Result<u16, CbfsError> {
+    ) -> Result<u16, CbError> {
         // Check for a dupliate name within a directory
         for d in self.directory_listing(parent)? {
             if d.get_name() == name {
-                return Err(CbfsError::NameExists(name.into()));
+                return Err(CbError::NameExists(name.into()));
             }
         }
 
         // If providing a directory entry, the data field must be empty
         if entry_type == CbEntryType::Directory && !data.is_empty() {
-            return Err(CbfsError::NonZeroDirectoryData);
+            return Err(CbError::NonZeroDirectoryData);
         }
 
         let new_entry = self.next_free_sector()?;
@@ -567,7 +572,7 @@ impl CbFileSystem {
 
     /// Deletes an entry. If the entry is a directory, all contained files and
     /// folders will also be deleted.
-    pub fn delete_entry(&mut self, entry: u16) -> Result<(), CbfsError> {
+    pub fn delete_entry(&mut self, entry: u16) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
 
         if self.entry_is_dir(entry)? {
@@ -595,10 +600,10 @@ impl CbFileSystem {
     }
 
     /// Trims the current directory, reducing the number of sectors used if possible
-    fn trim_directory(&mut self, entry: u16) -> Result<(), CbfsError> {
+    fn trim_directory(&mut self, entry: u16) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
         if !self.entry_is_dir(entry)? {
-            return Err(CbfsError::EntryNotDirectory(entry));
+            return Err(CbError::EntryNotDirectory(entry));
         }
 
         let num_sectors = self.num_sectors_for_entry(entry);
@@ -626,7 +631,7 @@ impl CbFileSystem {
         &mut self,
         parent: u16,
         entry: u16,
-    ) -> Result<CbDirectoryEntry, CbfsError> {
+    ) -> Result<CbDirectoryEntry, CbError> {
         assert!(self.entry_is_primary(parent)?);
         assert!(self.entry_is_primary(entry)?);
 
@@ -655,7 +660,7 @@ impl CbFileSystem {
         &mut self,
         parent: u16,
         entry: CbDirectoryEntry,
-    ) -> Result<(), CbfsError> {
+    ) -> Result<(), CbError> {
         assert!(self.entry_is_primary(parent)?);
 
         let (mut hdr, mut data) = self.entry_data(parent)?;
@@ -690,14 +695,14 @@ impl CbFileSystem {
         new_parent: u16,
         new_name: Option<&str>,
         overwrite: bool,
-    ) -> Result<(), CbfsError> {
+    ) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
         assert!(self.entry_is_primary(new_parent)?);
 
         if !self.entry_is_dir(new_parent)? {
-            return Err(CbfsError::EntryNotDirectory(new_parent));
+            return Err(CbError::EntryNotDirectory(new_parent));
         } else if entry == self.header.root_sector.get() {
-            return Err(CbfsError::EntryInvalid(entry));
+            return Err(CbError::EntryInvalid(entry));
         }
 
         let mut ent_hdr = self.entry_header(entry)?;
@@ -714,7 +719,7 @@ impl CbFileSystem {
                 if overwrite {
                     self.delete_entry(e.base_block.get())?;
                 } else {
-                    return Err(CbfsError::NameExists(target_name));
+                    return Err(CbError::NameExists(target_name));
                 }
             }
         }

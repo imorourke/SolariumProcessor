@@ -1,0 +1,8 @@
+[package]
+name = "cbfs-util"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cbfs-lib = { version = "*", path = "../cbfs-lib" }
+clap = { version = "4", features = ["derive"] }

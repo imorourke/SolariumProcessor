@@ -10,25 +10,25 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbFileSystem, CbVolumeHeader, CbfsError};
+use crate::{CbError, CbFileSystem, CbVolumeHeader};
 
 pub struct CbContainer {
-    pub header: CbFileHeader,
+    pub header: CbContainerHeader,
     pub filesystem: CbFileSystem,
 }
 
 impl CbContainer {
-    pub fn new(header: CbFileHeader, filesystem: CbFileSystem) -> Self {
+    pub fn new(header: CbContainerHeader, filesystem: CbFileSystem) -> Self {
         Self { header, filesystem }
     }
 
     /// Opens a filesystem disk image and loads into memory
-    pub fn open(path: &Path) -> Result<Self, CbfsError> {
+    pub fn open(path: &Path) -> Result<Self, CbError> {
         let mut f = std::fs::File::open(path)?;
 
-        let mut file_header_bytes = [0u8; std::mem::size_of::<CbFileHeader>()];
+        let mut file_header_bytes = [0u8; std::mem::size_of::<CbContainerHeader>()];
         f.read_exact(&mut file_header_bytes)?;
-        let file_header = CbFileHeader::read_from_bytes(&file_header_bytes).unwrap();
+        let file_header = CbContainerHeader::read_from_bytes(&file_header_bytes).unwrap();
 
         file_header.check_data()?;
 
@@ -40,13 +40,13 @@ impl CbContainer {
                 let size = match flate2::read::GzDecoder::new(f).read_to_end(&mut raw_data) {
                     Ok(s) => s,
                     Err(e) => {
-                        return Err(CbfsError::ContainerError(format!(
+                        return Err(CbError::ContainerError(format!(
                             "gzip decompresion error - {e}"
                         )));
                     }
                 };
                 if raw_data.len() != size {
-                    return Err(CbfsError::ContainerError(format!(
+                    return Err(CbError::ContainerError(format!(
                         "unexpected size read - {} vs {}",
                         raw_data.len(),
                         size
@@ -55,14 +55,14 @@ impl CbContainer {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CbfsError::ContainerError(
+                return Err(CbError::ContainerError(
                     "gzip feature not enabled".to_string(),
                 ));
             }
         } else {
             let size = f.read_to_end(&mut raw_data).unwrap();
             if raw_data.len() != size {
-                return Err(CbfsError::ContainerError(format!(
+                return Err(CbError::ContainerError(format!(
                     "unexpected size read - {} vs {}",
                     raw_data.len(),
                     size
@@ -116,7 +116,7 @@ impl CbContainer {
             }
 
             if current_num != num_sparse || current_index != raw_data.len() {
-                return Err(CbfsError::ContainerError(format!(
+                return Err(CbError::ContainerError(format!(
                     "found {current_num} sparse, expected {num_sparse} at file end"
                 )));
             }
@@ -135,7 +135,7 @@ impl CbContainer {
     }
 
     /// Saves the current in-memory filesystem to the provided file
-    pub fn write_fs_to_file(&self, file: &Path) -> Result<(), CbfsError> {
+    pub fn write_fs_to_file(&self, file: &Path) -> Result<(), CbError> {
         let mut f = OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -144,11 +144,7 @@ impl CbContainer {
 
         f.write_all(self.header.as_bytes())?;
 
-        fn write_inner<T: Write>(
-            mut f: T,
-            fs: &CbFileSystem,
-            sparse: bool,
-        ) -> Result<(), CbfsError> {
+        fn write_inner<T: Write>(mut f: T, fs: &CbFileSystem, sparse: bool) -> Result<(), CbError> {
             if sparse {
                 f.write_all(U16::new(std::mem::size_of::<CbVolumeHeader>() as u16).as_bytes())?;
                 f.write_all(fs.header.as_bytes())?;
@@ -189,7 +185,7 @@ impl CbContainer {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                Err(CbfsError::ContainerError(
+                Err(CbError::ContainerError(
                     "gzip feature not enabled".to_string(),
                 ))
             }
@@ -202,13 +198,13 @@ impl CbContainer {
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct CbFileHeader {
+pub struct CbContainerHeader {
     magic_number: U32,
     version: U16,
     flags: U16,
 }
 
-impl CbFileHeader {
+impl CbContainerHeader {
     const MAGIC_NUMBER: u32 = 0xA80E83BC;
     const VERSION: u16 = 1;
     const FLAG_SPARSE: u16 = 1 << 0;
@@ -225,14 +221,14 @@ impl CbFileHeader {
         v
     }
 
-    pub fn check_data(&self) -> Result<(), CbfsError> {
+    pub fn check_data(&self) -> Result<(), CbError> {
         if self.magic_number.get() != Self::MAGIC_NUMBER {
-            Err(CbfsError::UnknownError(format!(
+            Err(CbError::UnknownError(format!(
                 "unknown magic number {}",
                 self.magic_number.get()
             )))
         } else if self.version.get() != Self::VERSION {
-            Err(CbfsError::UnknownError(format!(
+            Err(CbError::UnknownError(format!(
                 "unknown version number {} != expected {}",
                 self.version.get(),
                 Self::VERSION
