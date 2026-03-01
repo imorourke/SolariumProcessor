@@ -29,6 +29,7 @@ impl CbContainer {
         let mut file_header_bytes = [0u8; std::mem::size_of::<CbFileHeader>()];
         f.read_exact(&mut file_header_bytes)?;
         let file_header = CbFileHeader::read_from_bytes(&file_header_bytes).unwrap();
+
         file_header.check_data()?;
 
         let mut raw_data = Vec::new();
@@ -36,11 +37,16 @@ impl CbContainer {
         if file_header.is_compressed() {
             #[cfg(feature = "gzip")]
             {
-                let size = flate2::read::GzDecoder::new(f)
-                    .read_to_end(&mut raw_data)
-                    .unwrap(); // TODO
+                let size = match flate2::read::GzDecoder::new(f).read_to_end(&mut raw_data) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return Err(CbfsError::ContainerError(format!(
+                            "gzip decompresion error - {e}"
+                        )));
+                    }
+                };
                 if raw_data.len() != size {
-                    return Err(CbfsError::UnknownError(format!(
+                    return Err(CbfsError::ContainerError(format!(
                         "unexpected size read - {} vs {}",
                         raw_data.len(),
                         size
@@ -49,14 +55,14 @@ impl CbContainer {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                return Err(CbfsError::UnknownError(
+                return Err(CbfsError::ContainerError(
                     "gzip feature not enabled".to_string(),
                 ));
             }
         } else {
             let size = f.read_to_end(&mut raw_data).unwrap();
             if raw_data.len() != size {
-                return Err(CbfsError::UnknownError(format!(
+                return Err(CbfsError::ContainerError(format!(
                     "unexpected size read - {} vs {}",
                     raw_data.len(),
                     size
@@ -65,30 +71,39 @@ impl CbContainer {
         };
 
         let fs_data = if file_header.is_sparse() {
-            let entry_start = std::mem::size_of::<CbVolumeHeader>();
+            const S_U16: usize = std::mem::size_of::<u16>();
 
-            let header = CbVolumeHeader::read_from_bytes(&raw_data[0..entry_start]).unwrap(); // TODO
+            let header_size = U16::read_from_bytes(&raw_data[0..S_U16]).unwrap().get() as usize;
+            let entry_start = header_size + S_U16;
+            const HEADER_SIZE: usize = std::mem::size_of::<CbVolumeHeader>();
+            let mut header_data = [0u8; HEADER_SIZE];
+            raw_data[S_U16..header_size + S_U16]
+                .write_to(&mut header_data[0..header_size.min(HEADER_SIZE)])
+                .unwrap();
+
+            let header = CbVolumeHeader::read_from_bytes(&header_data).unwrap(); // TODO
 
             let sector_size: usize = header.sector_size.get() as usize;
             let sector_count: usize = header.sector_count.get() as usize;
-            let entry_size: usize = std::mem::size_of::<u16>();
 
             let mut new_data = vec![0u8; sector_count * sector_size];
+            header.write_to(&mut new_data[0..HEADER_SIZE]).unwrap(); // TODO
 
-            header.write_to(&mut new_data[0..entry_start]).unwrap(); // TODO
-
-            let entry_end = entry_start + (sector_count * entry_size);
+            let entry_end = entry_start + (sector_count * S_U16);
             let entry_data = &raw_data[entry_start..entry_end];
             entry_data
                 .write_to(&mut new_data[sector_size..sector_size + entry_data.len()])
                 .unwrap();
 
-            let mut current_index = entry_end;
-            while current_index < raw_data.len() {
+            let num_sparse = U16::from_bytes([raw_data[entry_end], raw_data[entry_end + 1]]).get();
+
+            let mut current_index = entry_end + S_U16;
+            let mut current_num = 0;
+            while current_num < num_sparse {
                 let current_sector =
                     U16::from_bytes([raw_data[current_index], raw_data[current_index + 1]]).get();
-                let sector_data = &raw_data[current_index + entry_size
-                    ..current_index + entry_size + header.sector_size.get() as usize];
+                let sector_data = &raw_data[current_index + S_U16
+                    ..current_index + S_U16 + header.sector_size.get() as usize];
 
                 let sector_start = current_sector as usize * sector_size;
                 let sector_end = sector_start + sector_size;
@@ -96,7 +111,14 @@ impl CbContainer {
                 sector_data
                     .write_to(&mut new_data[sector_start..sector_end])
                     .unwrap();
-                current_index += sector_count + entry_size;
+                current_index += sector_size + S_U16;
+                current_num += 1;
+            }
+
+            if current_num != num_sparse || current_index != raw_data.len() {
+                return Err(CbfsError::ContainerError(format!(
+                    "found {current_num} sparse, expected {num_sparse} at file end"
+                )));
             }
 
             new_data
@@ -128,6 +150,7 @@ impl CbContainer {
             sparse: bool,
         ) -> Result<(), CbfsError> {
             if sparse {
+                f.write_all(U16::new(std::mem::size_of::<CbVolumeHeader>() as u16).as_bytes())?;
                 f.write_all(fs.header.as_bytes())?;
 
                 for n in fs.entries.iter().copied() {
@@ -166,7 +189,7 @@ impl CbContainer {
             }
             #[cfg(not(feature = "gzip"))]
             {
-                Err(CbfsError::UnknownError(
+                Err(CbfsError::ContainerError(
                     "gzip feature not enabled".to_string(),
                 ))
             }

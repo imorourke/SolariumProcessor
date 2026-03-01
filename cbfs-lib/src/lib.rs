@@ -36,6 +36,7 @@ pub enum CbfsError {
     InvalidSectorCount(u16),
     SectorSizeTooSmall(u16),
     UnknownError(String),
+    ContainerError(String),
 }
 
 impl From<std::io::Error> for CbfsError {
@@ -67,7 +68,8 @@ impl Display for CbfsError {
             Self::InvalidDateTime => write!(f, "invalid date/time detected"),
             Self::InvalidSectorCount(count) => write!(f, "invalid sector count {count} specified"),
             Self::SectorSizeTooSmall(size) => write!(f, "sector size {size} too small"),
-            Self::UnknownError(error) => write!(f, "unknown cbfs error: {error}"),
+            Self::ContainerError(err) => write!(f, "container error: {err}"),
+            Self::UnknownError(err) => write!(f, "unknown cbfs error: {err}"),
         }
     }
 }

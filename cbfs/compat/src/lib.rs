@@ -164,6 +164,7 @@ pub enum CbFsResult {
     InvalidConfig,
     NoSpace,
     NullProvided,
+    ContainerError,
     UnknownError,
 }
 
@@ -182,6 +183,7 @@ impl From<CbfsError> for CbFsResult {
             CbfsError::PathNotFound(_) => Self::EntryNotFound,
             CbfsError::TableFull => Self::NoSpace,
             CbfsError::UnknownEntryType(_) => Self::InvalidEntry,
+            CbfsError::ContainerError(_) => Self::ContainerError,
             CbfsError::UnknownError(_) => Self::UnknownError,
         }
     }
