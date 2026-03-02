@@ -2,12 +2,13 @@
 
 members = [
     "cbuoy",
-    "cbc",
+    "cbuoy-cbc",
     "cbfs/compat",
     "cbfs-lib",
+    "cbfs-util",
     "jib-asm",
     "jib",
-    "visual-jib", "cbfs-util",
+    "visual-jib",
 ]
 default-members = ["visual-jib"]
 resolver = "2"
