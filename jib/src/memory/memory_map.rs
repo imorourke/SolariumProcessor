@@ -68,10 +68,40 @@ impl SegmentData {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct MemoryMapCache {
+struct MemoryMapCacheEntry {
     lower: u32,
     upper: u32,
     index: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct MemoryMapCache {
+    entries: [MemoryMapCacheEntry; 3],
+    insert_index: usize,
+}
+
+impl MemoryMapCache {
+    fn get_index(&self, val: u32) -> Option<usize> {
+        for x in &self.entries {
+            if val >= x.lower && val < x.upper {
+                return Some(x.index);
+            }
+        }
+
+        None
+    }
+
+    fn invalidate(&mut self) {
+        for x in &mut self.entries {
+            *x = MemoryMapCacheEntry::default()
+        }
+        self.insert_index = 0;
+    }
+
+    fn insert(&mut self, x: MemoryMapCacheEntry) {
+        self.entries[self.insert_index] = x;
+        self.insert_index = (self.insert_index + 1) % self.entries.len();
+    }
 }
 
 pub struct MemoryMap {
@@ -140,7 +170,7 @@ impl MemoryMap {
 
         self.segments.push(new_seg);
         self.segments.sort_by(|a, b| a.base.cmp(&b.base));
-        self.last_segment.take();
+        self.last_segment.borrow_mut().invalidate();
 
         Ok(())
     }
@@ -175,9 +205,8 @@ impl MemoryMap {
 
     fn get_segment(&self, address: u32) -> Result<&SegmentData, MemoryError> {
         let mut cache = self.last_segment.borrow_mut();
-        if address >= cache.lower
-            && address < cache.upper
-            && let Some(seg) = self.segments.get(cache.index)
+        if let Some(idx) = cache.get_index(address)
+            && let Some(seg) = self.segments.get(idx)
         {
             return Ok(seg);
         }
@@ -190,9 +219,12 @@ impl MemoryMap {
             && let Some(m) = self.segments.get(index)
         {
             if m.within(address) {
-                cache.lower = m.base;
-                cache.upper = m.top();
-                cache.index = index;
+                let new_entry = MemoryMapCacheEntry {
+                    lower: m.base,
+                    upper: m.top(),
+                    index: index,
+                };
+                cache.insert(new_entry);
                 return Ok(m);
             } else if address < m.base {
                 top = index;
