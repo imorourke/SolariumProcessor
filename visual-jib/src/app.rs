@@ -333,6 +333,14 @@ impl eframe::App for VisualJib {
                         );
                     }
 
+                    if ui.button("Bootloader").clicked() {
+                        self.open_code_window(
+                            CodeWindowType::Cbuoy,
+                            include_str!("../../cbuoy/components/bootloader.cb").into(),
+                            Some("bootloader.cb"),
+                        );
+                    }
+
                     ui.menu_button("Examples", |ui| {
                         static CB_CODES: &[(&str, &str, &str)] = &[
                             (
