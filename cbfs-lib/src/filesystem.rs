@@ -90,10 +90,10 @@ impl CbFileSystem {
         let sect_count = header.sector_count.get() as usize;
         let entry_size = std::mem::size_of::<u16>();
 
-        let entries: Box<[u16]> = data[sect_size..(sect_size + entry_size * sect_count)]
-            .chunks(entry_size)
-            .map(|x| U16::read_from_bytes(x).unwrap().get())
-            .collect::<_>(); // TODO
+        let entries: Box<[_]> = data[sect_size..(sect_size + entry_size * sect_count)]
+            .array_windows()
+            .map(|x: &[_; 2]| U16::from_bytes(*x).get())
+            .collect::<_>();
 
         let data = &data[(sect_size * header.root_sector.get() as usize)..];
 
