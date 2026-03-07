@@ -1,4 +1,6 @@
-use cbfs_lib::{CbContainer, CbContainerHeader, CbEntryType, CbError, CbFileSystem};
+use cbfs_lib::{
+    CbContainer, CbContainerHeader, CbContainerOptions, CbEntryType, CbError, CbFileSystem,
+};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -79,9 +81,11 @@ fn main() {
             let name = opt.name.as_ref().map(|x| x.as_str()).unwrap_or("cbfs");
             let fs = CbFileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
-            let cfs = CbContainer::new(CbContainerHeader::new(opt.sparse, opt.gzip), fs);
-            cfs.write_fs_to_file(&opt.file)
-                .expect("unable to write fs to a file");
+            let cfs = CbContainer::new(
+                CbContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip)),
+                fs,
+            );
+            cfs.save(&opt.file).expect("unable to write fs to a file");
         }
         CommandOptions::Modify(opt) => {
             let mut cfs = CbContainer::open(&opt.file).expect("unable to open file");
@@ -98,8 +102,7 @@ fn main() {
                     .set_name(&n)
                     .expect("unable to set filesystem name");
             }
-            cfs.write_fs_to_file(&opt.file)
-                .expect("unable to write fs to file");
+            cfs.save(&opt.file).expect("unable to write fs to file");
         }
         CommandOptions::List(opt) => {
             let cfs = CbContainer::open(&opt.file).expect("unable to open file");

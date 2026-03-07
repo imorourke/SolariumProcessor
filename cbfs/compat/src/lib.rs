@@ -645,7 +645,7 @@ pub unsafe extern "C" fn cbfs_save(
             };
         }
 
-        match CbContainer::new(fs.flags, fs_tmp).write_fs_to_file(&backing_file) {
+        match CbContainer::new(fs.flags, fs_tmp).save(&backing_file) {
             Ok(_) => CbFsResult::Success,
             Err(e) => e.into(),
         }

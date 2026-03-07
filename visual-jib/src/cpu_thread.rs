@@ -449,13 +449,11 @@ impl CpuState {
                     use cbfs_lib::{CbContainer, CbContainerHeader};
 
                     let container = CbContainer::new(
-                        CbContainerHeader::new(false, false),
+                        CbContainerHeader::default(),
                         cbfs_lib::CbFileSystem::from_bytes(&state.hard_drive.borrow().data)
                             .unwrap(),
                     );
-                    container
-                        .write_fs_to_file(std::path::Path::new("hd.cbfs"))
-                        .unwrap();
+                    container.save(std::path::Path::new("hd.cbfs")).unwrap();
                 }
             }
 

@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Provides the core filesystem entries
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CbFileSystem {
     /// The header associated with the current filesystem
     pub header: CbVolumeHeader,
@@ -33,6 +33,28 @@ pub struct CbFileSystem {
     #[cfg(feature = "rand")]
     /// Allows randomization of the file system entries
     randomize_entries: Option<RefCell<rand::rngs::ThreadRng>>,
+}
+
+impl PartialEq for CbFileSystem {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+            && self.entries == other.entries
+            && self.data == other.data
+            && self.base_entries == other.base_entries
+    }
+}
+
+impl Eq for CbFileSystem {}
+
+impl Debug for CbFileSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} - {} entries",
+            self.header,
+            self.num_primary_entries()
+        )
+    }
 }
 
 impl CbFileSystem {
@@ -91,8 +113,8 @@ impl CbFileSystem {
         let entry_size = std::mem::size_of::<u16>();
 
         let entries: Box<[_]> = data[sect_size..(sect_size + entry_size * sect_count)]
-            .array_windows()
-            .map(|x: &[_; 2]| U16::from_bytes(*x).get())
+            .chunks(2)
+            .map(|x| U16::read_from_bytes(x).unwrap().get())
             .collect::<_>();
 
         let data = &data[(sect_size * header.root_sector.get() as usize)..];

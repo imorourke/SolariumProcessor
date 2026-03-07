@@ -16,7 +16,7 @@ pub use crate::{
     names::{StringArrayError, string_to_array},
 };
 
-pub use container::{CbContainer, CbContainerHeader};
+pub use container::{CbContainer, CbContainerHeader, CbContainerOptions};
 pub use filesystem::CbFileSystem;
 pub use volume::CbVolumeHeader;
 
@@ -42,6 +42,12 @@ pub enum CbError {
 impl From<std::io::Error> for CbError {
     fn from(value: std::io::Error) -> Self {
         Self::UnknownError(format!("IO error - {value}"))
+    }
+}
+
+impl<T, U> From<zerocopy::SizeError<T, U>> for CbError {
+    fn from(value: zerocopy::SizeError<T, U>) -> Self {
+        Self::UnknownError(format!("size error - {value:?}"))
     }
 }
 

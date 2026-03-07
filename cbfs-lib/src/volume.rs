@@ -15,7 +15,7 @@ pub use crate::{
 /// from byte 0 of the disk format.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq)]
 pub struct CbVolumeHeader {
     pub version: U16,
     pub sector_size: U16,
