@@ -147,6 +147,7 @@ impl CbFileSystem {
 
     /// Obtains the current file values as a byte sream
     pub fn as_bytes(&self) -> Result<Vec<u8>, CbError> {
+        // TODO - Change these to read/write impls
         let mut voldata = vec![0u8; self.header.volume_byte_size() as usize];
         let sect_size = self.header.sector_size.get() as usize;
 
