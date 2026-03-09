@@ -168,7 +168,31 @@ impl CbContainer {
                     f.write_all(fs.get_sector_data(s)?)?;
                 }
             } else {
-                f.write_all(&fs.as_bytes()?)?;
+                let sect_size = fs.header.sector_size.get() as usize;
+                let hb = fs.header.as_bytes();
+                f.write_all(hb)?;
+                if hb.len() % sect_size != 0 {
+                    f.write_all(
+                        &(0..(sect_size - (hb.len() % sect_size)))
+                            .map(|_| 0u8)
+                            .collect::<Vec<_>>(),
+                    )?;
+                }
+
+                for e in fs.entries.iter() {
+                    f.write_all(U16::new(*e).as_bytes())?;
+                }
+
+                let entry_len = std::mem::size_of::<u16>() * fs.entries.len();
+                if entry_len % sect_size != 0 {
+                    f.write_all(
+                        &(0..(sect_size - (entry_len % sect_size)))
+                            .map(|_| 0u8)
+                            .collect::<Vec<_>>(),
+                    )?;
+                }
+
+                f.write_all(&fs.data)?;
             }
 
             Ok(())

@@ -27,7 +27,7 @@ pub struct CbFileSystem {
     pub entries: Box<[u16]>,
     /// The raw data sector values. This only contains the data after the allocation table, and does
     /// not include the entry sectors or the header sector
-    data: Box<[u8]>,
+    pub(crate) data: Box<[u8]>,
     /// Defines which entries are base/primary entries
     pub base_entries: HashSet<u16>,
     #[cfg(feature = "rand")]
