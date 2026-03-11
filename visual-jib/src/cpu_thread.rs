@@ -174,7 +174,7 @@ impl CpuState {
             }
         }
 
-        Ok(Rc::new(RefCell::new(BlockDevice::new(fs.as_bytes()?))))
+        Ok(Rc::new(RefCell::new(BlockDevice::new(fs.get_fs_bytes()?))))
     }
 
     fn get_inst_history(&self) -> Vec<String> {
@@ -450,8 +450,10 @@ impl CpuState {
 
                     let container = CbContainer::new(
                         CbContainerHeader::default(),
-                        cbfs_lib::CbFileSystem::from_bytes(&state.hard_drive.borrow().data)
-                            .unwrap(),
+                        cbfs_lib::CbFileSystem::read_bytes(
+                            &mut state.hard_drive.borrow().data.as_slice(),
+                        )
+                        .unwrap(),
                     );
                     container.save(std::path::Path::new("hd.cbfs")).unwrap();
                 }

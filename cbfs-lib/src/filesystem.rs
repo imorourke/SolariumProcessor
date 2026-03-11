@@ -2,7 +2,11 @@
 use std::cell::RefCell;
 #[cfg(feature = "time")]
 use std::time::SystemTime;
-use std::{collections::HashSet, fmt::Debug};
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    io::{Read, Write},
+};
 
 #[cfg(feature = "rand")]
 use rand::RngExt;
@@ -103,26 +107,47 @@ impl CbFileSystem {
     }
 
     /// Reads raw data stream into a CBFS file system
-    pub fn from_bytes(data: &[u8]) -> Result<CbFileSystem, CbError> {
-        let header =
-            CbVolumeHeader::read_from_bytes(&data[0..std::mem::size_of::<CbVolumeHeader>()])
-                .unwrap(); // TODO
+    pub fn read_bytes<T: Read>(f: &mut T) -> Result<CbFileSystem, CbError> {
+        let mut header_bytes = [0; std::mem::size_of::<CbVolumeHeader>()];
+        f.read_exact(&mut header_bytes)?;
+        let header = match CbVolumeHeader::read_from_bytes(&header_bytes) {
+            Ok(h) => h,
+            Err(e) => {
+                return Err(CbError::UnknownError(format!(
+                    "unable to read volume header: {e}"
+                )));
+            }
+        };
 
         let sect_size = header.sector_size.get() as usize;
         let sect_count = header.sector_count.get() as usize;
         let entry_size = std::mem::size_of::<u16>();
 
-        let entries: Box<[_]> = data[sect_size..(sect_size + entry_size * sect_count)]
+        if sect_size > header_bytes.len() {
+            std::io::copy(
+                &mut f.take(sect_size as u64 - header_bytes.len() as u64),
+                &mut std::io::sink(),
+            )?;
+        }
+
+        let mut entry_bytes = vec![0; entry_size * sect_count];
+        f.read_exact(&mut entry_bytes)?;
+
+        let entries: Box<[_]> = entry_bytes
             .chunks(2)
             .map(|x| U16::read_from_bytes(x).unwrap().get())
             .collect::<_>();
 
-        let data = &data[(sect_size * header.root_sector.get() as usize)..];
+        let data = Box::<[u8]>::new_zeroed_slice(
+            (sect_count - header.root_sector.get() as usize) * sect_size,
+        );
+        let mut data = unsafe { data.assume_init() };
+        f.read_exact(&mut data)?;
 
         let mut fs = CbFileSystem {
             header,
             entries,
-            data: data.into(),
+            data,
             base_entries: HashSet::new(),
             #[cfg(feature = "rand")]
             randomize_entries: None,
@@ -145,34 +170,47 @@ impl CbFileSystem {
         Ok(fs)
     }
 
-    /// Obtains the current file values as a byte sream
-    pub fn as_bytes(&self) -> Result<Vec<u8>, CbError> {
-        // TODO - Change these to read/write impls
-        let mut voldata = vec![0u8; self.header.volume_byte_size() as usize];
+    /// Obtains the current file values as a byte sream into the provided writer
+    pub fn write_bytes<T: Write>(&self, f: &mut T) -> Result<(), CbError> {
         let sect_size = self.header.sector_size.get() as usize;
 
-        for (dst, src) in voldata.iter_mut().zip(self.header.as_bytes()) {
-            *dst = *src;
+        f.write_all(self.header.as_bytes())?;
+
+        let header_size = std::mem::size_of_val(&self.header);
+        if header_size < sect_size {
+            f.write_all(
+                &[0u8]
+                    .into_iter()
+                    .cycle()
+                    .take(sect_size - header_size)
+                    .collect::<Vec<_>>(),
+            )?;
         }
 
-        for (dst, src) in voldata.iter_mut().skip(sect_size).zip(
-            self.entries
-                .iter()
-                .copied()
-                .flat_map(|x| U16::new(x).to_bytes()),
-        ) {
-            *dst = src;
+        for e in self.entries.iter() {
+            f.write_all(&U16::new(*e).to_bytes())?;
         }
 
-        for (dst, src) in voldata
-            .iter_mut()
-            .skip(sect_size * self.header.root_sector.get() as usize)
-            .zip(self.data.iter())
-        {
-            *dst = *src;
+        let entry_len = std::mem::size_of::<u16>() * self.entries.len();
+        if entry_len % sect_size != 0 {
+            f.write_all(
+                &[0].into_iter()
+                    .cycle()
+                    .take(sect_size - (entry_len % sect_size))
+                    .collect::<Vec<_>>(),
+            )?;
         }
 
-        Ok(voldata)
+        f.write_all(&self.data.iter().as_slice())?;
+
+        Ok(())
+    }
+
+    /// Obtains the current file values as a byte sream
+    pub fn get_fs_bytes(&self) -> Result<Vec<u8>, CbError> {
+        let mut data = Vec::new();
+        self.write_bytes(&mut data)?;
+        Ok(data)
     }
 
     /// Provides the root sector for the drive
