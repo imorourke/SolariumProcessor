@@ -22,9 +22,9 @@ use crate::{
 #[derive(Clone)]
 pub struct CbFileSystem {
     /// The header associated with the current filesystem
-    pub header: CbVolumeHeader,
+    pub(crate) header: CbVolumeHeader,
     /// The entry allocation table
-    pub entries: Box<[u16]>,
+    pub(crate) entries: Box<[u16]>,
     /// The raw data sector values. This only contains the data after the allocation table, and does
     /// not include the entry sectors or the header sector
     pub(crate) data: Box<[u8]>,
@@ -173,6 +173,36 @@ impl CbFileSystem {
         }
 
         Ok(voldata)
+    }
+
+    /// Provides the root sector for the drive
+    pub fn root_sector(&self) -> u16 {
+        self.header.root_sector.get()
+    }
+
+    /// Provides the sector size
+    pub fn sector_size(&self) -> u16 {
+        self.header.sector_size.get()
+    }
+
+    /// Provides the sector count
+    pub fn sector_count(&self) -> u16 {
+        self.header.sector_count.get()
+    }
+
+    /// Provides the volume name
+    pub fn vol_name(&self) -> String {
+        self.header.get_name()
+    }
+
+    /// Provides the volume name in array form
+    pub fn vol_name_array(&self) -> [u8; CbVolumeHeader::VOLUME_NAME_SIZE] {
+        self.header.volume_name
+    }
+
+    /// Sets the volume name to the provided string
+    pub fn set_vol_name(&mut self, name: &str) -> Result<(), CbError> {
+        self.header.set_name(name)
     }
 
     /// Goes through each sector and zeros out any unused data sectors

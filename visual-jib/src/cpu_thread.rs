@@ -140,19 +140,19 @@ impl CpuState {
 
         let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096)?;
         fs.create_entry(
-            fs.header.root_sector.get(),
+            fs.root_sector(),
             "hello.txt",
             cbfs_lib::CbEntryType::File,
             b"Hello, world!",
         )?;
         fs.create_entry(
-            fs.header.root_sector.get(),
+            fs.root_sector(),
             "boot.bin",
             cbfs_lib::CbEntryType::File,
             &kernel_data,
         )?;
         let root_dir = fs.create_entry(
-            fs.header.root_sector.get(),
+            fs.root_sector(),
             "root",
             cbfs_lib::CbEntryType::Directory,
             &[],

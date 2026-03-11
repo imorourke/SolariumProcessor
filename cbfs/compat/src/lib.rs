@@ -207,7 +207,7 @@ fn get_path(p: *const c_char) -> Option<PathBuf> {
 fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<CbDirectoryEntry, CbError> {
     if let Some(path) = path {
         let mut current_entry = CbDirectoryEntry {
-            base_block: fs.fs.header.root_sector,
+            base_block: fs.fs.root_sector().into(),
             attributes: 0,
             entry_type: CbEntryType::Directory.into(),
             name: [0; _],
@@ -270,12 +270,12 @@ pub unsafe extern "C" fn cbfs_get_stats(fs: *const CbFs, stats: *mut CbFsStats) 
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(stats) = unsafe { stats.as_mut() }
     {
-        stats.num_blocks = fs.fs.header.sector_count.get();
-        stats.block_size = fs.fs.header.sector_size.get();
+        stats.num_blocks = fs.fs.sector_count();
+        stats.block_size = fs.fs.sector_size();
         stats.entry_blocks = fs.fs.base_entries.len() as u16;
         stats.free_blocks = fs.fs.num_free_sectors() as u16;
-        stats.name = fs.fs.header.volume_name.map(|x| x as i8);
-        stats.root_node = fs.fs.header.root_sector.get();
+        stats.name = fs.fs.vol_name_array().map(|x| x as i8);
+        stats.root_node = fs.fs.root_sector();
 
         CbFsResult::Success
     } else {
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn cbfs_get_parent_node(
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(parent) = unsafe { parent.as_mut() }
     {
-        *parent = if node == fs.fs.header.root_sector.get() {
+        *parent = if node == fs.fs.root_sector() {
             0
         } else {
             match fs.fs.entry_header(node) {
@@ -422,7 +422,7 @@ pub unsafe extern "C" fn cbfs_get_entry(
 
         let dir_entry = if entry_hdr.parent.get() == 0 {
             CbDirectoryEntry {
-                base_block: fs.fs.header.root_sector,
+                base_block: fs.fs.root_sector().into(),
                 attributes: 0,
                 entry_type: CbEntryType::Directory.into(),
                 name: [0; _],

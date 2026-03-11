@@ -98,8 +98,7 @@ fn main() {
             }
             if let Some(n) = opt.name.as_ref() {
                 cfs.filesystem
-                    .header
-                    .set_name(&n)
+                    .set_vol_name(&n)
                     .expect("unable to set filesystem name");
             }
             cfs.save(&opt.file).expect("unable to write fs to file");
@@ -114,7 +113,7 @@ fn main() {
                 opt: &ListOptions,
             ) -> Result<(), CbError> {
                 if opt.folders {
-                    if node == fs.header.root_sector.get() {
+                    if node == fs.root_sector() {
                         println!("/");
                     } else {
                         println!("{path_so_far}");
@@ -142,13 +141,8 @@ fn main() {
                 Ok(())
             }
 
-            folder_entry_vals(
-                "",
-                &cfs.filesystem,
-                cfs.filesystem.header.root_sector.get(),
-                &opt,
-            )
-            .expect("unable to list entries")
+            folder_entry_vals("", &cfs.filesystem, cfs.filesystem.root_sector(), &opt)
+                .expect("unable to list entries")
         }
         CommandOptions::Info(opt) => {
             let cfs = CbContainer::open(&opt.file).expect("unable to open file");
@@ -162,19 +156,18 @@ fn main() {
             }
             println!("Sector Info:",);
 
-            println!("  {} byte sectors", cfs.filesystem.header.sector_size.get(),);
-            println!("  {} sectors", cfs.filesystem.header.sector_count.get(),);
+            println!("  {} byte sectors", cfs.filesystem.sector_size(),);
+            println!("  {} sectors", cfs.filesystem.sector_count(),);
 
             println!(
                 "  {} total bytes",
-                cfs.filesystem.header.sector_size.get() as u32
-                    * cfs.filesystem.header.sector_count.get() as u32
+                cfs.filesystem.sector_size() as u32 * cfs.filesystem.sector_count() as u32
             );
 
             println!(
                 "  {} / {} free sectors",
                 cfs.filesystem.num_free_sectors(),
-                cfs.filesystem.header.sector_count.get()
+                cfs.filesystem.sector_count()
             );
             println!("  {} root entries", cfs.filesystem.num_primary_entries(),)
         }
