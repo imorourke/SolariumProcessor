@@ -222,7 +222,7 @@ impl MemoryMap {
                 let new_entry = MemoryMapCacheEntry {
                     lower: m.base,
                     upper: m.top(),
-                    index: index,
+                    index,
                 };
                 cache.insert(new_entry);
                 return Ok(m);

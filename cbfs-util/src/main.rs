@@ -78,7 +78,7 @@ fn main() {
     let args = Arguments::parse();
     match args.options {
         CommandOptions::Create(opt) => {
-            let name = opt.name.as_ref().map(|x| x.as_str()).unwrap_or("cbfs");
+            let name = opt.name.as_deref().unwrap_or("cbfs");
             let fs = CbFileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
             let cfs = CbContainer::new(
@@ -98,7 +98,7 @@ fn main() {
             }
             if let Some(n) = opt.name.as_ref() {
                 cfs.filesystem
-                    .set_vol_name(&n)
+                    .set_vol_name(n)
                     .expect("unable to set filesystem name");
             }
             cfs.save(&opt.file).expect("unable to write fs to file");
