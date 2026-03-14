@@ -164,30 +164,27 @@ static struct fuse_stat cbfs_util_getstat(
     const auto time_val = millis_to_timespec(cbfs_time_to_millis(&entry.last_time));
 
 #ifdef __APPLE__
-    stbuf.ino = entry.entry_id;
-    stbuf.blksize = state.block_size;
-    stbuf.blocks = block_count;
-    stbuf.size = entry.size_bytes;
-    stbuf.atimespec = time_val;
-    stbuf.mtimespec = time_val;
-    stbuf.ctimespec = time_val;
-    stbuf.uid = ctx->uid;
-    stbuf.gid = ctx->gid;
-    stbuf.nlink = 1;
-    stbuf.mode = mode_val;
+#define STATFIELD(NAME) NAME
+#define TIMEFIELD(NAME) NAME ## espec
 #else
-    stbuf.st_ino = entry.entry_id;
-    stbuf.st_blksize = state.block_size;
-    stbuf.st_blocks = block_count;
-    stbuf.st_size = entry.size_bytes;
-    stbuf.st_atim = time_val;
-    stbuf.st_mtim = time_val;
-    stbuf.st_ctim = time_val;
-    stbuf.st_uid = ctx->uid;
-    stbuf.st_gid = ctx->gid;
-    stbuf.st_nlink = 1;
-    stbuf.st_mode = mode_val;
+#define STATFIELD(NAME) st_ ## NAME
+#define TIMEFIELD(NAME) STATFIELD(NAME)
 #endif
+
+    stbuf.STATFIELD(ino) = entry.entry_id;
+    stbuf.STATFIELD(blksize) = state.block_size;
+    stbuf.STATFIELD(blocks) = block_count;
+    stbuf.STATFIELD(size) = entry.size_bytes;
+    stbuf.STATFIELD(uid) = ctx->uid;
+    stbuf.STATFIELD(gid) = ctx->gid;
+    stbuf.STATFIELD(nlink) = 1;
+    stbuf.STATFIELD(mode) = mode_val;
+    stbuf.TIMEFIELD(atim) = time_val;
+    stbuf.TIMEFIELD(mtim) = time_val;
+    stbuf.TIMEFIELD(ctim) = time_val;
+
+#undef STATFIELD
+#undef TIMEFIELD
 
     return stbuf;
 }
