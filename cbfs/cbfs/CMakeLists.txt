@@ -35,7 +35,7 @@ if (WIN32)
     add_custom_command(
         OUTPUT "${PROJECT_SOURCE_DIR}/target/release/cbfs_compat.dll.lib"
         COMMAND cargo build --release
-        COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/target/release/cbfs_compat.dll" ${CMAKE_BINARY_DIR}/Release/cbfs_compat.dll
+        COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/target/release/cbfs_compat.dll" ${CMAKE_CURRENT_BINARY_DIR}/Release/cbfs_compat.dll
         COMMAND ${CMAKE_COMMAND} -E copy "C:\\Program Files (x86)\\WinFsp\\bin\\winfsp-x64.dll" "${CMAKE_CURRENT_BINARY_DIR}/Release/winfsp-x64.dll"
         DEPENDS ${CBFS_COMPAT_SRC} ${CBFS_LIB_SRC}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/compat
@@ -43,7 +43,7 @@ if (WIN32)
     add_custom_command(
         OUTPUT "${PROJECT_SOURCE_DIR}/target/debug/cbfs_compat.dll.lib"
         COMMAND cargo build
-        COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/target/debug/cbfs_compat.dll" ${CMAKE_BINARY_DIR}/Debug/cbfs_compat.dll
+        COMMAND ${CMAKE_COMMAND} -E copy "${PROJECT_SOURCE_DIR}/target/debug/cbfs_compat.dll" ${CMAKE_CURRENT_BINARY_DIR}/Debug/cbfs_compat.dll
         COMMAND ${CMAKE_COMMAND} -E copy "C:\\Program Files (x86)\\WinFsp\\bin\\winfsp-x64.dll" "${CMAKE_CURRENT_BINARY_DIR}/Debug/winfsp-x64.dll"
         DEPENDS ${CBFS_COMPAT_SRC} ${CBFS_LIB_SRC}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/compat
