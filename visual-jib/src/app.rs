@@ -135,7 +135,7 @@ impl Default for VisualJib {
             tx_ui.clone(),
             tx_thread.clone(),
             tx_window.clone(),
-            include_str!("../../cbuoy/components/os.cb").to_string(),
+            include_str!("../../cbos/os.cb").to_string(),
             CodeWindowType::Cbuoy,
             None,
         )
@@ -328,7 +328,7 @@ impl eframe::App for VisualJib {
                     if ui.button("CB/OS").clicked() {
                         self.open_code_window(
                             CodeWindowType::Cbuoy,
-                            include_str!("../../cbuoy/components/os.cb").to_string(),
+                            include_str!("../../cbos/os.cb").to_string(),
                             Some("os.cb"),
                         );
                     }
@@ -336,7 +336,7 @@ impl eframe::App for VisualJib {
                     if ui.button("Bootloader").clicked() {
                         self.open_code_window(
                             CodeWindowType::Cbuoy,
-                            include_str!("../../cbuoy/components/bootloader.cb").into(),
+                            include_str!("../../cbos/bootloader.cb").into(),
                             Some("bootloader.cb"),
                         );
                     }
@@ -345,22 +345,22 @@ impl eframe::App for VisualJib {
                         static CB_CODES: &[(&str, &str, &str)] = &[
                             (
                                 "Default",
-                                include_str!("../../cbuoy/examples/default.cb"),
+                                include_str!("../../cbuoy/cbuoy/examples/default.cb"),
                                 "default.cb",
                             ),
                             (
                                 "Threading",
-                                include_str!("../../cbuoy/examples/threading.cb"),
+                                include_str!("../../cbuoy/cbuoy/examples/threading.cb"),
                                 "threading.cb",
                             ),
                             (
                                 "kmalloc",
-                                include_str!("../../cbuoy/tests/test_kmalloc.cb"),
+                                include_str!("../../cbuoy/cbuoy/tests/test_kmalloc.cb"),
                                 "test/kmalloc.cb",
                             ),
                             (
                                 "Structures",
-                                include_str!("../../cbuoy/tests/test_struct_ptr.cb"),
+                                include_str!("../../cbuoy/cbuoy/tests/test_struct_ptr.cb"),
                                 "test/structures.cb",
                             ),
                         ];

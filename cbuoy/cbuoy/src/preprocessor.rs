@@ -13,57 +13,57 @@ use crate::{TokenError, tokenize, tokenizer::Token};
 pub static DEFAULT_FILES: &[(&str, &str)] = &[
     (
         "kernel/kconfig.cb",
-        include_str!("../components/kernel/kconfig.cb"),
+        include_str!("../../../cbos/kernel/kconfig.cb"),
     ),
     (
         "kernel/kclock.cb",
-        include_str!("../components/kernel/kclock.cb"),
+        include_str!("../../../cbos/kernel/kclock.cb"),
     ),
     (
         "kernel/kcpu.cb",
-        include_str!("../components/kernel/kcpu.cb"),
+        include_str!("../../../cbos/kernel/kcpu.cb"),
     ),
     (
         "kernel/kdbg.cb",
-        include_str!("../components/kernel/kdbg.cb"),
+        include_str!("../../../cbos/kernel/kdbg.cb"),
     ),
     (
         "kernel/kdevice.cb",
-        include_str!("../components/kernel/kdevice.cb"),
+        include_str!("../../../cbos/kernel/kdevice.cb"),
     ),
     (
         "kernel/kirq.cb",
-        include_str!("../components/kernel/kirq.cb"),
+        include_str!("../../../cbos/kernel/kirq.cb"),
     ),
-    ("kernel/kfs.cb", include_str!("../components/kernel/kfs.cb")),
+    ("kernel/kfs.cb", include_str!("../../../cbos/kernel/kfs.cb")),
     (
         "kernel/kmalloc.cb",
-        include_str!("../components/kernel/kmalloc.cb"),
+        include_str!("../../../cbos/kernel/kmalloc.cb"),
     ),
     (
         "kernel/kmalloc_dbg.cb",
-        include_str!("../components/kernel/kmalloc_dbg.cb"),
+        include_str!("../../../cbos/kernel/kmalloc_dbg.cb"),
     ),
     (
         "kernel/krtc.cb",
-        include_str!("../components/kernel/krtc.cb"),
+        include_str!("../../../cbos/kernel/krtc.cb"),
     ),
     (
         ("kernel/kserialio.cb"),
-        include_str!("../components/kernel/kserialio.cb"),
+        include_str!("../../../cbos/kernel/kserialio.cb"),
     ),
     (
         ("kernel/kshell.cb"),
-        include_str!("../components/kernel/kshell.cb"),
+        include_str!("../../../cbos/kernel/kshell.cb"),
     ),
     (
         "kernel/ktsk.cb",
-        include_str!("../components/kernel/ktsk.cb"),
+        include_str!("../../../cbos/kernel/ktsk.cb"),
     ),
-    ("std/list.cb", include_str!("../components/std/list.cb")),
+    ("std/list.cb", include_str!("../../../cbos/std/list.cb")),
     (
         ("std/string.cb"),
-        include_str!("../components/std/string.cb"),
+        include_str!("../../../cbos/std/string.cb"),
     ),
 ];
 

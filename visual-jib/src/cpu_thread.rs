@@ -135,8 +135,7 @@ impl CpuState {
 
     fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_data =
-            Self::compile_kernel_code(include_str!("../../cbuoy/components/os.cb"), None)?.bytes;
+        let kernel_data = Self::compile_kernel_code(include_str!("../../cbos/os.cb"), None)?.bytes;
 
         let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096)?;
         fs.create_entry(
@@ -338,7 +337,7 @@ impl CpuState {
 
         // Compile and setup bootloader
         for (i, x) in Self::compile_kernel_code(
-            include_str!("../../cbuoy/components/bootloader.cb"),
+            include_str!("../../cbos/bootloader.cb"),
             Some(Self::BOOTLOADER_START),
         )?
         .bytes
@@ -721,7 +720,10 @@ mod test {
                 No Heap Allocations\n\
                 Heap Test Pass\n";
 
-        run_cpu_serial_out_test(include_str!("../../cbuoy/tests/test_kmalloc.cb"), EXPECTED);
+        run_cpu_serial_out_test(
+            include_str!("../../cbuoy/cbuoy/tests/test_kmalloc.cb"),
+            EXPECTED,
+        );
     }
 
     #[test]
@@ -740,7 +742,7 @@ mod test {
             7\n\
             7\n";
         run_cpu_serial_out_test(
-            include_str!("../../cbuoy/tests/test_struct_ptr.cb"),
+            include_str!("../../cbuoy/cbuoy/tests/test_struct_ptr.cb"),
             EXPECTED,
         );
     }

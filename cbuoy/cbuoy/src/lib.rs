@@ -28,7 +28,7 @@ mod test {
     static EXAMPLE_FILES: &[&str] = &[
         "examples/array_test.cb",
         "examples/default.cb",
-        "components/os.cb",
+        "../../cbos/os.cb",
         "examples/printing.cb",
         "examples/threading.cb",
         "tests/test_kmalloc.cb",

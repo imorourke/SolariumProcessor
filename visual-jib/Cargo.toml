@@ -9,8 +9,8 @@ nothread = []
 [dependencies]
 jib = { path = "../jib", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
-cbuoy = { path = "../cbuoy", version = "*" }
-cbfs-lib = { path = "../cbfs-lib", version = "*", default-features = false }
+cbuoy = { path = "../cbuoy/cbuoy", version = "*" }
+cbfs-lib = { path = "../cbfs/cbfs-lib", version = "*", default-features = false }
 eframe = "0.33"
 image = "0.25"
 

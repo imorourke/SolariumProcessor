@@ -548,7 +548,7 @@ A simple preprocessor allows for mixing multiple files into one source unit. Thi
 
 This provides an example program in Listing \ref{listing:example-cbuoy} below, which provides an example of printing text to a serial device, both using a string literal, but also converting numeric values into their text equivalents.
 
-\lstinputlisting[label={listing:example-cbuoy},caption={Example C/Buoy program for printing out a string to a serial output device}]{../cbuoy/examples/printing.cb}
+\lstinputlisting[label={listing:example-cbuoy},caption={Example C/Buoy program for printing out a string to a serial output device}]{../cbuoy/cbuoy/examples/printing.cb}
 
 C/Buoy allows working with structs, primitives, functions, and more. This allows for an easier programming experience, at the cost of occasionally some additional generated machine code, resulting in slightly larger execution times, than could necessarily be done by hand in Jib assembly.
 
@@ -575,7 +575,7 @@ To allow for additional optimization, Jib assembly code can also be mixed in wit
 
 For example, the above listing could have the print function replaced by the print function in List \ref{listing:example-cbuoy-print-asm} and be considerably more efficient.
 
-\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbuoy/components/kernel/kserialio.cb}
+\lstinputlisting[label={listing:example-cbuoy-print-asm},caption={Replacement print function to improve the speed of the resulting output}]{../cbos/kernel/kserialio.cb}
 
 The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 1320 CPU cycles. After replacing the print function with the one in Listing \ref{listing:example-cbuoy-print-asm}, the same program completes to a halt in 1010 CPU cycles. Used appropriately, similar optimizations can be made throughout program code to target and improve execution time for different functions as-needed. This also the programmer to slowly learn assembly language by starting with a higher-level programming language as an entry-point, and then working to the lower-level functionality gradually over time as they get familiar with the system. Assembly language is required for several key pieces of functionality, including setting up things to manage the stack directly - such as creating threads - and for interfacing more efficiently with hardware input/output devices.
 
@@ -583,7 +583,7 @@ The original program in Listing \ref{listing:example-cbuoy} runs to a halt in 13
 
 Through direct modification of the stack, we can create a set of utilities to swap between different threads at runtime. Listing \ref{listing:cbuoy-threading-utils} provides several functions. \texttt{k\_tsk\_init} provides means to register a new thread. \texttt{k\_tsk\_main} is a function that is called to transition from the main thread into the inner executing threads. \texttt{k\_tsk\_yield} is both an interrupt handler (for a periodic device like a timer) and also a function that may be called by threaded functions to yield their execution to the next thread. This is simple round-robin threading, so there is no scheduler implemented in this example.
 
-\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and switch between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbuoy/components/kernel/ktsk.cb}
+\lstinputlisting[caption={Utilities that use a mix of Jib assembly and C/Buoy provide mechanisms to create threads at runtime and switch between threads, either through preemptive interrupts or task yielding.}, label={listing:cbuoy-threading-utils}]{../cbos/kernel/ktsk.cb}
 
 \pagebreak
 
