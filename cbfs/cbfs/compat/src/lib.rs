@@ -240,9 +240,7 @@ fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<CbDirect
 /// This function should be called with a non-null pointer to a C string
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cbfs_open(backing_file: *const c_char, randomize: bool) -> *mut CbFs {
-    let file_path = get_path(backing_file);
-
-    let (header, mut cbfs) = if let Some(fp) = &file_path
+    let (header, mut cbfs) = if let Some(fp) = &get_path(backing_file)
         && fp.exists()
     {
         if let Ok(container) = CbContainer::open(fp) {
