@@ -192,7 +192,7 @@ impl CbFileSystem {
         }
 
         let entry_len = std::mem::size_of::<u16>() * self.entries.len();
-        if entry_len.is_multiple_of(sect_size) {
+        if !entry_len.is_multiple_of(sect_size) {
             f.write_all(
                 &[0].into_iter()
                     .cycle()

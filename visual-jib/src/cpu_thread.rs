@@ -445,16 +445,16 @@ impl CpuState {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
-                    use cbfs_lib::{CbContainer, CbContainerHeader};
+                    use cbfs_lib::{CbContainerHeader, save_container};
 
-                    let container = CbContainer::new(
-                        CbContainerHeader::default(),
-                        cbfs_lib::CbFileSystem::read_bytes(
+                    save_container(
+                        &CbContainerHeader::default(),
+                        &cbfs_lib::CbFileSystem::read_bytes(
                             &mut state.hard_drive.borrow().data.as_slice(),
-                        )
-                        .unwrap(),
-                    );
-                    container.save(std::path::Path::new("hd.cbfs")).unwrap();
+                        )?,
+                        std::path::Path::new("hd.cbfs"),
+                    )
+                    .unwrap();
                 }
             }
 

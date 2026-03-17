@@ -4,8 +4,8 @@ use std::{
 };
 
 use cbfs_lib::{
-    CbContainer, CbContainerHeader, CbDate, CbDateTime, CbDirectoryEntry, CbEntryType, CbError,
-    CbFileSystem, CbTime,
+    CbContainerHeader, CbDate, CbDateTime, CbDirectoryEntry, CbEntryType, CbError, CbFileSystem,
+    CbTime, open_container, save_container,
 };
 
 pub const CBFS_VOLUME_NAME_SIZE: usize = 32;
@@ -243,8 +243,8 @@ pub unsafe extern "C" fn cbfs_open(backing_file: *const c_char, randomize: bool)
     let (header, mut cbfs) = if let Some(fp) = &get_path(backing_file)
         && fp.exists()
     {
-        if let Ok(container) = CbContainer::open(fp) {
-            (container.header, container.filesystem)
+        if let Ok((header, fs)) = open_container(fp) {
+            (header, fs)
         } else {
             return std::ptr::null_mut();
         }
@@ -626,24 +626,11 @@ pub unsafe extern "C" fn cbfs_write_entry_data(
 /// # Safety
 /// This function should be called with a non-null pointer to a CbFs struct and path
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cbfs_save(
-    fs: *mut CbFs,
-    backing_file: *const c_char,
-    zero_unused: bool,
-) -> CbFsResult {
+pub unsafe extern "C" fn cbfs_save(fs: *mut CbFs, backing_file: *const c_char) -> CbFsResult {
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(backing_file) = get_path(backing_file)
     {
-        let mut fs_tmp = fs.fs.clone();
-
-        if zero_unused {
-            match fs_tmp.zero_unused_sectors() {
-                Ok(_) => (),
-                Err(e) => return e.into(),
-            };
-        }
-
-        match CbContainer::new(fs.flags, fs_tmp).save(&backing_file) {
+        match save_container(&fs.flags, &fs.fs, &backing_file) {
             Ok(_) => CbFsResult::Success,
             Err(e) => e.into(),
         }

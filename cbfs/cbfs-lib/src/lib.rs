@@ -16,7 +16,10 @@ pub use crate::{
     names::{StringArrayError, string_to_array},
 };
 
-pub use container::{CbContainer, CbContainerHeader, CbContainerOptions};
+pub use container::{
+    CbContainerHeader, CbContainerOptions, open_container, read_container, save_container,
+    write_container,
+};
 pub use filesystem::CbFileSystem;
 pub use volume::CbVolumeHeader;
 

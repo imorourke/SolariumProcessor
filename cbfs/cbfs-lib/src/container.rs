@@ -12,185 +12,177 @@ use zerocopy::{
 
 use crate::{CbError, CbFileSystem, CbVolumeHeader};
 
-#[derive(Debug, Clone)]
-pub struct CbContainer {
-    pub header: CbContainerHeader,
-    pub filesystem: CbFileSystem,
-}
+/// Reads a container from a given writer
+pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSystem), CbError> {
+    let mut file_header_bytes = [0u8; std::mem::size_of::<CbContainerHeader>()];
+    f.read_exact(&mut file_header_bytes)?;
+    let file_header = match CbContainerHeader::read_from_bytes(&file_header_bytes) {
+        Ok(x) => x,
+        Err(e) => {
+            return Err(CbError::ContainerError(format!(
+                "unable to read container header: {e}"
+            )));
+        }
+    };
 
-impl CbContainer {
-    /// Creates a new container from input values
-    pub fn new(header: CbContainerHeader, filesystem: CbFileSystem) -> Self {
-        Self { header, filesystem }
+    file_header.check_data()?;
+
+    fn read_u16<T: Read>(f: &mut T) -> Result<u16, CbError> {
+        let mut tmp = U16::new(0);
+        f.read_exact(tmp.as_mut_bytes())?;
+        Ok(tmp.get())
     }
 
-    /// Reads a container from a given writer
-    pub fn read_container<T: Read>(f: &mut T) -> Result<Self, CbError> {
-        let mut file_header_bytes = [0u8; std::mem::size_of::<CbContainerHeader>()];
-        f.read_exact(&mut file_header_bytes)?;
-        let file_header = match CbContainerHeader::read_from_bytes(&file_header_bytes) {
-            Ok(x) => x,
-            Err(e) => {
+    fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<CbFileSystem, CbError> {
+        const HEADER_SIZE: usize = std::mem::size_of::<CbVolumeHeader>();
+
+        if sparse {
+            const S_U16: usize = std::mem::size_of::<u16>();
+            let header_size = read_u16(f)? as usize;
+
+            if header_size > HEADER_SIZE {
                 return Err(CbError::ContainerError(format!(
-                    "unable to read container header: {e}"
+                    "found header size {header_size} >= max {HEADER_SIZE}"
                 )));
             }
-        };
 
-        file_header.check_data()?;
+            let mut header_data = [0u8; HEADER_SIZE];
+            f.read_exact(&mut header_data[..header_size])?;
 
-        fn read_u16<T: Read>(f: &mut T) -> Result<u16, CbError> {
-            let mut tmp = U16::new(0);
-            f.read_exact(tmp.as_mut_bytes())?;
-            Ok(tmp.get())
-        }
-
-        fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<CbFileSystem, CbError> {
-            const HEADER_SIZE: usize = std::mem::size_of::<CbVolumeHeader>();
-
-            if sparse {
-                const S_U16: usize = std::mem::size_of::<u16>();
-                let header_size = read_u16(f)? as usize;
-
-                if header_size > HEADER_SIZE {
+            let header = match CbVolumeHeader::read_from_bytes(&header_data) {
+                Ok(h) => h,
+                Err(e) => {
                     return Err(CbError::ContainerError(format!(
-                        "found header size {header_size} >= max {HEADER_SIZE}"
+                        "unable to read sparse volume header: {e}"
                     )));
                 }
+            };
 
-                let mut header_data = [0u8; HEADER_SIZE];
-                f.read_exact(&mut header_data[..header_size])?;
+            let sector_size: usize = header.sector_size.get() as usize;
+            let sector_count: usize = header.sector_count.get() as usize;
 
-                let header = match CbVolumeHeader::read_from_bytes(&header_data) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        return Err(CbError::ContainerError(format!(
-                            "unable to read sparse volume header: {e}"
-                        )));
-                    }
-                };
-
-                let sector_size: usize = header.sector_size.get() as usize;
-                let sector_count: usize = header.sector_count.get() as usize;
-
-                let mut new_data = vec![0u8; sector_count * sector_size];
-                match header.write_to(&mut new_data[0..HEADER_SIZE]) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        return Err(CbError::ContainerError(format!(
-                            "unable to write to inner header as sparse: {e}"
-                        )));
-                    }
+            let mut new_data = vec![0u8; sector_count * sector_size];
+            match header.write_to(&mut new_data[0..HEADER_SIZE]) {
+                Ok(_) => (),
+                Err(e) => {
+                    return Err(CbError::ContainerError(format!(
+                        "unable to write to inner header as sparse: {e}"
+                    )));
                 }
-
-                f.read_exact(&mut new_data[sector_size..sector_size + S_U16 * sector_count])?;
-
-                let num_sparse = read_u16(f)?;
-                for _ in 0..num_sparse {
-                    let sector = read_u16(f)? as usize;
-                    let sector_base = sector * sector_size;
-                    f.read_exact(&mut new_data[sector_base..sector_base + sector_size])?;
-                }
-
-                CbFileSystem::read_bytes(&mut new_data.as_slice())
-            } else {
-                CbFileSystem::read_bytes(f)
             }
+
+            f.read_exact(&mut new_data[sector_size..sector_size + S_U16 * sector_count])?;
+
+            let num_sparse = read_u16(f)?;
+            for _ in 0..num_sparse {
+                let sector = read_u16(f)? as usize;
+                let sector_base = sector * sector_size;
+                f.read_exact(&mut new_data[sector_base..sector_base + sector_size])?;
+            }
+
+            CbFileSystem::read_bytes(&mut new_data.as_slice())
+        } else {
+            CbFileSystem::read_bytes(f)
         }
+    }
 
-        let fs = if file_header.is_compressed() {
-            #[cfg(feature = "gzip")]
-            {
-                let mut gf = flate2::read::GzDecoder::new(f);
-                read_inner(&mut gf, file_header.is_sparse())?
+    let fs = if file_header.is_compressed() {
+        #[cfg(feature = "gzip")]
+        {
+            let mut gf = flate2::read::GzDecoder::new(f);
+            read_inner(&mut gf, file_header.is_sparse())?
+        }
+        #[cfg(not(feature = "gzip"))]
+        {
+            return Err(CbError::ContainerError(
+                "gzip feature not enabled".to_string(),
+            ));
+        }
+    } else {
+        read_inner(f, file_header.is_sparse())?
+    };
+
+    Ok((file_header, fs))
+}
+
+/// Writes a container to a given writer
+pub fn write_container<T: Write>(
+    header: &CbContainerHeader,
+    fs: &CbFileSystem,
+    f: &mut T,
+) -> Result<(), CbError> {
+    f.write_all(header.as_bytes())?;
+
+    fn write_inner<T: Write>(mut f: T, fs: &CbFileSystem, sparse: bool) -> Result<(), CbError> {
+        if sparse {
+            f.write_all(U16::new(std::mem::size_of::<CbVolumeHeader>() as u16).as_bytes())?;
+            f.write_all(fs.header.as_bytes())?;
+
+            for n in fs.entries.iter().copied() {
+                f.write_all(&U16::new(n).to_bytes())?;
             }
-            #[cfg(not(feature = "gzip"))]
-            {
-                return Err(CbError::ContainerError(
-                    "gzip feature not enabled".to_string(),
-                ));
+
+            assert_eq!(fs.header.sector_count.get() as usize, fs.entries.len());
+            let sectors_to_write: Vec<_> = fs
+                .entries
+                .iter()
+                .enumerate()
+                .skip(fs.header.root_sector.get() as usize)
+                .filter(|(_, x)| **x != 0)
+                .map(|(i, _)| i as u16)
+                .collect();
+
+            f.write_all(&U16::new(sectors_to_write.len() as u16).to_bytes())?;
+
+            for s in sectors_to_write {
+                f.write_all(&U16::new(s).to_bytes())?;
+                f.write_all(fs.get_sector_data(s)?)?;
             }
         } else {
-            read_inner(f, file_header.is_sparse())?
-        };
-
-        Ok(Self {
-            header: file_header,
-            filesystem: fs,
-        })
-    }
-
-    /// Writes a container to a given writer
-    pub fn write_container<T: Write>(&self, f: &mut T) -> Result<(), CbError> {
-        f.write_all(self.header.as_bytes())?;
-
-        fn write_inner<T: Write>(mut f: T, fs: &CbFileSystem, sparse: bool) -> Result<(), CbError> {
-            if sparse {
-                f.write_all(U16::new(std::mem::size_of::<CbVolumeHeader>() as u16).as_bytes())?;
-                f.write_all(fs.header.as_bytes())?;
-
-                for n in fs.entries.iter().copied() {
-                    f.write_all(&U16::new(n).to_bytes())?;
-                }
-
-                assert_eq!(fs.header.sector_count.get() as usize, fs.entries.len());
-                let sectors_to_write: Vec<_> = fs
-                    .entries
-                    .iter()
-                    .enumerate()
-                    .skip(fs.header.root_sector.get() as usize)
-                    .filter(|(_, x)| **x != 0)
-                    .map(|(i, _)| i as u16)
-                    .collect();
-
-                f.write_all(&U16::new(sectors_to_write.len() as u16).to_bytes())?;
-
-                for s in sectors_to_write {
-                    f.write_all(&U16::new(s).to_bytes())?;
-                    f.write_all(fs.get_sector_data(s)?)?;
-                }
-            } else {
-                fs.write_bytes::<T>(&mut f)?;
-            }
-
-            Ok(())
+            fs.write_bytes::<T>(&mut f)?;
         }
 
-        if self.header.is_compressed() {
-            #[cfg(feature = "gzip")]
-            {
-                write_inner(
-                    flate2::write::GzEncoder::new(f, flate2::Compression::best()),
-                    &self.filesystem,
-                    self.header.is_sparse(),
-                )
-            }
-            #[cfg(not(feature = "gzip"))]
-            {
-                Err(CbError::ContainerError(
-                    "gzip feature not enabled".to_string(),
-                ))
-            }
-        } else {
-            write_inner(f, &self.filesystem, self.header.is_sparse())
+        Ok(())
+    }
+
+    if header.is_compressed() {
+        #[cfg(feature = "gzip")]
+        {
+            write_inner(
+                flate2::write::GzEncoder::new(f, flate2::Compression::best()),
+                fs,
+                header.is_sparse(),
+            )
         }
+        #[cfg(not(feature = "gzip"))]
+        {
+            Err(CbError::ContainerError(
+                "gzip feature not enabled".to_string(),
+            ))
+        }
+    } else {
+        write_inner(f, fs, header.is_sparse())
     }
+}
 
-    /// Opens a filesystem disk image and loads into memory
-    pub fn open(path: &Path) -> Result<Self, CbError> {
-        let mut f = std::fs::File::open(path)?;
-        Self::read_container(&mut f)
-    }
+/// Opens a filesystem disk image and loads into memory
+pub fn open_container(path: &Path) -> Result<(CbContainerHeader, CbFileSystem), CbError> {
+    let mut f = std::fs::File::open(path)?;
+    read_container(&mut f)
+}
 
-    /// Saves the current in-memory filesystem to the provided file
-    pub fn save(&self, file: &Path) -> Result<(), CbError> {
-        let mut f = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(file)?;
-        self.write_container(&mut f)
-    }
+/// Saves the current in-memory filesystem to the provided file
+pub fn save_container(
+    header: &CbContainerHeader,
+    filesystem: &CbFileSystem,
+    file: &Path,
+) -> Result<(), CbError> {
+    let mut f = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(file)?;
+    write_container(&header, &filesystem, &mut f)
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -310,11 +302,15 @@ impl Default for CbContainerHeader {
 
 #[cfg(test)]
 mod test {
-    use crate::{CbContainer, CbContainerHeader, CbContainerOptions, CbEntryType, CbFileSystem};
+    use crate::{
+        CbContainerHeader, CbContainerOptions, CbEntryType, CbFileSystem,
+        container::{read_container, write_container},
+    };
 
     fn generate_test_filesystem() -> CbFileSystem {
         let mut fs = CbFileSystem::new("test", 1024, 512).unwrap();
         fs.randomize_sectors(true);
+
         let dir_abc = fs
             .create_entry(
                 fs.header.root_sector.get(),
@@ -369,77 +365,107 @@ mod test {
 
     #[test]
     fn rw_raw() {
-        let cont = CbContainer::new(
-            CbContainerHeader::new(CbContainerOptions::None),
-            generate_test_filesystem(),
-        );
+        let header = CbContainerHeader::new(CbContainerOptions::None);
+        let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
-        cont.write_container(&mut data_buf).unwrap();
+        write_container(&header, &filesystem, &mut data_buf).unwrap();
 
-        let cont_new = CbContainer::read_container(&mut data_buf.as_slice()).unwrap();
+        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
 
-        assert_eq!(cont.header, cont_new.header);
+        assert_eq!(header, header_new);
+        assert!(header.check_data().is_ok());
+        assert!(header_new.check_data().is_ok());
+
+        assert_eq!(filesystem.entries, fs_new.entries);
+        assert_eq!(filesystem, fs_new);
+
+        for k in fs_new.base_entries.iter() {
+            let hdr = fs_new.entry_header(*k).unwrap();
+            if hdr.get_entry_type() == CbEntryType::Directory {
+                fs_new.directory_listing(*k).unwrap();
+            }
+            fs_new.entry_data(*k).unwrap();
+        }
     }
 
     #[test]
     fn rw_sparse() {
-        let cont = CbContainer::new(
-            CbContainerHeader::new(CbContainerOptions::Sparse),
-            generate_test_filesystem(),
-        );
+        let header = CbContainerHeader::new(CbContainerOptions::Sparse);
+        let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
-        cont.write_container(&mut data_buf).unwrap();
+        write_container(&header, &filesystem, &mut data_buf).unwrap();
 
-        let cont_new = CbContainer::read_container(&mut data_buf.as_slice()).unwrap();
+        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
 
-        assert_eq!(cont.header, cont_new.header);
-        assert!(cont.header.check_data().is_ok());
-        assert!(cont_new.header.check_data().is_ok());
+        assert_eq!(header, header_new);
+        assert!(header.check_data().is_ok());
+        assert!(header_new.check_data().is_ok());
 
-        let kfs = &cont_new.filesystem;
-
-        for k in kfs.base_entries.iter() {
-            let hdr = kfs.entry_header(*k).unwrap();
+        for k in fs_new.base_entries.iter() {
+            let hdr = fs_new.entry_header(*k).unwrap();
             if hdr.get_entry_type() == CbEntryType::Directory {
-                kfs.directory_listing(*k).unwrap();
+                fs_new.directory_listing(*k).unwrap();
             }
-            kfs.entry_data(*k).unwrap();
+            fs_new.entry_data(*k).unwrap();
         }
+
+        assert_eq!(filesystem.entries, fs_new.entries);
+        assert_eq!(filesystem, fs_new);
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn rw_compressed() {
-        let cont = CbContainer::new(
-            CbContainerHeader::new(CbContainerOptions::Compressed),
-            generate_test_filesystem(),
-        );
+        let header = CbContainerHeader::new(CbContainerOptions::Compressed);
+        let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
-        cont.write_container(&mut data_buf).unwrap();
+        write_container(&header, &filesystem, &mut data_buf).unwrap();
 
-        let cont_new = CbContainer::read_container(&mut data_buf.as_slice()).unwrap();
+        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
 
-        assert_eq!(cont.header, cont_new.header);
+        assert_eq!(header, header_new);
+        assert!(header.check_data().is_ok());
+        assert!(header_new.check_data().is_ok());
+
+        for k in fs_new.base_entries.iter() {
+            let hdr = fs_new.entry_header(*k).unwrap();
+            if hdr.get_entry_type() == CbEntryType::Directory {
+                fs_new.directory_listing(*k).unwrap();
+            }
+            fs_new.entry_data(*k).unwrap();
+        }
+
+        assert_eq!(filesystem.entries, fs_new.entries);
+        assert_eq!(filesystem, fs_new);
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn raw_sparse_compressed() {
-        let cont = CbContainer::new(
-            CbContainerHeader::new(CbContainerOptions::SparseCompressed),
-            generate_test_filesystem(),
-        );
+        let header = CbContainerHeader::new(CbContainerOptions::SparseCompressed);
+        let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
-        cont.write_container(&mut data_buf).unwrap();
+        write_container(&header, &filesystem, &mut data_buf).unwrap();
 
-        let cont_new = CbContainer::read_container(&mut data_buf.as_slice()).unwrap();
+        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
 
-        assert_eq!(cont.header, cont_new.header);
-        assert_eq!(cont.filesystem.entries, cont_new.filesystem.entries);
-        assert_eq!(cont.filesystem, cont_new.filesystem);
+        assert_eq!(header, header_new);
+        assert!(header.check_data().is_ok());
+        assert!(header_new.check_data().is_ok());
+
+        for k in fs_new.base_entries.iter() {
+            let hdr = fs_new.entry_header(*k).unwrap();
+            if hdr.get_entry_type() == CbEntryType::Directory {
+                fs_new.directory_listing(*k).unwrap();
+            }
+            fs_new.entry_data(*k).unwrap();
+        }
+
+        assert_eq!(filesystem.entries, fs_new.entries);
+        assert_eq!(filesystem, fs_new);
     }
 }

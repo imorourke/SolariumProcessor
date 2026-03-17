@@ -1,5 +1,6 @@
 use cbfs_lib::{
-    CbContainer, CbContainerHeader, CbContainerOptions, CbEntryType, CbError, CbFileSystem,
+    CbContainerHeader, CbContainerOptions, CbEntryType, CbError, CbFileSystem, open_container,
+    save_container,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -81,30 +82,29 @@ fn main() {
             let name = opt.name.as_deref().unwrap_or("cbfs");
             let fs = CbFileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
-            let cfs = CbContainer::new(
-                CbContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip)),
-                fs,
-            );
-            cfs.save(&opt.file).expect("unable to write fs to a file");
+            let header =
+                CbContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip));
+            save_container(&header, &fs, &opt.file).expect("unable to write fs to a file");
         }
         CommandOptions::Modify(opt) => {
-            let mut cfs = CbContainer::open(&opt.file).expect("unable to open file");
-            cfs.header.set_compressed(opt.gzip);
-            cfs.header.set_sparse(opt.sparse);
+            let (mut header, mut filesystem) =
+                open_container(&opt.file).expect("unable to open file");
+            header.set_compressed(opt.gzip);
+            header.set_sparse(opt.sparse);
             if opt.zero {
-                cfs.filesystem
+                filesystem
                     .zero_unused_sectors()
                     .expect("unable to zero sectors");
             }
             if let Some(n) = opt.name.as_ref() {
-                cfs.filesystem
+                filesystem
                     .set_vol_name(n)
                     .expect("unable to set filesystem name");
             }
-            cfs.save(&opt.file).expect("unable to write fs to file");
+            save_container(&header, &filesystem, &opt.file).expect("unable to write fs to file");
         }
         CommandOptions::List(opt) => {
-            let cfs = CbContainer::open(&opt.file).expect("unable to open file");
+            let (_, fs) = open_container(&opt.file).expect("unable to open file");
 
             fn folder_entry_vals(
                 path_so_far: &str,
@@ -141,35 +141,34 @@ fn main() {
                 Ok(())
             }
 
-            folder_entry_vals("", &cfs.filesystem, cfs.filesystem.root_sector(), &opt)
-                .expect("unable to list entries")
+            folder_entry_vals("", &fs, fs.root_sector(), &opt).expect("unable to list entries")
         }
         CommandOptions::Info(opt) => {
-            let cfs = CbContainer::open(&opt.file).expect("unable to open file");
+            let (header, filesystem) = open_container(&opt.file).expect("unable to open file");
 
             println!("Container:");
-            if cfs.header.is_compressed() {
+            if header.is_compressed() {
                 println!("  Compressed");
             }
-            if cfs.header.is_sparse() {
+            if header.is_sparse() {
                 println!("  Sparse");
             }
             println!("Sector Info:",);
 
-            println!("  {} byte sectors", cfs.filesystem.sector_size(),);
-            println!("  {} sectors", cfs.filesystem.sector_count(),);
+            println!("  {} byte sectors", filesystem.sector_size(),);
+            println!("  {} sectors", filesystem.sector_count(),);
 
             println!(
                 "  {} total bytes",
-                cfs.filesystem.sector_size() as u32 * cfs.filesystem.sector_count() as u32
+                filesystem.sector_size() as u32 * filesystem.sector_count() as u32
             );
 
             println!(
                 "  {} / {} free sectors",
-                cfs.filesystem.num_free_sectors(),
-                cfs.filesystem.sector_count()
+                filesystem.num_free_sectors(),
+                filesystem.sector_count()
             );
-            println!("  {} root entries", cfs.filesystem.num_primary_entries(),)
+            println!("  {} root entries", filesystem.num_primary_entries(),)
         }
     }
 }
