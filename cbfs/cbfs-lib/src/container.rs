@@ -350,6 +350,12 @@ mod test {
         fs
     }
 
+    fn generate_test_filesystem_empty() -> FileSystem {
+        let mut fs = FileSystem::new("test", 1024, 1234).unwrap();
+        fs.randomize_sectors(true);
+        fs
+    }
+
     #[test]
     fn container_options() {
         const INPUT_VALUES: &[(CbContainerOptions, bool, bool)] = &[
@@ -369,11 +375,7 @@ mod test {
         }
     }
 
-    #[test]
-    fn rw_raw() {
-        let header = ContainerHeader::new(CbContainerOptions::None);
-        let filesystem = generate_test_filesystem();
-
+    fn test_filesystem_val(header: ContainerHeader, filesystem: FileSystem) {
         let mut data_buf = Vec::new();
         write_container(&header, &filesystem, &mut data_buf).unwrap();
 
@@ -395,83 +397,31 @@ mod test {
         }
     }
 
+    fn test_filesystem(option: CbContainerOptions) {
+        let hdr = ContainerHeader::new(option);
+        test_filesystem_val(hdr, generate_test_filesystem());
+        test_filesystem_val(hdr, generate_test_filesystem_empty());
+    }
+
+    #[test]
+    fn rw_raw() {
+        test_filesystem(CbContainerOptions::None);
+    }
+
     #[test]
     fn rw_sparse() {
-        let header = ContainerHeader::new(CbContainerOptions::Sparse);
-        let filesystem = generate_test_filesystem();
-
-        let mut data_buf = Vec::new();
-        write_container(&header, &filesystem, &mut data_buf).unwrap();
-
-        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
-
-        assert_eq!(header, header_new);
-        assert!(header.check_data().is_ok());
-        assert!(header_new.check_data().is_ok());
-
-        for k in fs_new.base_entries.iter() {
-            let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == EntryType::Directory {
-                fs_new.directory_listing(*k).unwrap();
-            }
-            fs_new.entry_data(*k).unwrap();
-        }
-
-        assert_eq!(filesystem.entries, fs_new.entries);
-        assert_eq!(filesystem, fs_new);
+        test_filesystem(CbContainerOptions::Sparse);
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn rw_compressed() {
-        let header = ContainerHeader::new(CbContainerOptions::Compressed);
-        let filesystem = generate_test_filesystem();
-
-        let mut data_buf = Vec::new();
-        write_container(&header, &filesystem, &mut data_buf).unwrap();
-
-        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
-
-        assert_eq!(header, header_new);
-        assert!(header.check_data().is_ok());
-        assert!(header_new.check_data().is_ok());
-
-        for k in fs_new.base_entries.iter() {
-            let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == EntryType::Directory {
-                fs_new.directory_listing(*k).unwrap();
-            }
-            fs_new.entry_data(*k).unwrap();
-        }
-
-        assert_eq!(filesystem.entries, fs_new.entries);
-        assert_eq!(filesystem, fs_new);
+        test_filesystem(CbContainerOptions::Compressed);
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn raw_sparse_compressed() {
-        let header = ContainerHeader::new(CbContainerOptions::SparseCompressed);
-        let filesystem = generate_test_filesystem();
-
-        let mut data_buf = Vec::new();
-        write_container(&header, &filesystem, &mut data_buf).unwrap();
-
-        let (header_new, fs_new) = read_container(&mut data_buf.as_slice()).unwrap();
-
-        assert_eq!(header, header_new);
-        assert!(header.check_data().is_ok());
-        assert!(header_new.check_data().is_ok());
-
-        for k in fs_new.base_entries.iter() {
-            let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == EntryType::Directory {
-                fs_new.directory_listing(*k).unwrap();
-            }
-            fs_new.entry_data(*k).unwrap();
-        }
-
-        assert_eq!(filesystem.entries, fs_new.entries);
-        assert_eq!(filesystem, fs_new);
+        test_filesystem(CbContainerOptions::SparseCompressed);
     }
 }
