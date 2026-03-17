@@ -425,7 +425,7 @@ static int cbfs_fuse_mkdir(
 static int cbfs_fuse_rename(
     const char* path,
     const char* new_path,
-    unsigned int flags
+    [[maybe_unused]] unsigned int flags
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
@@ -433,14 +433,14 @@ static int cbfs_fuse_rename(
         std::cout << "mkdir(" << path << ", " << new_path << ")\n";
     }
 
-#ifndef WIN32
+#ifdef RENAME_EXCHANGE
     if ((flags & RENAME_EXCHANGE) == RENAME_EXCHANGE) {
         return -ENOSYS;
     }
 #endif
 
     try {
-#ifndef WIN32
+#ifdef RENAME_EXCHANGE
         const bool can_replace = (flags & RENAME_NOREPLACE) == 0;
 #else
         const bool can_replace = false;
