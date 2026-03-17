@@ -15,18 +15,18 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, volume::CbVolumeHeader};
+use crate::{CbError, volume::VolumeHeader};
 use crate::{
-    datetime::CbDateTime,
-    entries::{CbDirectoryEntry, CbEntryHeader, CbEntryType},
+    datetime::DateTime,
+    entries::{DirectoryEntry, EntryHeader, EntryType},
     names::string_to_array,
 };
 
 /// Provides the core filesystem entries
 #[derive(Clone)]
-pub struct CbFileSystem {
+pub struct FileSystem {
     /// The header associated with the current filesystem
-    pub(crate) header: CbVolumeHeader,
+    pub(crate) header: VolumeHeader,
     /// The entry allocation table
     pub(crate) entries: Box<[u16]>,
     /// The raw data sector values. This only contains the data after the allocation table, and does
@@ -39,7 +39,7 @@ pub struct CbFileSystem {
     randomize_entries: Option<RefCell<rand::rngs::ThreadRng>>,
 }
 
-impl PartialEq for CbFileSystem {
+impl PartialEq for FileSystem {
     fn eq(&self, other: &Self) -> bool {
         self.header == other.header
             && self.entries == other.entries
@@ -48,9 +48,9 @@ impl PartialEq for CbFileSystem {
     }
 }
 
-impl Eq for CbFileSystem {}
+impl Eq for FileSystem {}
 
-impl Debug for CbFileSystem {
+impl Debug for FileSystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -61,13 +61,13 @@ impl Debug for CbFileSystem {
     }
 }
 
-impl CbFileSystem {
+impl FileSystem {
     /// Sentinel for the end of a node
     pub const NODE_END: u16 = 0xFFFF;
 
     /// Creates a new filesystem in memory
     pub fn new(name: &str, sector_size: u16, sector_count: u16) -> Result<Self, CbError> {
-        let mut header = CbVolumeHeader::new(sector_size, sector_count)?;
+        let mut header = VolumeHeader::new(sector_size, sector_count)?;
         header.set_name(name)?;
         let sector_count = header.sector_count.get();
 
@@ -79,13 +79,13 @@ impl CbFileSystem {
         }
 
         #[cfg(feature = "time")]
-        let modification_time = CbDateTime::from(SystemTime::now());
+        let modification_time = DateTime::from(SystemTime::now());
         #[cfg(not(feature = "time"))]
-        let modification_time = CbDateTime::default();
+        let modification_time = DateTime::default();
 
-        let root_entry = CbEntryHeader {
+        let root_entry = EntryHeader {
             parent: U16::new(0),
-            entry_type: CbEntryType::Directory as u8,
+            entry_type: EntryType::Directory as u8,
             reserved: 0,
             payload_size: U32::new(0),
             modification_time,
@@ -107,10 +107,10 @@ impl CbFileSystem {
     }
 
     /// Reads raw data stream into a CBFS file system
-    pub fn read_bytes<T: Read>(f: &mut T) -> Result<CbFileSystem, CbError> {
-        let mut header_bytes = [0; std::mem::size_of::<CbVolumeHeader>()];
+    pub fn read_bytes<T: Read>(f: &mut T) -> Result<FileSystem, CbError> {
+        let mut header_bytes = [0; std::mem::size_of::<VolumeHeader>()];
         f.read_exact(&mut header_bytes)?;
-        let header = match CbVolumeHeader::read_from_bytes(&header_bytes) {
+        let header = match VolumeHeader::read_from_bytes(&header_bytes) {
             Ok(h) => h,
             Err(e) => {
                 return Err(CbError::UnknownError(format!(
@@ -144,7 +144,7 @@ impl CbFileSystem {
         let mut data = unsafe { data.assume_init() };
         f.read_exact(&mut data)?;
 
-        let mut fs = CbFileSystem {
+        let mut fs = FileSystem {
             header,
             entries,
             data,
@@ -234,7 +234,7 @@ impl CbFileSystem {
     }
 
     /// Provides the volume name in array form
-    pub fn vol_name_array(&self) -> [u8; CbVolumeHeader::VOLUME_NAME_SIZE] {
+    pub fn vol_name_array(&self) -> [u8; VolumeHeader::VOLUME_NAME_SIZE] {
         self.header.volume_name
     }
 
@@ -300,16 +300,16 @@ impl CbFileSystem {
     }
 
     /// Provides the entry type associated with the given entry
-    fn entry_type(&self, entry: u16) -> Result<CbEntryType, CbError> {
+    fn entry_type(&self, entry: u16) -> Result<EntryType, CbError> {
         match self.data.get(self.get_sector_start_idx(entry)?).copied() {
-            Some(val) => Ok(CbEntryType::from(val)),
+            Some(val) => Ok(EntryType::from(val)),
             None => Err(CbError::EntryInvalid(entry)),
         }
     }
 
     /// Provides true if the given entry value is a boolean
     fn entry_is_dir(&self, entry: u16) -> Result<bool, CbError> {
-        Ok(self.entry_type(entry)? == CbEntryType::Directory)
+        Ok(self.entry_type(entry)? == EntryType::Directory)
     }
 
     /// Iterates through the directory tree to detemrine if the entry is a root entry
@@ -318,13 +318,13 @@ impl CbFileSystem {
     }
 
     /// Provides the full entry header for the provided entry
-    pub fn entry_header(&self, entry: u16) -> Result<CbEntryHeader, CbError> {
+    pub fn entry_header(&self, entry: u16) -> Result<EntryHeader, CbError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
         let id = self.data[idx];
-        Ok(match CbEntryType::from(id) {
-            CbEntryType::File | CbEntryType::Directory => CbEntryHeader::read_from_bytes(
-                &self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())],
+        Ok(match EntryType::from(id) {
+            EntryType::File | EntryType::Directory => EntryHeader::read_from_bytes(
+                &self.data[idx..(idx + std::mem::size_of::<EntryHeader>())],
             )
             .unwrap(),
             _ => return Err(CbError::UnknownEntryType(id)),
@@ -332,10 +332,10 @@ impl CbFileSystem {
     }
 
     /// Sets only the header portion of a given entry
-    pub fn set_entry_header(&mut self, entry: u16, hdr: CbEntryHeader) -> Result<(), CbError> {
+    pub fn set_entry_header(&mut self, entry: u16, hdr: EntryHeader) -> Result<(), CbError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
-        for (dst, src) in self.data[idx..(idx + std::mem::size_of::<CbEntryHeader>())]
+        for (dst, src) in self.data[idx..(idx + std::mem::size_of::<EntryHeader>())]
             .iter_mut()
             .zip(hdr.as_bytes())
         {
@@ -345,7 +345,7 @@ impl CbFileSystem {
     }
 
     /// Provides the entries associated with the current directory
-    pub fn directory_listing(&self, entry: u16) -> Result<Vec<CbDirectoryEntry>, CbError> {
+    pub fn directory_listing(&self, entry: u16) -> Result<Vec<DirectoryEntry>, CbError> {
         if !self.entry_is_dir(entry)? {
             return Err(CbError::EntryNotDirectory(entry));
         }
@@ -354,8 +354,8 @@ impl CbFileSystem {
         let mut dirs = Vec::new();
 
         for e in data
-            .chunks(std::mem::size_of::<CbDirectoryEntry>())
-            .map(|x| CbDirectoryEntry::read_from_bytes(x).unwrap())
+            .chunks(std::mem::size_of::<DirectoryEntry>())
+            .map(|x| DirectoryEntry::read_from_bytes(x).unwrap())
         {
             if e.base_block.get() != 0 {
                 dirs.push(e);
@@ -366,13 +366,13 @@ impl CbFileSystem {
     }
 
     /// Provides the directory entry associated with the given node in a parent directory
-    pub fn directory_entry(&self, target: u16) -> Result<CbDirectoryEntry, CbError> {
+    pub fn directory_entry(&self, target: u16) -> Result<DirectoryEntry, CbError> {
         let ent_hdr = self.entry_header(target)?;
         if target == self.header.root_sector.get() {
-            Ok(CbDirectoryEntry {
+            Ok(DirectoryEntry {
                 attributes: 0,
                 base_block: target.into(),
-                entry_type: CbEntryType::Directory as u8,
+                entry_type: EntryType::Directory as u8,
                 name: [0; _],
             })
         } else {
@@ -387,8 +387,8 @@ impl CbFileSystem {
             let (_, data) = self.entry_data(entry)?;
 
             for e in data
-                .chunks(std::mem::size_of::<CbDirectoryEntry>())
-                .map(|x| CbDirectoryEntry::read_from_bytes(x).unwrap())
+                .chunks(std::mem::size_of::<DirectoryEntry>())
+                .map(|x| DirectoryEntry::read_from_bytes(x).unwrap())
             {
                 if e.base_block.get() == n {
                     return Ok(e);
@@ -416,10 +416,10 @@ impl CbFileSystem {
     }
 
     /// Provides the data associated with the provided entry
-    pub fn entry_data(&self, entry: u16) -> Result<(CbEntryHeader, Vec<u8>), CbError> {
+    pub fn entry_data(&self, entry: u16) -> Result<(EntryHeader, Vec<u8>), CbError> {
         let raw_data = self.entry_data_raw(entry)?;
-        let hdr = CbEntryHeader::read_from_bytes(&raw_data[..std::mem::size_of::<CbEntryHeader>()])
-            .unwrap();
+        let hdr =
+            EntryHeader::read_from_bytes(&raw_data[..std::mem::size_of::<EntryHeader>()]).unwrap();
         let hdr_size = hdr.get_header_size();
 
         Ok((hdr, raw_data[hdr_size..hdr.get_total_size()].to_vec()))
@@ -482,7 +482,7 @@ impl CbFileSystem {
     pub fn num_entries_within_entry(&self, entry: u16) -> Result<usize, CbError> {
         let hdr = self.entry_header(entry)?;
         let mut count = 1;
-        if hdr.get_entry_type() == CbEntryType::Directory {
+        if hdr.get_entry_type() == EntryType::Directory {
             for e in self.directory_listing(entry)? {
                 count += self.num_entries_within_entry(e.base_block.get())?;
             }
@@ -563,7 +563,7 @@ impl CbFileSystem {
 
     /// Determines the number of sectors that are required for the given payload byte size
     fn required_sectors_for_payload_size(&self, size: usize) -> usize {
-        self.required_sectors_for_raw_size(size + std::mem::size_of::<CbEntryHeader>())
+        self.required_sectors_for_raw_size(size + std::mem::size_of::<EntryHeader>())
     }
 
     /// Sets the raw (header + payload) data together for an entry
@@ -591,7 +591,7 @@ impl CbFileSystem {
     pub fn set_entry_data(
         &mut self,
         entry: u16,
-        mut header: CbEntryHeader,
+        mut header: EntryHeader,
         data: &[u8],
     ) -> Result<(), CbError> {
         header.payload_size.set(data.len() as u32);
@@ -603,7 +603,7 @@ impl CbFileSystem {
     /// Sets the payload size for the provided entry
     pub fn set_entry_payload_byte_size(&mut self, entry: u16, size: u32) -> Result<(), CbError> {
         let (hdr, mut data) = self.entry_data(entry)?;
-        if hdr.get_entry_type() == CbEntryType::File {
+        if hdr.get_entry_type() == EntryType::File {
             data.resize(size as usize, 0);
             self.set_entry_data(entry, hdr, &data)
         } else {
@@ -616,7 +616,7 @@ impl CbFileSystem {
         &mut self,
         parent: u16,
         name: &str,
-        entry_type: CbEntryType,
+        entry_type: EntryType,
         data: &[u8],
     ) -> Result<u16, CbError> {
         // Check for a dupliate name within a directory
@@ -627,7 +627,7 @@ impl CbFileSystem {
         }
 
         // If providing a directory entry, the data field must be empty
-        if entry_type == CbEntryType::Directory && !data.is_empty() {
+        if entry_type == EntryType::Directory && !data.is_empty() {
             return Err(CbError::NonZeroDirectoryData);
         }
 
@@ -635,18 +635,18 @@ impl CbFileSystem {
         self.entries[new_entry as usize] = Self::NODE_END;
 
         #[cfg(feature = "time")]
-        let modification_time = CbDateTime::from(SystemTime::now());
+        let modification_time = DateTime::from(SystemTime::now());
         #[cfg(not(feature = "time"))]
-        let modification_time = CbDateTime::default();
+        let modification_time = DateTime::default();
 
-        let dir_ent = CbDirectoryEntry {
+        let dir_ent = DirectoryEntry {
             base_block: U16::new(new_entry),
             attributes: 0,
             entry_type: entry_type as u8,
             name: string_to_array(name)?,
         };
 
-        let new_hdr = CbEntryHeader {
+        let new_hdr = EntryHeader {
             parent: U16::new(parent),
             entry_type: entry_type as u8,
             reserved: 0,
@@ -700,7 +700,7 @@ impl CbFileSystem {
         let num_sectors = self.num_sectors_for_entry(entry);
         let dir_entries = self.directory_listing(entry)?;
         let required_sectors = self.required_sectors_for_payload_size(
-            dir_entries.len() * std::mem::size_of::<CbDirectoryEntry>(),
+            dir_entries.len() * std::mem::size_of::<DirectoryEntry>(),
         );
 
         assert!(required_sectors <= num_sectors);
@@ -722,7 +722,7 @@ impl CbFileSystem {
         &mut self,
         parent: u16,
         entry: u16,
-    ) -> Result<CbDirectoryEntry, CbError> {
+    ) -> Result<DirectoryEntry, CbError> {
         assert!(self.entry_is_primary(parent)?);
         assert!(self.entry_is_primary(entry)?);
 
@@ -732,8 +732,8 @@ impl CbFileSystem {
         let mut result_val = None;
 
         for d in data
-            .chunks_mut(std::mem::size_of::<CbDirectoryEntry>())
-            .map(|x| CbDirectoryEntry::mut_from_bytes(x).unwrap())
+            .chunks_mut(std::mem::size_of::<DirectoryEntry>())
+            .map(|x| DirectoryEntry::mut_from_bytes(x).unwrap())
         {
             if d.base_block.get() == entry {
                 d.base_block = U16::new(0);
@@ -750,7 +750,7 @@ impl CbFileSystem {
     fn add_entry_to_directory(
         &mut self,
         parent: u16,
-        entry: CbDirectoryEntry,
+        entry: DirectoryEntry,
     ) -> Result<(), CbError> {
         assert!(self.entry_is_primary(parent)?);
 
@@ -759,8 +759,8 @@ impl CbFileSystem {
         let mut found = false;
 
         for d in data
-            .chunks_mut(std::mem::size_of::<CbDirectoryEntry>())
-            .map(|x| CbDirectoryEntry::mut_from_bytes(x).unwrap())
+            .chunks_mut(std::mem::size_of::<DirectoryEntry>())
+            .map(|x| DirectoryEntry::mut_from_bytes(x).unwrap())
         {
             if d.base_block.get() == 0 {
                 *d = entry;
@@ -770,7 +770,7 @@ impl CbFileSystem {
         }
 
         if !found {
-            hdr.set_payload_size(hdr.get_payload_size() + std::mem::size_of::<CbDirectoryEntry>());
+            hdr.set_payload_size(hdr.get_payload_size() + std::mem::size_of::<DirectoryEntry>());
             data.extend_from_slice(entry.as_bytes());
         }
 
@@ -829,16 +829,16 @@ impl CbFileSystem {
 
 #[cfg(test)]
 mod test {
-    use crate::{CbEntryType, CbFileSystem};
+    use crate::{EntryType, FileSystem};
 
     #[test]
     fn test_directory_create() {
-        let mut fs = CbFileSystem::new("test", 1024, 512).unwrap();
+        let mut fs = FileSystem::new("test", 1024, 512).unwrap();
         let dir_abc = fs
             .create_entry(
                 fs.header.root_sector.get(),
                 "abc",
-                CbEntryType::Directory,
+                EntryType::Directory,
                 &[],
             )
             .unwrap();
@@ -846,7 +846,7 @@ mod test {
             .create_entry(
                 fs.header.root_sector.get(),
                 "defg",
-                CbEntryType::Directory,
+                EntryType::Directory,
                 &[],
             )
             .unwrap();
@@ -857,14 +857,14 @@ mod test {
             .create_entry(
                 fs.header.root_sector.get(),
                 "a.txt",
-                CbEntryType::File,
+                EntryType::File,
                 &file_a_data_in,
             )
             .unwrap();
 
         let file_b_data_in = "Hello, ABC!\n".bytes().collect::<Vec<_>>();
         let file_b = fs
-            .create_entry(dir_abc, "a.txt", CbEntryType::File, &file_b_data_in)
+            .create_entry(dir_abc, "a.txt", EntryType::File, &file_b_data_in)
             .unwrap();
 
         println!("File A = {file_a}");
@@ -885,17 +885,17 @@ mod test {
 
     #[test]
     fn test_file_move_sectors() {
-        let mut fs = CbFileSystem::new("test", 1024, 512).unwrap();
+        let mut fs = FileSystem::new("test", 1024, 512).unwrap();
 
         let root = fs.header.root_sector.get();
         let num_free = fs.num_free_sectors();
         let num_primary = fs.num_primary_entries();
 
         let file_a = fs
-            .create_entry(root, "a.txt", CbEntryType::File, b"file_a\n")
+            .create_entry(root, "a.txt", EntryType::File, b"file_a\n")
             .unwrap();
         let file_b = fs
-            .create_entry(root, "b.txt", CbEntryType::File, b"file_b\n")
+            .create_entry(root, "b.txt", EntryType::File, b"file_b\n")
             .unwrap();
 
         assert!(fs.entry_is_primary(file_a).unwrap());
@@ -916,7 +916,7 @@ mod test {
 
     #[test]
     fn test_file_folder_opers() {
-        let mut fs = CbFileSystem::new("test", 512, 32768).unwrap();
+        let mut fs = FileSystem::new("test", 512, 32768).unwrap();
         #[cfg(feature = "rand")]
         fs.randomize_sectors(true);
 
@@ -933,12 +933,7 @@ mod test {
                     .map(|x| ((x + i + j) % 256) as u8)
                     .collect::<Vec<_>>();
                 let new_file = fs
-                    .create_entry(
-                        root,
-                        &format!("file_{j}.bin"),
-                        CbEntryType::File,
-                        &file_data,
-                    )
+                    .create_entry(root, &format!("file_{j}.bin"), EntryType::File, &file_data)
                     .unwrap();
                 entries_to_delete.push(new_file);
 
@@ -950,7 +945,7 @@ mod test {
 
             for k in 0..10 {
                 let folder_val = fs
-                    .create_entry(root, &format!("folder_{k}"), CbEntryType::Directory, &[])
+                    .create_entry(root, &format!("folder_{k}"), EntryType::Directory, &[])
                     .unwrap();
                 entries_to_delete.push(folder_val);
 
@@ -962,7 +957,7 @@ mod test {
                         .create_entry(
                             folder_val,
                             &format!("abc_{j}.bin"),
-                            CbEntryType::File,
+                            EntryType::File,
                             &file_data,
                         )
                         .unwrap();
@@ -976,7 +971,7 @@ mod test {
 
             for k in 0..10 {
                 let folder_val = fs
-                    .create_entry(root, &format!("merged_{k}"), CbEntryType::Directory, &[])
+                    .create_entry(root, &format!("merged_{k}"), EntryType::Directory, &[])
                     .unwrap();
                 entries_to_delete.push(folder_val);
 
@@ -990,7 +985,7 @@ mod test {
                         .create_entry(
                             folder_val,
                             &format!("abcd_{j}.bin"),
-                            CbEntryType::File,
+                            EntryType::File,
                             &file_data,
                         )
                         .unwrap();

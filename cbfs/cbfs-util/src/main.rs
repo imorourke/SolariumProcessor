@@ -1,5 +1,5 @@
 use cbfs_lib::{
-    CbContainerHeader, CbContainerOptions, CbEntryType, CbError, CbFileSystem, open_container,
+    CbContainerHeader, CbContainerOptions, CbError, EntryType, FileSystem, open_container,
     save_container,
 };
 use clap::{Parser, Subcommand};
@@ -80,7 +80,7 @@ fn main() {
     match args.options {
         CommandOptions::Create(opt) => {
             let name = opt.name.as_deref().unwrap_or("cbfs");
-            let fs = CbFileSystem::new(name, opt.secsize, opt.seccount)
+            let fs = FileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
             let header =
                 CbContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip));
@@ -108,7 +108,7 @@ fn main() {
 
             fn folder_entry_vals(
                 path_so_far: &str,
-                fs: &CbFileSystem,
+                fs: &FileSystem,
                 node: u16,
                 opt: &ListOptions,
             ) -> Result<(), CbError> {
@@ -121,12 +121,12 @@ fn main() {
                 }
                 for n in fs.directory_listing(node)? {
                     match n.get_entry_type() {
-                        CbEntryType::File => {
+                        EntryType::File => {
                             if opt.files {
                                 println!("{path_so_far}/{}", n.get_name())
                             }
                         }
-                        CbEntryType::Directory => {
+                        EntryType::Directory => {
                             folder_entry_vals(
                                 &format!("{path_so_far}/{}", n.get_name()),
                                 fs,

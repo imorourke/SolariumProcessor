@@ -11,8 +11,8 @@ mod volume;
 use std::fmt::{Debug, Display};
 
 pub use crate::{
-    datetime::{CbDate, CbDateTime, CbTime},
-    entries::{CbDirectoryEntry, CbEntryHeader, CbEntryType},
+    datetime::{Date, DateTime, Time},
+    entries::{DirectoryEntry, EntryHeader, EntryType},
     names::{StringArrayError, string_to_array},
 };
 
@@ -20,8 +20,8 @@ pub use container::{
     CbContainerHeader, CbContainerOptions, open_container, read_container, save_container,
     write_container,
 };
-pub use filesystem::CbFileSystem;
-pub use volume::CbVolumeHeader;
+pub use filesystem::FileSystem;
+pub use volume::VolumeHeader;
 
 /// Provides error message information regarding issues with the filesystem
 #[derive(Debug, Clone)]

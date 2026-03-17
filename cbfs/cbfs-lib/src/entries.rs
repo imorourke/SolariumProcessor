@@ -5,23 +5,23 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, datetime::CbDateTime, names::array_to_string, string_to_array};
+use crate::{CbError, datetime::DateTime, names::array_to_string, string_to_array};
 
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct CbDirectoryEntry {
+pub struct DirectoryEntry {
     pub base_block: U16,
     pub attributes: u8,
     pub entry_type: u8,
     pub name: [u8; Self::DIRECTORY_NAME_SIZE],
 }
 
-impl CbDirectoryEntry {
+impl DirectoryEntry {
     pub const DIRECTORY_NAME_SIZE: usize = 60;
 
-    pub fn get_entry_type(&self) -> CbEntryType {
-        CbEntryType::from(self.entry_type)
+    pub fn get_entry_type(&self) -> EntryType {
+        EntryType::from(self.entry_type)
     }
 
     pub fn get_name(&self) -> String {
@@ -41,15 +41,15 @@ impl CbDirectoryEntry {
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct CbEntryHeader {
+pub struct EntryHeader {
     pub entry_type: u8,
     pub reserved: u8,
     pub parent: U16,
-    pub modification_time: CbDateTime,
+    pub modification_time: DateTime,
     pub payload_size: U32,
 }
 
-impl CbEntryHeader {
+impl EntryHeader {
     pub fn get_payload_size(&self) -> usize {
         self.payload_size.get() as usize
     }
@@ -59,7 +59,7 @@ impl CbEntryHeader {
     }
 
     pub const fn get_header_size(&self) -> usize {
-        std::mem::size_of::<CbEntryHeader>()
+        std::mem::size_of::<EntryHeader>()
     }
 
     pub fn get_parent(&self) -> u16 {
@@ -70,42 +70,42 @@ impl CbEntryHeader {
         self.get_payload_size() + self.get_header_size()
     }
 
-    pub fn get_entry_type(&self) -> CbEntryType {
-        CbEntryType::from(self.entry_type)
+    pub fn get_entry_type(&self) -> EntryType {
+        EntryType::from(self.entry_type)
     }
 
-    pub fn get_modification_time(&self) -> CbDateTime {
+    pub fn get_modification_time(&self) -> DateTime {
         self.modification_time
     }
 
-    pub fn set_modification_time(&mut self, time: CbDateTime) {
+    pub fn set_modification_time(&mut self, time: DateTime) {
         self.modification_time = time;
     }
 }
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
-pub enum CbEntryType {
+pub enum EntryType {
     #[default]
     Unknown = 0,
     Directory = 1,
     File = 2,
 }
 
-impl From<u8> for CbEntryType {
+impl From<u8> for EntryType {
     fn from(value: u8) -> Self {
-        const DIR_ID: u8 = CbEntryType::Directory as u8;
-        const FILE_ID: u8 = CbEntryType::File as u8;
+        const DIR_ID: u8 = EntryType::Directory as u8;
+        const FILE_ID: u8 = EntryType::File as u8;
         match value {
-            DIR_ID => CbEntryType::Directory,
-            FILE_ID => CbEntryType::File,
-            _ => CbEntryType::Unknown,
+            DIR_ID => EntryType::Directory,
+            FILE_ID => EntryType::File,
+            _ => EntryType::Unknown,
         }
     }
 }
 
-impl From<CbEntryType> for u8 {
-    fn from(value: CbEntryType) -> Self {
+impl From<EntryType> for u8 {
+    fn from(value: EntryType) -> Self {
         value as u8
     }
 }

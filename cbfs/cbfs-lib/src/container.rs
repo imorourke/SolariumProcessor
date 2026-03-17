@@ -10,10 +10,10 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, CbFileSystem, CbVolumeHeader};
+use crate::{CbError, FileSystem, VolumeHeader};
 
 /// Reads a container from a given writer
-pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSystem), CbError> {
+pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSystem), CbError> {
     let mut file_header_bytes = [0u8; std::mem::size_of::<CbContainerHeader>()];
     f.read_exact(&mut file_header_bytes)?;
     let file_header = match CbContainerHeader::read_from_bytes(&file_header_bytes) {
@@ -33,8 +33,8 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSy
         Ok(tmp.get())
     }
 
-    fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<CbFileSystem, CbError> {
-        const HEADER_SIZE: usize = std::mem::size_of::<CbVolumeHeader>();
+    fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<FileSystem, CbError> {
+        const HEADER_SIZE: usize = std::mem::size_of::<VolumeHeader>();
 
         if sparse {
             const S_U16: usize = std::mem::size_of::<u16>();
@@ -49,7 +49,7 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSy
             let mut header_data = [0u8; HEADER_SIZE];
             f.read_exact(&mut header_data[..header_size])?;
 
-            let header = match CbVolumeHeader::read_from_bytes(&header_data) {
+            let header = match VolumeHeader::read_from_bytes(&header_data) {
                 Ok(h) => h,
                 Err(e) => {
                     return Err(CbError::ContainerError(format!(
@@ -80,9 +80,9 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSy
                 f.read_exact(&mut new_data[sector_base..sector_base + sector_size])?;
             }
 
-            CbFileSystem::read_bytes(&mut new_data.as_slice())
+            FileSystem::read_bytes(&mut new_data.as_slice())
         } else {
-            CbFileSystem::read_bytes(f)
+            FileSystem::read_bytes(f)
         }
     }
 
@@ -108,14 +108,14 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, CbFileSy
 /// Writes a container to a given writer
 pub fn write_container<T: Write>(
     header: &CbContainerHeader,
-    fs: &CbFileSystem,
+    fs: &FileSystem,
     f: &mut T,
 ) -> Result<(), CbError> {
     f.write_all(header.as_bytes())?;
 
-    fn write_inner<T: Write>(mut f: T, fs: &CbFileSystem, sparse: bool) -> Result<(), CbError> {
+    fn write_inner<T: Write>(mut f: T, fs: &FileSystem, sparse: bool) -> Result<(), CbError> {
         if sparse {
-            f.write_all(U16::new(std::mem::size_of::<CbVolumeHeader>() as u16).as_bytes())?;
+            f.write_all(U16::new(std::mem::size_of::<VolumeHeader>() as u16).as_bytes())?;
             f.write_all(fs.header.as_bytes())?;
 
             for n in fs.entries.iter().copied() {
@@ -166,7 +166,7 @@ pub fn write_container<T: Write>(
 }
 
 /// Opens a filesystem disk image and loads into memory
-pub fn open_container(path: &Path) -> Result<(CbContainerHeader, CbFileSystem), CbError> {
+pub fn open_container(path: &Path) -> Result<(CbContainerHeader, FileSystem), CbError> {
     let mut f = std::fs::File::open(path)?;
     read_container(&mut f)
 }
@@ -174,7 +174,7 @@ pub fn open_container(path: &Path) -> Result<(CbContainerHeader, CbFileSystem), 
 /// Saves the current in-memory filesystem to the provided file
 pub fn save_container(
     header: &CbContainerHeader,
-    filesystem: &CbFileSystem,
+    filesystem: &FileSystem,
     file: &Path,
 ) -> Result<(), CbError> {
     let mut f = OpenOptions::new()
@@ -303,26 +303,26 @@ impl Default for CbContainerHeader {
 #[cfg(test)]
 mod test {
     use crate::{
-        CbContainerHeader, CbContainerOptions, CbEntryType, CbFileSystem,
+        CbContainerHeader, CbContainerOptions, EntryType, FileSystem,
         container::{read_container, write_container},
     };
 
-    fn generate_test_filesystem() -> CbFileSystem {
-        let mut fs = CbFileSystem::new("test", 1024, 512).unwrap();
+    fn generate_test_filesystem() -> FileSystem {
+        let mut fs = FileSystem::new("test", 1024, 512).unwrap();
         fs.randomize_sectors(true);
 
         let dir_abc = fs
             .create_entry(
                 fs.header.root_sector.get(),
                 "abc",
-                CbEntryType::Directory,
+                EntryType::Directory,
                 &[],
             )
             .unwrap();
         fs.create_entry(
             fs.header.root_sector.get(),
             "defg",
-            CbEntryType::Directory,
+            EntryType::Directory,
             &[],
         )
         .unwrap();
@@ -332,13 +332,13 @@ mod test {
         fs.create_entry(
             fs.header.root_sector.get(),
             "a.txt",
-            CbEntryType::File,
+            EntryType::File,
             &file_a_data_in,
         )
         .unwrap();
 
         let file_b_data_in = "Hello, ABC!\n".bytes().collect::<Vec<_>>();
-        fs.create_entry(dir_abc, "a.txt", CbEntryType::File, &file_b_data_in)
+        fs.create_entry(dir_abc, "a.txt", EntryType::File, &file_b_data_in)
             .unwrap();
 
         fs
@@ -382,7 +382,7 @@ mod test {
 
         for k in fs_new.base_entries.iter() {
             let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == CbEntryType::Directory {
+            if hdr.get_entry_type() == EntryType::Directory {
                 fs_new.directory_listing(*k).unwrap();
             }
             fs_new.entry_data(*k).unwrap();
@@ -405,7 +405,7 @@ mod test {
 
         for k in fs_new.base_entries.iter() {
             let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == CbEntryType::Directory {
+            if hdr.get_entry_type() == EntryType::Directory {
                 fs_new.directory_listing(*k).unwrap();
             }
             fs_new.entry_data(*k).unwrap();
@@ -432,7 +432,7 @@ mod test {
 
         for k in fs_new.base_entries.iter() {
             let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == CbEntryType::Directory {
+            if hdr.get_entry_type() == EntryType::Directory {
                 fs_new.directory_listing(*k).unwrap();
             }
             fs_new.entry_data(*k).unwrap();
@@ -459,7 +459,7 @@ mod test {
 
         for k in fs_new.base_entries.iter() {
             let hdr = fs_new.entry_header(*k).unwrap();
-            if hdr.get_entry_type() == CbEntryType::Directory {
+            if hdr.get_entry_type() == EntryType::Directory {
                 fs_new.directory_listing(*k).unwrap();
             }
             fs_new.entry_data(*k).unwrap();

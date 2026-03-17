@@ -4,7 +4,7 @@ use std::fmt::Display;
 use std::time::SystemTime;
 
 #[cfg(feature = "time")]
-use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+use chrono::{Datelike, TimeZone, Timelike, Utc};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
 #[cfg(feature = "time")]
@@ -16,7 +16,7 @@ use crate::CbError;
 #[derive(
     Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
 )]
-pub struct CbDate {
+pub struct Date {
     /// The current year
     pub year: I16,
     /// The current month, starting at 1
@@ -31,7 +31,7 @@ pub struct CbDate {
 #[derive(
     Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
 )]
-pub struct CbTime {
+pub struct Time {
     /// The current hour
     pub hour: u8,
     /// The current minute
@@ -47,21 +47,21 @@ pub struct CbTime {
 #[derive(
     Debug, Default, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq,
 )]
-pub struct CbDateTime {
-    pub date: CbDate,
-    pub time: CbTime,
+pub struct DateTime {
+    pub date: Date,
+    pub time: Time,
 }
 
 #[cfg(feature = "time")]
-impl From<DateTime<Utc>> for CbDateTime {
-    fn from(value: DateTime<Utc>) -> Self {
+impl From<chrono::DateTime<Utc>> for DateTime {
+    fn from(value: chrono::DateTime<Utc>) -> Self {
         Self {
-            date: CbDate {
+            date: Date {
                 year: I16::new(value.year() as i16),
                 month: value.month() as u8,
                 day: value.day() as u8,
             },
-            time: CbTime {
+            time: Time {
                 hour: value.hour() as u8,
                 minute: value.minute() as u8,
                 second: value.second() as u8,
@@ -72,28 +72,28 @@ impl From<DateTime<Utc>> for CbDateTime {
 }
 
 #[cfg(feature = "time")]
-impl From<SystemTime> for CbDateTime {
+impl From<SystemTime> for DateTime {
     fn from(value: SystemTime) -> Self {
-        let dt = DateTime::<Utc>::from(value);
+        let dt = chrono::DateTime::<Utc>::from(value);
         dt.into()
     }
 }
 
 #[cfg(feature = "time")]
-impl TryFrom<CbDateTime> for SystemTime {
+impl TryFrom<DateTime> for SystemTime {
     type Error = CbError;
 
-    fn try_from(value: CbDateTime) -> Result<Self, Self::Error> {
-        let res = DateTime::<Utc>::try_from(value)?;
+    fn try_from(value: DateTime) -> Result<Self, Self::Error> {
+        let res = chrono::DateTime::<Utc>::try_from(value)?;
         Ok(res.into())
     }
 }
 
 #[cfg(feature = "time")]
-impl TryFrom<CbDateTime> for DateTime<Utc> {
+impl TryFrom<DateTime> for chrono::DateTime<Utc> {
     type Error = CbError;
 
-    fn try_from(value: CbDateTime) -> Result<Self, Self::Error> {
+    fn try_from(value: DateTime) -> Result<Self, Self::Error> {
         chrono::NaiveDate::from_ymd_opt(
             value.date.year.get() as i32,
             value.date.month as u32,
@@ -111,9 +111,9 @@ impl TryFrom<CbDateTime> for DateTime<Utc> {
 }
 
 #[cfg(feature = "time")]
-impl CbDateTime {
+impl DateTime {
     pub fn to_posix_millis(&self) -> Result<i64, CbError> {
-        let dt: DateTime<Utc> = (*self).try_into()?;
+        let dt: chrono::DateTime<Utc> = (*self).try_into()?;
         Ok(dt.timestamp_millis())
     }
 
@@ -125,7 +125,7 @@ impl CbDateTime {
     }
 }
 
-impl Display for CbDateTime {
+impl Display for DateTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

@@ -4,8 +4,8 @@ use std::{
 };
 
 use cbfs_lib::{
-    CbContainerHeader, CbDate, CbDateTime, CbDirectoryEntry, CbEntryType, CbError, CbFileSystem,
-    CbTime, open_container, save_container,
+    CbContainerHeader, CbError, Date, DateTime, DirectoryEntry, EntryType, FileSystem, Time,
+    open_container, save_container,
 };
 
 pub const CBFS_VOLUME_NAME_SIZE: usize = 32;
@@ -13,7 +13,7 @@ pub const CBFS_DIRECTORY_NAME_SIZE: usize = 60;
 
 #[derive(Debug)]
 pub struct CbFs {
-    fs: CbFileSystem,
+    fs: FileSystem,
     flags: CbContainerHeader,
 }
 
@@ -26,17 +26,17 @@ pub enum CbFsEntryType {
     Directory,
 }
 
-impl From<CbEntryType> for CbFsEntryType {
-    fn from(value: CbEntryType) -> Self {
+impl From<EntryType> for CbFsEntryType {
+    fn from(value: EntryType) -> Self {
         match value {
-            CbEntryType::Directory => Self::Directory,
-            CbEntryType::File => Self::File,
+            EntryType::Directory => Self::Directory,
+            EntryType::File => Self::File,
             _ => Self::Unknown,
         }
     }
 }
 
-impl From<CbFsEntryType> for CbEntryType {
+impl From<CbFsEntryType> for EntryType {
     fn from(value: CbFsEntryType) -> Self {
         match value {
             CbFsEntryType::Directory => Self::Directory,
@@ -64,7 +64,7 @@ pub struct CbFsTime {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cbfs_time_to_millis(time: *const CbFsTime) -> i64 {
     if let Some(t) = unsafe { time.as_ref() } {
-        let dt: CbDateTime = (*t).into();
+        let dt: DateTime = (*t).into();
         dt.to_posix_millis().unwrap_or_default()
     } else {
         0
@@ -73,13 +73,13 @@ pub unsafe extern "C" fn cbfs_time_to_millis(time: *const CbFsTime) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn cbfs_millis_to_time(millis: i64) -> CbFsTime {
-    CbDateTime::from_posix_millis(millis)
+    DateTime::from_posix_millis(millis)
         .map(|x| x.into())
         .unwrap_or_default()
 }
 
-impl From<CbDateTime> for CbFsTime {
-    fn from(value: CbDateTime) -> Self {
+impl From<DateTime> for CbFsTime {
+    fn from(value: DateTime) -> Self {
         Self {
             year: value.date.year.get(),
             month: value.date.month,
@@ -92,15 +92,15 @@ impl From<CbDateTime> for CbFsTime {
     }
 }
 
-impl From<CbFsTime> for CbDateTime {
+impl From<CbFsTime> for DateTime {
     fn from(value: CbFsTime) -> Self {
         Self {
-            date: CbDate {
+            date: Date {
                 year: value.year.into(),
                 month: value.month,
                 day: value.day,
             },
-            time: CbTime {
+            time: Time {
                 hour: value.hour,
                 minute: value.minute,
                 second: value.second,
@@ -204,12 +204,12 @@ fn get_path(p: *const c_char) -> Option<PathBuf> {
     }
 }
 
-fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<CbDirectoryEntry, CbError> {
+fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<DirectoryEntry, CbError> {
     if let Some(path) = path {
-        let mut current_entry = CbDirectoryEntry {
+        let mut current_entry = DirectoryEntry {
             base_block: fs.fs.root_sector().into(),
             attributes: 0,
-            entry_type: CbEntryType::Directory.into(),
+            entry_type: EntryType::Directory.into(),
             name: [0; _],
         };
 
@@ -356,8 +356,8 @@ pub unsafe extern "C" fn cbfs_entry_set_time(
 
 /// Provides the dentry for a directory header value
 fn cbfs_entry_from_dir_val(
-    fs: &CbFileSystem,
-    dir_hdr: &CbDirectoryEntry,
+    fs: &FileSystem,
+    dir_hdr: &DirectoryEntry,
 ) -> Result<CbFsEntry, CbError> {
     let hdr = fs.entry_header(dir_hdr.base_block.get())?;
 
@@ -419,10 +419,10 @@ pub unsafe extern "C" fn cbfs_get_entry(
         };
 
         let dir_entry = if entry_hdr.parent.get() == 0 {
-            CbDirectoryEntry {
+            DirectoryEntry {
                 base_block: fs.fs.root_sector().into(),
                 attributes: 0,
-                entry_type: CbEntryType::Directory.into(),
+                entry_type: EntryType::Directory.into(),
                 name: [0; _],
             }
         } else {
@@ -460,7 +460,7 @@ pub unsafe extern "C" fn cbfs_read_dir(
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(listing) = unsafe { listing.as_mut() }
     {
-        fn compat_gen(fs: &CbFs, x: CbDirectoryEntry) -> Result<CbFsEntry, CbError> {
+        fn compat_gen(fs: &CbFs, x: DirectoryEntry) -> Result<CbFsEntry, CbError> {
             let tv: CbFsTime = fs
                 .fs
                 .entry_header(x.base_block.get())?
@@ -656,7 +656,7 @@ pub unsafe extern "C" fn cbfs_create_entry(
         if let Ok(entry) = entry_for_path(fs, Some(&path)) {
             if truncate {
                 if entry_type == entry.get_entry_type().into() {
-                    if entry.get_entry_type() == CbEntryType::File {
+                    if entry.get_entry_type() == EntryType::File {
                         match fs.fs.set_entry_payload_byte_size(entry.base_block.get(), 0) {
                             Ok(()) => (),
                             Err(e) => return e.into(),

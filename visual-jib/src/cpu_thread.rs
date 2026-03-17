@@ -137,39 +137,39 @@ impl CpuState {
         // Compile OS into a file
         let kernel_data = Self::compile_kernel_code(include_str!("../../cbos/os.cb"), None)?.bytes;
 
-        let mut fs = cbfs_lib::CbFileSystem::new("root", 256, 4096)?;
+        let mut fs = cbfs_lib::FileSystem::new("root", 256, 4096)?;
         fs.create_entry(
             fs.root_sector(),
             "hello.txt",
-            cbfs_lib::CbEntryType::File,
+            cbfs_lib::EntryType::File,
             b"Hello, world!",
         )?;
         fs.create_entry(
             fs.root_sector(),
             "boot.bin",
-            cbfs_lib::CbEntryType::File,
+            cbfs_lib::EntryType::File,
             &kernel_data,
         )?;
         let root_dir = fs.create_entry(
             fs.root_sector(),
             "root",
-            cbfs_lib::CbEntryType::Directory,
+            cbfs_lib::EntryType::Directory,
             &[],
         )?;
         let build_date: &'static str = env!("BUILD_DATE");
         fs.create_entry(
             root_dir,
             "version",
-            cbfs_lib::CbEntryType::File,
+            cbfs_lib::EntryType::File,
             format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
         )?;
-        let src = fs.create_entry(root_dir, "src", cbfs_lib::CbEntryType::Directory, &[])?;
+        let src = fs.create_entry(root_dir, "src", cbfs_lib::EntryType::Directory, &[])?;
 
         for (path, code) in cbuoy::DEFAULT_FILES.iter() {
             if let Some(name) = path.split('/').next_back()
-                && name.len() < cbfs_lib::CbVolumeHeader::VOLUME_NAME_SIZE
+                && name.len() < cbfs_lib::VolumeHeader::VOLUME_NAME_SIZE
             {
-                fs.create_entry(src, name, cbfs_lib::CbEntryType::File, code.as_bytes())?;
+                fs.create_entry(src, name, cbfs_lib::EntryType::File, code.as_bytes())?;
             }
         }
 
@@ -449,7 +449,7 @@ impl CpuState {
 
                     save_container(
                         &CbContainerHeader::default(),
-                        &cbfs_lib::CbFileSystem::read_bytes(
+                        &cbfs_lib::FileSystem::read_bytes(
                             &mut state.hard_drive.borrow().data.as_slice(),
                         )?,
                         std::path::Path::new("hd.cbfs"),

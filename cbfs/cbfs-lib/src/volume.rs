@@ -5,9 +5,9 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, filesystem::CbFileSystem, names::array_to_string};
+use crate::{CbError, filesystem::FileSystem, names::array_to_string};
 pub use crate::{
-    entries::{CbDirectoryEntry, CbEntryHeader},
+    entries::{DirectoryEntry, EntryHeader},
     names::string_to_array,
 };
 
@@ -16,7 +16,7 @@ pub use crate::{
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq)]
-pub struct CbVolumeHeader {
+pub struct VolumeHeader {
     pub version: U16,
     pub sector_size: U16,
     pub sector_count: U16,
@@ -25,7 +25,7 @@ pub struct CbVolumeHeader {
     pub volume_name: [u8; Self::VOLUME_NAME_SIZE],
 }
 
-impl CbVolumeHeader {
+impl VolumeHeader {
     /// The current version of the filesystem, allowing for processing of
     /// different-verisoned disks if the format changes over time.
     const CURRENT_VERSION: u16 = 1;
@@ -39,12 +39,12 @@ impl CbVolumeHeader {
     /// Creates a new disk format with the provided sector size and sector count entries
     pub fn new(sector_size: u16, sector_count: u16) -> Result<Self, CbError> {
         let min_sector_size = std::mem::size_of::<Self>()
-            .max(std::mem::size_of::<CbEntryHeader>())
-            .max(std::mem::size_of::<CbDirectoryEntry>());
+            .max(std::mem::size_of::<EntryHeader>())
+            .max(std::mem::size_of::<DirectoryEntry>());
 
         if (sector_size as usize) < min_sector_size {
             return Err(CbError::SectorSizeTooSmall(sector_size));
-        } else if sector_count == CbFileSystem::NODE_END {
+        } else if sector_count == FileSystem::NODE_END {
             return Err(CbError::InvalidSectorCount(sector_count));
         }
 
