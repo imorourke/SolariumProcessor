@@ -58,6 +58,12 @@ else()
         set(CBFSLIB_FILE "${CBFSLIB_BIN_DIR}/libcbfs_compat.a")
     endif()
 
+    if(BSD)
+        target_include_directories(cbfs PUBLIC /usr/local/include)
+        target_link_directories(cbfs PUBLIC /usr/local/lib)
+        target_link_libraries(cbfs PUBLIC pthread)
+    endif()
+
     target_link_libraries(cbfs PUBLIC fuse3)
     target_link_libraries(cbfs PUBLIC "${CBFSLIB_FILE}")
     add_custom_target(cbfs_lib DEPENDS "${CBFSLIB_FILE}")
