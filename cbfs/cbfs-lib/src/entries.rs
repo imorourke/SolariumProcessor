@@ -5,7 +5,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, datetime::DateTime, names::array_to_string, string_to_array};
+use crate::{FileSystemError, datetime::DateTime, names::array_to_string, string_to_array};
 
 #[repr(C)]
 #[repr(packed)]
@@ -32,7 +32,7 @@ impl DirectoryEntry {
         self.name
     }
 
-    pub fn set_name(&mut self, s: &str) -> Result<(), CbError> {
+    pub fn set_name(&mut self, s: &str) -> Result<(), FileSystemError> {
         self.name = string_to_array(s)?;
         Ok(())
     }

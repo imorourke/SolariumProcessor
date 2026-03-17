@@ -15,7 +15,7 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, volume::VolumeHeader};
+use crate::{FileSystemError, volume::VolumeHeader};
 use crate::{
     datetime::DateTime,
     entries::{DirectoryEntry, EntryHeader, EntryType},
@@ -26,12 +26,12 @@ use crate::{
 #[derive(Clone)]
 pub struct FileSystem {
     /// The header associated with the current filesystem
-    pub(crate) header: VolumeHeader,
+    pub header: VolumeHeader,
     /// The entry allocation table
-    pub(crate) entries: Box<[u16]>,
+    pub entries: Box<[u16]>,
     /// The raw data sector values. This only contains the data after the allocation table, and does
     /// not include the entry sectors or the header sector
-    pub(crate) data: Box<[u8]>,
+    pub data: Box<[u8]>,
     /// Defines which entries are base/primary entries
     pub base_entries: HashSet<u16>,
     #[cfg(feature = "rand")]
@@ -66,7 +66,7 @@ impl FileSystem {
     pub const NODE_END: u16 = 0xFFFF;
 
     /// Creates a new filesystem in memory
-    pub fn new(name: &str, sector_size: u16, sector_count: u16) -> Result<Self, CbError> {
+    pub fn new(name: &str, sector_size: u16, sector_count: u16) -> Result<Self, FileSystemError> {
         let mut header = VolumeHeader::new(sector_size, sector_count)?;
         header.set_name(name)?;
         let sector_count = header.sector_count.get();
@@ -99,21 +99,36 @@ impl FileSystem {
             #[cfg(feature = "rand")]
             randomize_entries: None,
         };
-        fs.base_entries.insert(fs.header.root_sector.get());
 
+        assert_eq!(
+            fs.entries[fs.header.root_sector.get() as usize],
+            Self::NODE_END
+        );
+        fs.base_entries.insert(fs.header.root_sector.get());
         fs.set_entry_data(fs.header.root_sector.get(), root_entry, &[])?;
+
+        assert_eq!(
+            fs.entry_header(fs.header.root_sector.get())?.entry_type,
+            EntryType::Directory as u8
+        );
+        assert_eq!(
+            fs.entry_header(fs.header.root_sector.get())?
+                .payload_size
+                .get() as usize,
+            0
+        );
 
         Ok(fs)
     }
 
     /// Reads raw data stream into a CBFS file system
-    pub fn read_bytes<T: Read>(f: &mut T) -> Result<FileSystem, CbError> {
+    pub fn read_bytes<T: Read>(f: &mut T) -> Result<FileSystem, FileSystemError> {
         let mut header_bytes = [0; std::mem::size_of::<VolumeHeader>()];
         f.read_exact(&mut header_bytes)?;
         let header = match VolumeHeader::read_from_bytes(&header_bytes) {
             Ok(h) => h,
             Err(e) => {
-                return Err(CbError::UnknownError(format!(
+                return Err(FileSystemError::UnknownError(format!(
                     "unable to read volume header: {e}"
                 )));
             }
@@ -123,7 +138,7 @@ impl FileSystem {
         let sect_count = header.sector_count.get() as usize;
         let entry_size = std::mem::size_of::<u16>();
 
-        if sect_size > header_bytes.len() {
+        if header_bytes.len() < sect_size {
             std::io::copy(
                 &mut f.take(sect_size as u64 - header_bytes.len() as u64),
                 &mut std::io::sink(),
@@ -137,6 +152,13 @@ impl FileSystem {
             .chunks(2)
             .map(|x| U16::read_from_bytes(x).unwrap().get())
             .collect::<_>();
+
+        if !entry_bytes.len().is_multiple_of(sect_size) {
+            std::io::copy(
+                &mut f.take(sect_size as u64 - (entry_bytes.len() % sect_size) as u64),
+                &mut std::io::sink(),
+            )?;
+        }
 
         let data = Box::<[u8]>::new_zeroed_slice(
             (sect_count - header.root_sector.get() as usize) * sect_size,
@@ -171,7 +193,7 @@ impl FileSystem {
     }
 
     /// Obtains the current file values as a byte sream into the provided writer
-    pub fn write_bytes<T: Write>(&self, f: &mut T) -> Result<(), CbError> {
+    pub fn write_bytes<T: Write>(&self, f: &mut T) -> Result<(), FileSystemError> {
         let sect_size = self.header.sector_size.get() as usize;
 
         f.write_all(self.header.as_bytes())?;
@@ -207,7 +229,7 @@ impl FileSystem {
     }
 
     /// Obtains the current file values as a byte sream
-    pub fn get_fs_bytes(&self) -> Result<Vec<u8>, CbError> {
+    pub fn get_fs_bytes(&self) -> Result<Vec<u8>, FileSystemError> {
         let mut data = Vec::new();
         self.write_bytes(&mut data)?;
         Ok(data)
@@ -239,12 +261,12 @@ impl FileSystem {
     }
 
     /// Sets the volume name to the provided string
-    pub fn set_vol_name(&mut self, name: &str) -> Result<(), CbError> {
+    pub fn set_vol_name(&mut self, name: &str) -> Result<(), FileSystemError> {
         self.header.set_name(name)
     }
 
     /// Goes through each sector and zeros out any unused data sectors
-    pub fn zero_unused_sectors(&mut self) -> Result<(), CbError> {
+    pub fn zero_unused_sectors(&mut self) -> Result<(), FileSystemError> {
         let sector_size = self.header.sector_size.get() as usize;
         for (i, s) in self.entries.iter().enumerate() {
             if *s == 0 {
@@ -273,52 +295,55 @@ impl FileSystem {
     }
 
     /// Determines if the entry value is valid, and if so, returns the validated entry
-    pub const fn get_entry_valid(&self, entry: u16) -> Result<u16, CbError> {
+    pub const fn get_entry_valid(&self, entry: u16) -> Result<u16, FileSystemError> {
         if entry >= self.header.root_sector.get() && entry < self.header.sector_count.get() {
             Ok(entry)
         } else {
-            Err(CbError::EntryInvalid(entry))
+            Err(FileSystemError::EntryInvalid(entry))
         }
     }
 
     /// Provides the starting index within the data vector for the provided sector
-    fn get_sector_start_idx(&self, sector: u16) -> Result<usize, CbError> {
+    fn get_sector_start_idx(&self, sector: u16) -> Result<usize, FileSystemError> {
         let idx = (self.get_entry_valid(sector)? - self.header.root_sector.get()) as usize;
         Ok(idx * self.header.sector_size.get() as usize)
     }
 
     /// Provides the data slice associated with the given sector
-    pub fn get_sector_data(&self, sector: u16) -> Result<&[u8], CbError> {
+    pub fn get_sector_data(&self, sector: u16) -> Result<&[u8], FileSystemError> {
         let idx = self.get_sector_start_idx(sector)?;
         Ok(&self.data[idx..(idx + self.header.sector_size.get() as usize)])
     }
 
     /// Provides the mutable data slice associated with the given sector
-    fn get_sector_data_mut(&mut self, sector: u16) -> Result<&mut [u8], CbError> {
+    fn get_sector_data_mut(&mut self, sector: u16) -> Result<&mut [u8], FileSystemError> {
         let idx = self.get_sector_start_idx(sector)?;
         Ok(&mut self.data[idx..(idx + self.header.sector_size.get() as usize)])
     }
 
     /// Provides the entry type associated with the given entry
-    fn entry_type(&self, entry: u16) -> Result<EntryType, CbError> {
+    fn entry_type(&self, entry: u16) -> Result<EntryType, FileSystemError> {
         match self.data.get(self.get_sector_start_idx(entry)?).copied() {
-            Some(val) => Ok(EntryType::from(val)),
-            None => Err(CbError::EntryInvalid(entry)),
+            Some(val) => match EntryType::from(val) {
+                EntryType::Unknown => Err(FileSystemError::EntryInvalid(entry)),
+                x => Ok(x),
+            },
+            None => Err(FileSystemError::EntryInvalid(entry)),
         }
     }
 
     /// Provides true if the given entry value is a boolean
-    fn entry_is_dir(&self, entry: u16) -> Result<bool, CbError> {
+    fn entry_is_dir(&self, entry: u16) -> Result<bool, FileSystemError> {
         Ok(self.entry_type(entry)? == EntryType::Directory)
     }
 
     /// Iterates through the directory tree to detemrine if the entry is a root entry
-    fn entry_is_primary(&self, entry: u16) -> Result<bool, CbError> {
+    fn entry_is_primary(&self, entry: u16) -> Result<bool, FileSystemError> {
         Ok(self.base_entries.contains(&entry))
     }
 
     /// Provides the full entry header for the provided entry
-    pub fn entry_header(&self, entry: u16) -> Result<EntryHeader, CbError> {
+    pub fn entry_header(&self, entry: u16) -> Result<EntryHeader, FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
         let id = self.data[idx];
@@ -327,12 +352,16 @@ impl FileSystem {
                 &self.data[idx..(idx + std::mem::size_of::<EntryHeader>())],
             )
             .unwrap(),
-            _ => return Err(CbError::UnknownEntryType(id)),
+            _ => return Err(FileSystemError::UnknownEntryType(id)),
         })
     }
 
     /// Sets only the header portion of a given entry
-    pub fn set_entry_header(&mut self, entry: u16, hdr: EntryHeader) -> Result<(), CbError> {
+    pub fn set_entry_header(
+        &mut self,
+        entry: u16,
+        hdr: EntryHeader,
+    ) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
         let idx = self.get_sector_start_idx(entry)?;
         for (dst, src) in self.data[idx..(idx + std::mem::size_of::<EntryHeader>())]
@@ -345,9 +374,9 @@ impl FileSystem {
     }
 
     /// Provides the entries associated with the current directory
-    pub fn directory_listing(&self, entry: u16) -> Result<Vec<DirectoryEntry>, CbError> {
+    pub fn directory_listing(&self, entry: u16) -> Result<Vec<DirectoryEntry>, FileSystemError> {
         if !self.entry_is_dir(entry)? {
-            return Err(CbError::EntryNotDirectory(entry));
+            return Err(FileSystemError::EntryNotDirectory(entry));
         }
 
         let (_, data) = self.entry_data(entry)?;
@@ -366,7 +395,7 @@ impl FileSystem {
     }
 
     /// Provides the directory entry associated with the given node in a parent directory
-    pub fn directory_entry(&self, target: u16) -> Result<DirectoryEntry, CbError> {
+    pub fn directory_entry(&self, target: u16) -> Result<DirectoryEntry, FileSystemError> {
         let ent_hdr = self.entry_header(target)?;
         if target == self.header.root_sector.get() {
             Ok(DirectoryEntry {
@@ -379,7 +408,7 @@ impl FileSystem {
             let entry = ent_hdr.get_parent();
 
             if !self.entry_is_dir(entry)? {
-                return Err(CbError::EntryNotDirectory(entry));
+                return Err(FileSystemError::EntryNotDirectory(entry));
             }
 
             let n = self.get_entry_valid(target)?;
@@ -395,15 +424,15 @@ impl FileSystem {
                 }
             }
 
-            Err(CbError::EntryInvalid(target))
+            Err(FileSystemError::EntryInvalid(target))
         }
     }
 
     /// Provides all the raw data (header and payload together) for the requested entry
-    fn entry_data_raw(&self, mut entry: u16) -> Result<Vec<u8>, CbError> {
+    fn entry_data_raw(&self, mut entry: u16) -> Result<Vec<u8>, FileSystemError> {
         let mut raw_data = Vec::new();
         if self.entries[self.get_entry_valid(entry)? as usize] == 0 {
-            return Err(CbError::EntryNotFile(entry));
+            return Err(FileSystemError::EntryNotFile(entry));
         }
 
         while entry != Self::NODE_END {
@@ -416,7 +445,7 @@ impl FileSystem {
     }
 
     /// Provides the data associated with the provided entry
-    pub fn entry_data(&self, entry: u16) -> Result<(EntryHeader, Vec<u8>), CbError> {
+    pub fn entry_data(&self, entry: u16) -> Result<(EntryHeader, Vec<u8>), FileSystemError> {
         let raw_data = self.entry_data_raw(entry)?;
         let hdr =
             EntryHeader::read_from_bytes(&raw_data[..std::mem::size_of::<EntryHeader>()]).unwrap();
@@ -443,7 +472,7 @@ impl FileSystem {
     }
 
     /// Returns the next free sector based on the given sector algorithm
-    fn next_free_sector(&self) -> Result<u16, CbError> {
+    fn next_free_sector(&self) -> Result<u16, FileSystemError> {
         #[cfg(feature = "rand")]
         if let Some(mut r) = self.randomize_entries.as_ref().map(|x| x.borrow_mut()) {
             let mut current =
@@ -454,7 +483,7 @@ impl FileSystem {
                 current = ((current + 1) % self.header.sector_count.get())
                     .max(self.header.root_sector.get());
                 if current == init {
-                    return Err(CbError::TableFull);
+                    return Err(FileSystemError::TableFull);
                 }
             }
 
@@ -468,7 +497,7 @@ impl FileSystem {
             .filter(|(_, x)| **x == 0)
             .map(|(i, _)| i as u16)
             .next()
-            .ok_or(CbError::TableFull)
+            .ok_or(FileSystemError::TableFull)
     }
 
     /// Returns the number of free sectors remaining
@@ -479,7 +508,7 @@ impl FileSystem {
     /// Provides the number of entries within an entry, including the current entry itself.
     /// For a file entry, this will only return 1
     /// For a directory entry, this will itself and all entries within folders and subfolders
-    pub fn num_entries_within_entry(&self, entry: u16) -> Result<usize, CbError> {
+    pub fn num_entries_within_entry(&self, entry: u16) -> Result<usize, FileSystemError> {
         let hdr = self.entry_header(entry)?;
         let mut count = 1;
         if hdr.get_entry_type() == EntryType::Directory {
@@ -498,7 +527,11 @@ impl FileSystem {
     }
 
     /// Sets the number of sectors for the given entry
-    pub fn set_num_sectors_for_entry(&mut self, mut entry: u16, count: u16) -> Result<(), CbError> {
+    pub fn set_num_sectors_for_entry(
+        &mut self,
+        mut entry: u16,
+        count: u16,
+    ) -> Result<(), FileSystemError> {
         // Check that there is enough space left in the table
         let num_free = self.entries.iter().copied().filter(|x| *x == 0).count();
 
@@ -507,7 +540,7 @@ impl FileSystem {
         let num_new = num_required as i64 - num_current as i64;
 
         if num_new > 0 && num_new > num_free as i64 {
-            return Err(CbError::TableFull);
+            return Err(FileSystemError::TableFull);
         }
 
         // Set the required nodes
@@ -545,7 +578,7 @@ impl FileSystem {
     }
 
     /// Provides the sector ID values associated with the current entry
-    pub fn sector_ids_for_entry(&self, entry: u16) -> Result<Vec<u16>, CbError> {
+    pub fn sector_ids_for_entry(&self, entry: u16) -> Result<Vec<u16>, FileSystemError> {
         let mut current = self.get_entry_valid(entry)?;
         let mut vals = Vec::new();
         while !Self::entry_is_end(current) {
@@ -567,7 +600,7 @@ impl FileSystem {
     }
 
     /// Sets the raw (header + payload) data together for an entry
-    pub fn set_entry_data_raw(&mut self, entry: u16, data: &[u8]) -> Result<(), CbError> {
+    pub fn set_entry_data_raw(&mut self, entry: u16, data: &[u8]) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
 
         let required_sectors = self.required_sectors_for_raw_size(data.len());
@@ -593,7 +626,7 @@ impl FileSystem {
         entry: u16,
         mut header: EntryHeader,
         data: &[u8],
-    ) -> Result<(), CbError> {
+    ) -> Result<(), FileSystemError> {
         header.payload_size.set(data.len() as u32);
         let mut new_data = header.as_bytes().to_vec();
         new_data.extend(data);
@@ -601,13 +634,17 @@ impl FileSystem {
     }
 
     /// Sets the payload size for the provided entry
-    pub fn set_entry_payload_byte_size(&mut self, entry: u16, size: u32) -> Result<(), CbError> {
+    pub fn set_entry_payload_byte_size(
+        &mut self,
+        entry: u16,
+        size: u32,
+    ) -> Result<(), FileSystemError> {
         let (hdr, mut data) = self.entry_data(entry)?;
         if hdr.get_entry_type() == EntryType::File {
             data.resize(size as usize, 0);
             self.set_entry_data(entry, hdr, &data)
         } else {
-            Err(CbError::EntryNotFile(entry))
+            Err(FileSystemError::EntryNotFile(entry))
         }
     }
 
@@ -618,17 +655,17 @@ impl FileSystem {
         name: &str,
         entry_type: EntryType,
         data: &[u8],
-    ) -> Result<u16, CbError> {
+    ) -> Result<u16, FileSystemError> {
         // Check for a dupliate name within a directory
         for d in self.directory_listing(parent)? {
             if d.get_name() == name {
-                return Err(CbError::NameExists(name.into()));
+                return Err(FileSystemError::NameExists(name.into()));
             }
         }
 
         // If providing a directory entry, the data field must be empty
         if entry_type == EntryType::Directory && !data.is_empty() {
-            return Err(CbError::NonZeroDirectoryData);
+            return Err(FileSystemError::NonZeroDirectoryData);
         }
 
         let new_entry = self.next_free_sector()?;
@@ -663,7 +700,7 @@ impl FileSystem {
 
     /// Deletes an entry. If the entry is a directory, all contained files and
     /// folders will also be deleted.
-    pub fn delete_entry(&mut self, entry: u16) -> Result<(), CbError> {
+    pub fn delete_entry(&mut self, entry: u16) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
 
         if self.entry_is_dir(entry)? {
@@ -691,10 +728,10 @@ impl FileSystem {
     }
 
     /// Trims the current directory, reducing the number of sectors used if possible
-    fn trim_directory(&mut self, entry: u16) -> Result<(), CbError> {
+    fn trim_directory(&mut self, entry: u16) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
         if !self.entry_is_dir(entry)? {
-            return Err(CbError::EntryNotDirectory(entry));
+            return Err(FileSystemError::EntryNotDirectory(entry));
         }
 
         let num_sectors = self.num_sectors_for_entry(entry);
@@ -722,7 +759,7 @@ impl FileSystem {
         &mut self,
         parent: u16,
         entry: u16,
-    ) -> Result<DirectoryEntry, CbError> {
+    ) -> Result<DirectoryEntry, FileSystemError> {
         assert!(self.entry_is_primary(parent)?);
         assert!(self.entry_is_primary(entry)?);
 
@@ -751,7 +788,7 @@ impl FileSystem {
         &mut self,
         parent: u16,
         entry: DirectoryEntry,
-    ) -> Result<(), CbError> {
+    ) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(parent)?);
 
         let (mut hdr, mut data) = self.entry_data(parent)?;
@@ -786,14 +823,14 @@ impl FileSystem {
         new_parent: u16,
         new_name: Option<&str>,
         overwrite: bool,
-    ) -> Result<(), CbError> {
+    ) -> Result<(), FileSystemError> {
         assert!(self.entry_is_primary(entry)?);
         assert!(self.entry_is_primary(new_parent)?);
 
         if !self.entry_is_dir(new_parent)? {
-            return Err(CbError::EntryNotDirectory(new_parent));
+            return Err(FileSystemError::EntryNotDirectory(new_parent));
         } else if entry == self.header.root_sector.get() {
-            return Err(CbError::EntryInvalid(entry));
+            return Err(FileSystemError::EntryInvalid(entry));
         }
 
         let mut ent_hdr = self.entry_header(entry)?;
@@ -810,7 +847,7 @@ impl FileSystem {
                 if overwrite {
                     self.delete_entry(e.base_block.get())?;
                 } else {
-                    return Err(CbError::NameExists(target_name));
+                    return Err(FileSystemError::NameExists(target_name));
                 }
             }
         }

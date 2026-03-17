@@ -17,7 +17,7 @@ pub use crate::{
 };
 
 pub use container::{
-    CbContainerHeader, CbContainerOptions, open_container, read_container, save_container,
+    CbContainerOptions, ContainerHeader, open_container, read_container, save_container,
     write_container,
 };
 pub use filesystem::FileSystem;
@@ -25,7 +25,7 @@ pub use volume::VolumeHeader;
 
 /// Provides error message information regarding issues with the filesystem
 #[derive(Debug, Clone)]
-pub enum CbError {
+pub enum FileSystemError {
     EntryInvalid(u16),
     EntryNotFile(u16),
     EntryNotDirectory(u16),
@@ -42,19 +42,19 @@ pub enum CbError {
     ContainerError(String),
 }
 
-impl From<std::io::Error> for CbError {
+impl From<std::io::Error> for FileSystemError {
     fn from(value: std::io::Error) -> Self {
         Self::UnknownError(format!("IO error - {value}"))
     }
 }
 
-impl<T, U> From<zerocopy::SizeError<T, U>> for CbError {
+impl<T, U> From<zerocopy::SizeError<T, U>> for FileSystemError {
     fn from(value: zerocopy::SizeError<T, U>) -> Self {
         Self::UnknownError(format!("size error - {value:?}"))
     }
 }
 
-impl From<StringArrayError> for CbError {
+impl From<StringArrayError> for FileSystemError {
     fn from(value: StringArrayError) -> Self {
         match value {
             StringArrayError::InvalidName => Self::InvalidName,
@@ -62,7 +62,7 @@ impl From<StringArrayError> for CbError {
     }
 }
 
-impl Display for CbError {
+impl Display for FileSystemError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EntryInvalid(val) => write!(f, "entry {val} invalid"),

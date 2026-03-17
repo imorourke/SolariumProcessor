@@ -8,7 +8,7 @@ use chrono::{Datelike, TimeZone, Timelike, Utc};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, big_endian::I16};
 
 #[cfg(feature = "time")]
-use crate::CbError;
+use crate::FileSystemError;
 
 /// Date structure used to represent dates within the CBFS file system
 #[repr(C)]
@@ -81,7 +81,7 @@ impl From<SystemTime> for DateTime {
 
 #[cfg(feature = "time")]
 impl TryFrom<DateTime> for SystemTime {
-    type Error = CbError;
+    type Error = FileSystemError;
 
     fn try_from(value: DateTime) -> Result<Self, Self::Error> {
         let res = chrono::DateTime::<Utc>::try_from(value)?;
@@ -91,7 +91,7 @@ impl TryFrom<DateTime> for SystemTime {
 
 #[cfg(feature = "time")]
 impl TryFrom<DateTime> for chrono::DateTime<Utc> {
-    type Error = CbError;
+    type Error = FileSystemError;
 
     fn try_from(value: DateTime) -> Result<Self, Self::Error> {
         chrono::NaiveDate::from_ymd_opt(
@@ -106,21 +106,21 @@ impl TryFrom<DateTime> for chrono::DateTime<Utc> {
                 value.time.second as u32,
             )
         })
-        .map_or(Err(CbError::InvalidDateTime), |x| Ok(x.and_utc()))
+        .map_or(Err(FileSystemError::InvalidDateTime), |x| Ok(x.and_utc()))
     }
 }
 
 #[cfg(feature = "time")]
 impl DateTime {
-    pub fn to_posix_millis(&self) -> Result<i64, CbError> {
+    pub fn to_posix_millis(&self) -> Result<i64, FileSystemError> {
         let dt: chrono::DateTime<Utc> = (*self).try_into()?;
         Ok(dt.timestamp_millis())
     }
 
-    pub fn from_posix_millis(millis: i64) -> Result<Self, CbError> {
+    pub fn from_posix_millis(millis: i64) -> Result<Self, FileSystemError> {
         match Utc.timestamp_millis_opt(millis) {
             chrono::offset::LocalResult::Single(dt) => Ok(dt.into()),
-            _ => Err(CbError::InvalidDateTime),
+            _ => Err(FileSystemError::InvalidDateTime),
         }
     }
 }

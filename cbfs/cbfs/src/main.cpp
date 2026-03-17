@@ -90,7 +90,7 @@ struct CbFuseState {
 
     bool save_fs() {
         if (base_file != nullptr && !read_only) {
-            return cbfs_save(fs, base_file, false) == CbFsResult::Success;
+            return cbfs_save(fs, base_file) == CbFsResult::Success;
         } else {
             return true;
         }
@@ -652,29 +652,19 @@ static void* cbfs_fuse_init(
     struct fuse_conn_info*,
     struct fuse_config* config
 ) {
-    const options_t options = *static_cast<options_t*>(fuse_get_context()->private_data);
+    CbFuseState* state = static_cast<CbFuseState*>(fuse_get_context()->private_data);
 
     config->use_ino = false;
     config->kernel_cache = true;
 
-    std::unique_ptr<CbFuseState> state = std::make_unique<CbFuseState>();
-    state->base_file = options.base_file;
-    state->read_only = options.file_read_only != 0;
-    state->print_enabled = (config->debug != 0) || options.func_calls;
-    state->fs = cbfs_open(state->base_file, options.randomize);
-
-    if (config->debug) {
-        if (options.base_file != nullptr) {
-            std::cout << "Base File: " << options.base_file << '\n';
-        }
-    }
+    state->print_enabled = state->print_enabled || (config->debug != 0);
 
     CbFsStats fs_stats{};
     if (cbfs_get_stats(state->fs, &fs_stats) == CbFsResult::Success) {
         state->block_size = fs_stats.block_size;
     }
 
-    return state.release();
+    return state;
 }
 
 static constexpr struct fuse_operations generate_fuse_opers() {
@@ -767,6 +757,15 @@ int main(
         return 1;
     }
 
-    const auto ret = fuse_main(args.args.argc, args.args.argv, &cbfs_fuse_oper, &options);
-    return ret;
+    std::unique_ptr<CbFuseState> state = std::make_unique<CbFuseState>();
+    state->base_file = options.base_file;
+    state->read_only = options.file_read_only != 0;
+    state->print_enabled = options.func_calls;
+    state->fs = cbfs_open(state->base_file, options.randomize);
+    if (state->fs == nullptr) {
+        std::cerr << "Unable to open a valid filesystem\n";
+        return 2;
+    }
+
+    return fuse_main(args.args.argc, args.args.argv, &cbfs_fuse_oper, state.release());
 }

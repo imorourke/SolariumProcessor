@@ -1,5 +1,5 @@
 use cbfs_lib::{
-    CbContainerHeader, CbContainerOptions, CbError, EntryType, FileSystem, open_container,
+    CbContainerOptions, ContainerHeader, EntryType, FileSystem, FileSystemError, open_container,
     save_container,
 };
 use clap::{Parser, Subcommand};
@@ -82,8 +82,7 @@ fn main() {
             let name = opt.name.as_deref().unwrap_or("cbfs");
             let fs = FileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
-            let header =
-                CbContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip));
+            let header = ContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip));
             save_container(&header, &fs, &opt.file).expect("unable to write fs to a file");
         }
         CommandOptions::Modify(opt) => {
@@ -111,7 +110,7 @@ fn main() {
                 fs: &FileSystem,
                 node: u16,
                 opt: &ListOptions,
-            ) -> Result<(), CbError> {
+            ) -> Result<(), FileSystemError> {
                 if opt.folders {
                     if node == fs.root_sector() {
                         println!("/");

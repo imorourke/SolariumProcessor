@@ -1,10 +1,11 @@
 use std::{
     ffi::{CStr, c_char},
+    fmt::Debug,
     path::{Path, PathBuf},
 };
 
 use cbfs_lib::{
-    CbContainerHeader, CbError, Date, DateTime, DirectoryEntry, EntryType, FileSystem, Time,
+    ContainerHeader, Date, DateTime, DirectoryEntry, EntryType, FileSystem, FileSystemError, Time,
     open_container, save_container,
 };
 
@@ -14,7 +15,7 @@ pub const CBFS_DIRECTORY_NAME_SIZE: usize = 60;
 #[derive(Debug)]
 pub struct CbFs {
     fs: FileSystem,
-    flags: CbContainerHeader,
+    flags: ContainerHeader,
 }
 
 #[repr(C)]
@@ -175,23 +176,23 @@ pub enum CbFsResult {
     UnknownError,
 }
 
-impl From<CbError> for CbFsResult {
-    fn from(value: CbError) -> Self {
+impl From<FileSystemError> for CbFsResult {
+    fn from(value: FileSystemError) -> Self {
         match value {
-            CbError::NameExists(_) => Self::DuplicateName,
-            CbError::EntryInvalid(_) => Self::InvalidEntry,
-            CbError::EntryNotDirectory(_) => Self::EntryNotDirectory,
-            CbError::EntryNotFile(_) => Self::EntryNotFile,
-            CbError::InvalidDateTime => Self::InvalidDateTime,
-            CbError::InvalidName => Self::InvalidName,
-            CbError::InvalidSectorCount(_) => Self::InvalidConfig,
-            CbError::NonZeroDirectoryData => Self::InvalidConfig,
-            CbError::SectorSizeTooSmall(_) => Self::InvalidConfig,
-            CbError::PathNotFound(_) => Self::EntryNotFound,
-            CbError::TableFull => Self::NoSpace,
-            CbError::UnknownEntryType(_) => Self::InvalidEntry,
-            CbError::ContainerError(_) => Self::ContainerError,
-            CbError::UnknownError(_) => Self::UnknownError,
+            FileSystemError::NameExists(_) => Self::DuplicateName,
+            FileSystemError::EntryInvalid(_) => Self::InvalidEntry,
+            FileSystemError::EntryNotDirectory(_) => Self::EntryNotDirectory,
+            FileSystemError::EntryNotFile(_) => Self::EntryNotFile,
+            FileSystemError::InvalidDateTime => Self::InvalidDateTime,
+            FileSystemError::InvalidName => Self::InvalidName,
+            FileSystemError::InvalidSectorCount(_) => Self::InvalidConfig,
+            FileSystemError::NonZeroDirectoryData => Self::InvalidConfig,
+            FileSystemError::SectorSizeTooSmall(_) => Self::InvalidConfig,
+            FileSystemError::PathNotFound(_) => Self::EntryNotFound,
+            FileSystemError::TableFull => Self::NoSpace,
+            FileSystemError::UnknownEntryType(_) => Self::InvalidEntry,
+            FileSystemError::ContainerError(_) => Self::ContainerError,
+            FileSystemError::UnknownError(_) => Self::UnknownError,
         }
     }
 }
@@ -204,7 +205,10 @@ fn get_path(p: *const c_char) -> Option<PathBuf> {
     }
 }
 
-fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<DirectoryEntry, CbError> {
+fn entry_for_path<T: AsRef<Path>>(
+    fs: &CbFs,
+    path: Option<T>,
+) -> Result<DirectoryEntry, FileSystemError> {
     if let Some(path) = path {
         let mut current_entry = DirectoryEntry {
             base_block: fs.fs.root_sector().into(),
@@ -223,15 +227,17 @@ fn entry_for_path<T: AsRef<Path>>(fs: &CbFs, path: Option<T>) -> Result<Director
                     }
                 }
 
-                return Err(CbError::PathNotFound(p.to_str().unwrap().to_string()));
+                return Err(FileSystemError::PathNotFound(
+                    p.to_str().unwrap().to_string(),
+                ));
             }
 
             Ok(current_entry)
         } else {
-            Err(CbError::InvalidName)
+            Err(FileSystemError::InvalidName)
         }
     } else {
-        Err(CbError::InvalidName)
+        Err(FileSystemError::InvalidName)
     }
 }
 
@@ -243,10 +249,9 @@ pub unsafe extern "C" fn cbfs_open(backing_file: *const c_char, randomize: bool)
     let (header, mut cbfs) = if let Some(fp) = &get_path(backing_file)
         && fp.exists()
     {
-        if let Ok((header, fs)) = open_container(fp) {
-            (header, fs)
-        } else {
-            return std::ptr::null_mut();
+        match open_container(fp) {
+            Ok(x) => x,
+            Err(_) => return std::ptr::null_mut(),
         }
     } else {
         return std::ptr::null_mut();
@@ -358,7 +363,7 @@ pub unsafe extern "C" fn cbfs_entry_set_time(
 fn cbfs_entry_from_dir_val(
     fs: &FileSystem,
     dir_hdr: &DirectoryEntry,
-) -> Result<CbFsEntry, CbError> {
+) -> Result<CbFsEntry, FileSystemError> {
     let hdr = fs.entry_header(dir_hdr.base_block.get())?;
 
     Ok(CbFsEntry {
@@ -460,7 +465,7 @@ pub unsafe extern "C" fn cbfs_read_dir(
     if let Some(fs) = unsafe { fs.as_ref() }
         && let Some(listing) = unsafe { listing.as_mut() }
     {
-        fn compat_gen(fs: &CbFs, x: DirectoryEntry) -> Result<CbFsEntry, CbError> {
+        fn compat_gen(fs: &CbFs, x: DirectoryEntry) -> Result<CbFsEntry, FileSystemError> {
             let tv: CbFsTime = fs
                 .fs
                 .entry_header(x.base_block.get())?

@@ -10,16 +10,18 @@ use zerocopy::{
     big_endian::{U16, U32},
 };
 
-use crate::{CbError, FileSystem, VolumeHeader};
+use crate::{FileSystem, FileSystemError, VolumeHeader};
 
 /// Reads a container from a given writer
-pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSystem), CbError> {
-    let mut file_header_bytes = [0u8; std::mem::size_of::<CbContainerHeader>()];
+pub fn read_container<T: Read>(
+    f: &mut T,
+) -> Result<(ContainerHeader, FileSystem), FileSystemError> {
+    let mut file_header_bytes = [0u8; std::mem::size_of::<ContainerHeader>()];
     f.read_exact(&mut file_header_bytes)?;
-    let file_header = match CbContainerHeader::read_from_bytes(&file_header_bytes) {
+    let file_header = match ContainerHeader::read_from_bytes(&file_header_bytes) {
         Ok(x) => x,
         Err(e) => {
-            return Err(CbError::ContainerError(format!(
+            return Err(FileSystemError::ContainerError(format!(
                 "unable to read container header: {e}"
             )));
         }
@@ -27,13 +29,13 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
 
     file_header.check_data()?;
 
-    fn read_u16<T: Read>(f: &mut T) -> Result<u16, CbError> {
+    fn read_u16<T: Read>(f: &mut T) -> Result<u16, FileSystemError> {
         let mut tmp = U16::new(0);
         f.read_exact(tmp.as_mut_bytes())?;
         Ok(tmp.get())
     }
 
-    fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<FileSystem, CbError> {
+    fn read_inner<T: Read>(f: &mut T, sparse: bool) -> Result<FileSystem, FileSystemError> {
         const HEADER_SIZE: usize = std::mem::size_of::<VolumeHeader>();
 
         if sparse {
@@ -41,7 +43,7 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
             let header_size = read_u16(f)? as usize;
 
             if header_size > HEADER_SIZE {
-                return Err(CbError::ContainerError(format!(
+                return Err(FileSystemError::ContainerError(format!(
                     "found header size {header_size} >= max {HEADER_SIZE}"
                 )));
             }
@@ -52,7 +54,7 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
             let header = match VolumeHeader::read_from_bytes(&header_data) {
                 Ok(h) => h,
                 Err(e) => {
-                    return Err(CbError::ContainerError(format!(
+                    return Err(FileSystemError::ContainerError(format!(
                         "unable to read sparse volume header: {e}"
                     )));
                 }
@@ -65,7 +67,7 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
             match header.write_to(&mut new_data[0..HEADER_SIZE]) {
                 Ok(_) => (),
                 Err(e) => {
-                    return Err(CbError::ContainerError(format!(
+                    return Err(FileSystemError::ContainerError(format!(
                         "unable to write to inner header as sparse: {e}"
                     )));
                 }
@@ -94,7 +96,7 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
         }
         #[cfg(not(feature = "gzip"))]
         {
-            return Err(CbError::ContainerError(
+            return Err(FileSystemError::ContainerError(
                 "gzip feature not enabled".to_string(),
             ));
         }
@@ -107,13 +109,17 @@ pub fn read_container<T: Read>(f: &mut T) -> Result<(CbContainerHeader, FileSyst
 
 /// Writes a container to a given writer
 pub fn write_container<T: Write>(
-    header: &CbContainerHeader,
+    header: &ContainerHeader,
     fs: &FileSystem,
     f: &mut T,
-) -> Result<(), CbError> {
+) -> Result<(), FileSystemError> {
     f.write_all(header.as_bytes())?;
 
-    fn write_inner<T: Write>(mut f: T, fs: &FileSystem, sparse: bool) -> Result<(), CbError> {
+    fn write_inner<T: Write>(
+        mut f: T,
+        fs: &FileSystem,
+        sparse: bool,
+    ) -> Result<(), FileSystemError> {
         if sparse {
             f.write_all(U16::new(std::mem::size_of::<VolumeHeader>() as u16).as_bytes())?;
             f.write_all(fs.header.as_bytes())?;
@@ -156,7 +162,7 @@ pub fn write_container<T: Write>(
         }
         #[cfg(not(feature = "gzip"))]
         {
-            Err(CbError::ContainerError(
+            Err(FileSystemError::ContainerError(
                 "gzip feature not enabled".to_string(),
             ))
         }
@@ -166,23 +172,23 @@ pub fn write_container<T: Write>(
 }
 
 /// Opens a filesystem disk image and loads into memory
-pub fn open_container(path: &Path) -> Result<(CbContainerHeader, FileSystem), CbError> {
+pub fn open_container(path: &Path) -> Result<(ContainerHeader, FileSystem), FileSystemError> {
     let mut f = std::fs::File::open(path)?;
     read_container(&mut f)
 }
 
 /// Saves the current in-memory filesystem to the provided file
 pub fn save_container(
-    header: &CbContainerHeader,
+    header: &ContainerHeader,
     filesystem: &FileSystem,
     file: &Path,
-) -> Result<(), CbError> {
+) -> Result<(), FileSystemError> {
     let mut f = OpenOptions::new()
         .create(true)
         .truncate(true)
         .write(true)
         .open(file)?;
-    write_container(&header, &filesystem, &mut f)
+    write_container(header, filesystem, &mut f)
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -217,13 +223,13 @@ impl CbContainerOptions {
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq)]
-pub struct CbContainerHeader {
+pub struct ContainerHeader {
     magic_number: U32,
     version: U16,
     flags: U16,
 }
 
-impl CbContainerHeader {
+impl ContainerHeader {
     const MAGIC_NUMBER: u32 = 0xA80E83BC;
     const VERSION: u16 = 1;
     const FLAG_SPARSE: u16 = 1 << 0;
@@ -244,14 +250,14 @@ impl CbContainerHeader {
         CbContainerOptions::from_flags(self.is_sparse(), self.is_compressed())
     }
 
-    pub fn check_data(&self) -> Result<(), CbError> {
+    pub fn check_data(&self) -> Result<(), FileSystemError> {
         if self.magic_number.get() != Self::MAGIC_NUMBER {
-            Err(CbError::UnknownError(format!(
+            Err(FileSystemError::UnknownError(format!(
                 "unknown magic number {}",
                 self.magic_number.get()
             )))
         } else if self.version.get() != Self::VERSION {
-            Err(CbError::UnknownError(format!(
+            Err(FileSystemError::UnknownError(format!(
                 "unknown version number {} != expected {}",
                 self.version.get(),
                 Self::VERSION
@@ -290,7 +296,7 @@ impl CbContainerHeader {
     }
 }
 
-impl Default for CbContainerHeader {
+impl Default for ContainerHeader {
     fn default() -> Self {
         Self {
             magic_number: U32::new(Self::MAGIC_NUMBER),
@@ -303,7 +309,7 @@ impl Default for CbContainerHeader {
 #[cfg(test)]
 mod test {
     use crate::{
-        CbContainerHeader, CbContainerOptions, EntryType, FileSystem,
+        CbContainerOptions, ContainerHeader, EntryType, FileSystem,
         container::{read_container, write_container},
     };
 
@@ -354,7 +360,7 @@ mod test {
         ];
 
         for (opt, sparse, compressed) in INPUT_VALUES {
-            let hdr = CbContainerHeader::new(*opt);
+            let hdr = ContainerHeader::new(*opt);
             assert_eq!(opt.is_sparse(), *sparse);
             assert_eq!(opt.is_compressed(), *compressed);
             assert_eq!(hdr.is_sparse(), opt.is_sparse());
@@ -365,7 +371,7 @@ mod test {
 
     #[test]
     fn rw_raw() {
-        let header = CbContainerHeader::new(CbContainerOptions::None);
+        let header = ContainerHeader::new(CbContainerOptions::None);
         let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
@@ -391,7 +397,7 @@ mod test {
 
     #[test]
     fn rw_sparse() {
-        let header = CbContainerHeader::new(CbContainerOptions::Sparse);
+        let header = ContainerHeader::new(CbContainerOptions::Sparse);
         let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
@@ -418,7 +424,7 @@ mod test {
     #[cfg(feature = "gzip")]
     #[test]
     fn rw_compressed() {
-        let header = CbContainerHeader::new(CbContainerOptions::Compressed);
+        let header = ContainerHeader::new(CbContainerOptions::Compressed);
         let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
@@ -445,7 +451,7 @@ mod test {
     #[cfg(feature = "gzip")]
     #[test]
     fn raw_sparse_compressed() {
-        let header = CbContainerHeader::new(CbContainerOptions::SparseCompressed);
+        let header = ContainerHeader::new(CbContainerOptions::SparseCompressed);
         let filesystem = generate_test_filesystem();
 
         let mut data_buf = Vec::new();
