@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fmt::{Debug, Display},
     rc::Rc,
 };
@@ -364,6 +364,7 @@ impl Default for ProgramType {
 pub struct CodeGenerationOptions {
     pub prog_type: ProgramType,
     pub debug_locations: bool,
+    pub trim_code: bool,
 }
 
 impl CodeGenerationOptions {
@@ -389,11 +390,26 @@ impl CodeGenerationOptions {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug)]
+struct AccessState {
+    own: Rc<str>,
+    accesses: HashSet<Rc<str>>,
+}
+
+impl AccessState {
+    pub fn new<T: AsRef<str>>(name: T) -> Self {
+        Self {
+            own: name.as_ref().into(),
+            accesses: HashSet::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct CompilingState {
-    statements: Vec<Rc<dyn GlobalStatement>>,
+    statements: Vec<(Rc<str>, Rc<dyn GlobalStatement>)>,
     struct_defs: Vec<(Token, Rc<StructDefinition>)>,
-    global_scope: HashMap<String, GlobalType>,
+    global_scope: HashMap<String, (Rc<RefCell<AccessState>>, GlobalType)>,
     user_types: Rc<RefCell<UserTypes>>,
     string_literals: RefCell<HashMap<String, Rc<StringLiteral>>>,
     current_id: usize,
@@ -402,6 +418,8 @@ pub struct CompilingState {
 }
 
 impl CompilingState {
+    const MAIN_FUNC_NAME: &'static str = "main";
+
     pub fn new(options: CodeGenerationOptions) -> Self {
         Self {
             options,
@@ -424,6 +442,35 @@ impl CompilingState {
 
     pub fn get_options(&self) -> &CodeGenerationOptions {
         &self.options
+    }
+
+    pub fn is_used(&self, name: &str) -> bool {
+        if self.options.trim_code {
+            let mut dfs: VecDeque<Rc<str>> = vec![Self::MAIN_FUNC_NAME.into()].into();
+            let mut visited: HashSet<Rc<str>> = HashSet::new();
+
+            while let Some(r) = dfs.pop_front() {
+                if r.as_ref() == name {
+                    return true;
+                }
+
+                if visited.contains(&r) {
+                    continue;
+                }
+
+                visited.insert(r.clone());
+
+                if let Some((x, _)) = self.global_scope.get(r.as_ref()) {
+                    for x in x.borrow().accesses.iter() {
+                        dfs.push_back(x.clone());
+                    }
+                }
+            }
+
+            false
+        } else {
+            true
+        }
     }
 
     pub fn get_assembler(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
@@ -488,11 +535,13 @@ impl CompilingState {
             );
         }
 
-        for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_init_code(&self.options)?);
+        for (u, s) in self.statements.iter() {
+            if self.is_used(u) {
+                asm.extend_from_slice(&s.get_init_code(&self.options)?);
+            }
         }
 
-        if let Some(GlobalType::Function(f)) = self.global_scope.get("main") {
+        if let Some(GlobalType::Function(f)) = self.get_global(Self::MAIN_FUNC_NAME)? {
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCopy::new(Register::ArgumentBase.into(), Register::StackPointer.into()),
             ))));
@@ -526,8 +575,10 @@ impl CompilingState {
         }
 
         add_name(&mut asm, "Static");
-        for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_static_code(&self.options)?);
+        for (u, s) in self.statements.iter() {
+            if self.is_used(u) {
+                asm.extend_from_slice(&s.get_static_code(&self.options)?);
+            }
         }
 
         let string_vals = {
@@ -546,8 +597,10 @@ impl CompilingState {
         }
 
         add_name(&mut asm, "Functions");
-        for s in self.statements.iter() {
-            asm.extend_from_slice(&s.get_func_code(&self.options)?);
+        for (u, s) in self.statements.iter() {
+            if self.is_used(u) {
+                asm.extend_from_slice(&s.get_func_code(&self.options)?);
+            }
         }
 
         Ok(asm)
@@ -599,7 +652,9 @@ impl CompilingState {
         let ret = match self.global_scope.entry(name.get_value().to_string()) {
             Entry::Occupied(mut e) => {
                 let opaque_token = match e.get() {
-                    GlobalType::UserType(token, UserTypeOptions::OpaqueType(_)) => token.clone(),
+                    (_, GlobalType::UserType(token, UserTypeOptions::OpaqueType(_))) => {
+                        token.clone()
+                    }
                     _ => {
                         return Err(name.into_err("unable to find opaque type with provided name"));
                     }
@@ -609,7 +664,12 @@ impl CompilingState {
                     if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
                         self.struct_defs.push((opaque_token.clone(), s.clone()));
                     }
-                    *e.get_mut() = GlobalType::UserType(opaque_token, ty);
+                    *e.get_mut() = (
+                        Rc::new(RefCell::new(AccessState::new(get_identifier(
+                            &opaque_token,
+                        )?))),
+                        GlobalType::UserType(opaque_token, ty),
+                    );
                     Ok(())
                 } else {
                     Err(name.into_err(
@@ -621,7 +681,11 @@ impl CompilingState {
                 if let UserTypeOptions::ConcreteType(Type::Struct(s)) = &ty {
                     self.struct_defs.push((name.clone(), s.clone()));
                 }
-                e.insert(GlobalType::UserType(name, ty));
+
+                e.insert((
+                    Rc::new(RefCell::new(AccessState::new(get_identifier(&name)?))),
+                    GlobalType::UserType(name, ty),
+                ));
                 Ok(())
             }
         };
@@ -645,14 +709,14 @@ impl CompilingState {
             def.dtype,
             def.init_expr,
         )?);
-        self.add_to_global_scope(GlobalType::Variable(var))
+        self.add_to_global_scope(GlobalType::Variable(var), None)
     }
 
     pub fn add_type_alias(&mut self, token: Token, alias_type: Type) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::UserType(
-            token,
-            UserTypeOptions::ConcreteType(alias_type),
-        ))?;
+        self.add_to_global_scope(
+            GlobalType::UserType(token, UserTypeOptions::ConcreteType(alias_type)),
+            None,
+        )?;
         self.update_user_types();
         Ok(())
     }
@@ -673,32 +737,34 @@ impl CompilingState {
     }
 
     pub fn add_const_var(&mut self, def: VariableDefinition) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::Constant(Rc::new(def.into_literal()?)))
+        self.add_to_global_scope(GlobalType::Constant(Rc::new(def.into_literal()?)), None)
     }
 
     pub fn add_function_declaration(
         &mut self,
         func: FunctionDeclaration,
     ) -> Result<(), TokenError> {
-        self.add_to_global_scope(GlobalType::FunctionDeclaration(func))
+        self.add_to_global_scope(GlobalType::FunctionDeclaration(func), None)
     }
 
     pub fn add_function(&mut self, func: Rc<dyn FunctionDefinition>) -> Result<(), TokenError> {
-        if let Entry::Occupied(e) = self
+        let access_vals = if let Entry::Occupied(e) = self
             .global_scope
             .entry(func.get_token().get_value().to_string())
         {
-            if let GlobalType::FunctionDeclaration(_) = e.get() {
-                e.remove_entry();
+            if let (_, GlobalType::FunctionDeclaration(_)) = e.get() {
+                Some(e.remove_entry().1.0)
             } else {
                 return Err(func.get_token().clone().into_err(format!(
                     "token already exists as {} - cannot add as a function",
-                    e.get()
+                    e.get().1
                 )));
-            };
-        }
+            }
+        } else {
+            None
+        };
 
-        self.add_to_global_scope(GlobalType::Function(func))
+        self.add_to_global_scope(GlobalType::Function(func), access_vals)
     }
 
     fn update_user_types(&mut self) {
@@ -706,18 +772,29 @@ impl CompilingState {
         tv.types.clear();
 
         for (n, v) in self.global_scope.iter() {
-            if let GlobalType::UserType(_, t) = v {
+            if let (_, GlobalType::UserType(_, t)) = v {
                 tv.types.insert(n.clone(), t.clone());
             }
         }
     }
 
-    fn add_to_global_scope(&mut self, t: GlobalType) -> Result<(), TokenError> {
+    fn add_to_global_scope(
+        &mut self,
+        t: GlobalType,
+        previous_val: Option<Rc<RefCell<AccessState>>>,
+    ) -> Result<(), TokenError> {
         let name = get_identifier(t.get_token())?;
+
+        let used_val =
+            previous_val.unwrap_or_else(|| Rc::new(RefCell::new(AccessState::new(name))));
+
+        assert_eq!(name, used_val.borrow().own.as_ref());
+
+        let name_rc = used_val.borrow().own.clone();
 
         let statement = t.get_statement();
         match self.global_scope.entry(name.to_string()) {
-            Entry::Vacant(e) => e.insert(t),
+            Entry::Vacant(e) => e.insert((used_val, t)),
             Entry::Occupied(_) => {
                 return Err(t
                     .get_token()
@@ -727,12 +804,30 @@ impl CompilingState {
         };
 
         if let Some(s) = statement {
-            self.statements.push(s);
+            self.statements.push((name_rc, s));
         }
 
         self.update_user_types();
 
         Ok(())
+    }
+
+    fn get_global(&self, name: &str) -> Result<Option<&GlobalType>, TokenError> {
+        if let Some((_, value)) = self.global_scope.get(name) {
+            if let Some(current) = self.scope_manager.as_ref() {
+                let caller = get_identifier(&current.token)?;
+                if let Some((access_val, _)) = self.global_scope.get(caller) {
+                    access_val.borrow_mut().accesses.insert(name.into());
+                } else {
+                    panic!(
+                        "unable to access a global with the provided entry value - {name} @ {caller}"
+                    );
+                }
+            }
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn get_variable(&self, name: &Token) -> Result<Rc<dyn Expression>, TokenError> {
@@ -742,25 +837,28 @@ impl CompilingState {
             return Ok(v.get_expr());
         }
 
-        match self.global_scope.get(&ident).map_or(
+        if let Some(value) = self.get_global(&ident)? {
+            let res = match value.clone() {
+                GlobalType::Variable(v) => Ok(v as Rc<dyn Expression>),
+                GlobalType::Constant(v) => Ok(v as Rc<dyn Expression>),
+                GlobalType::Function(f) => Ok(f.as_expr()),
+                GlobalType::FunctionDeclaration(f) => Ok(f.as_expr()),
+                x => Err(x
+                    .get_token()
+                    .clone()
+                    .into_err("global is not a variable type")),
+            }?;
+
+            Ok(res)
+        } else {
             Err(name
                 .clone()
-                .into_err("no variable with matching name found")),
-            |x| Ok(x.clone()),
-        )? {
-            GlobalType::Variable(v) => Ok(v),
-            GlobalType::Constant(v) => Ok(v),
-            GlobalType::Function(f) => Ok(f.as_expr()),
-            GlobalType::FunctionDeclaration(f) => Ok(f.as_expr()),
-            x => Err(x
-                .get_token()
-                .clone()
-                .into_err("global is not a variable type")),
+                .into_err("no variable with matching name found"))
         }
     }
 
     pub fn get_global_location_label(&self, name: &str) -> Option<&str> {
-        match self.global_scope.get(name) {
+        match self.get_global(name).ok().flatten() {
             Some(GlobalType::Variable(v)) => Some(v.access_label()),
             Some(GlobalType::Function(v)) => Some(v.get_entry_label()),
             _ => None,
@@ -768,7 +866,7 @@ impl CompilingState {
     }
 
     pub fn get_global_constant(&self, name: &str) -> Option<Rc<Literal>> {
-        match self.global_scope.get(name) {
+        match self.get_global(name).ok().flatten() {
             Some(GlobalType::Constant(v)) => Some(v.clone()),
             _ => None,
         }
@@ -802,7 +900,7 @@ impl CompilingState {
                 })
             }) {
                 return Some(lv_type);
-            } else if let Some(g_type) = self.global_scope.get(name) {
+            } else if let Some(g_type) = self.get_global(name).ok().flatten() {
                 match g_type {
                     GlobalType::Variable(v) => return v.get_type().ok(),
                     GlobalType::Constant(v) => return v.get_type().ok(),
@@ -828,13 +926,17 @@ impl CompilingState {
     pub fn get_statements(&self) -> Vec<String> {
         let mut statements = Vec::default();
         for (n, i) in self.global_scope.iter() {
-            if let GlobalType::Constant(c) = i {
+            if let (used, GlobalType::Constant(c)) = i
+                && self.is_used(&used.borrow().own)
+            {
                 statements.push(format!("const {n} = {c};"));
             }
         }
 
         for (_, i) in self.global_scope.iter() {
-            if let GlobalType::UserType(_, ut) = i {
+            if let (used, GlobalType::UserType(_, ut)) = i
+                && self.is_used(&used.borrow().own)
+            {
                 match ut {
                     UserTypeOptions::OpaqueType(s) => {
                         statements.push(format!("struct {};", s.get_value()))
@@ -845,13 +947,17 @@ impl CompilingState {
         }
 
         for (_, i) in self.global_scope.iter() {
-            if let GlobalType::Variable(v) = i {
+            if let (used, GlobalType::Variable(v)) = i
+                && self.is_used(&used.borrow().own)
+            {
                 statements.push(format!("{};", GlobalVariableStatement::new(v.clone())));
             }
         }
 
         for (_, i) in self.global_scope.iter() {
-            if let GlobalType::Function(f) = i {
+            if let (used, GlobalType::Function(f)) = i
+                && self.is_used(&used.borrow().own)
+            {
                 statements.push(format!("{f}"))
             }
         }

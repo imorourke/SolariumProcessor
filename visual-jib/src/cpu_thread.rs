@@ -146,6 +146,12 @@ impl CpuState {
         )?;
         fs.create_entry(
             fs.root_sector(),
+            "test.run",
+            cbfs_lib::EntryType::File,
+            b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
+        )?;
+        fs.create_entry(
+            fs.root_sector(),
             "boot.bin",
             cbfs_lib::EntryType::File,
             &kernel_data,
@@ -249,7 +255,7 @@ impl CpuState {
         start_offset: Option<u32>,
     ) -> Result<AssemblerOutput, ComputerError> {
         let preprocessed =
-            cbuoy::preprocess_code_as_file(code, Path::new("bootloader.cb"), [].into_iter())?;
+            cbuoy::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
 
         let tokens = preprocessed.tokenize().unwrap();
 
@@ -258,6 +264,7 @@ impl CpuState {
                 stack_loc: ProgramType::DEFAULT_STACK_LOC,
                 start_offset: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
             },
+            trim_code: true,
             ..Default::default()
         };
 

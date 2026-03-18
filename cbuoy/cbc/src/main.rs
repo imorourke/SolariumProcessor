@@ -36,6 +36,13 @@ struct CompilerArguments {
     )]
     kernel_stack_loc: u32,
     #[arg(
+        short = 't',
+        long = "trim",
+        default_value_t = false,
+        help = "Trims unused functions and variables from the generated code"
+    )]
+    trim_unused: bool,
+    #[arg(
         short = 'a',
         long = "output-ast",
         default_value_t = false,
@@ -137,6 +144,7 @@ fn main() -> std::process::ExitCode {
                 ProgramType::Application
             },
             debug_locations: args.include_locations,
+            trim_code: args.trim_unused,
         },
     ) {
         Ok(asm) => asm,

@@ -497,14 +497,21 @@ impl AsmFunctionDefinition {
         let name = get_identifier(&name_token)?;
         state.init_scope(name_token.clone())?;
 
+        let entry_label = format!("__{KEYWORD_ASMFN}_{}_{name}", state.get_next_id());
+
         let func_type = Function::read_tokens(tokens, state, true)?;
         for p in func_type.parameters.iter() {
             state.get_scopes_mut()?.add_parameter(p.clone())?;
         }
 
-        let asm_text = AsmCodeBlock::parse(tokens, state)?;
-        let entry_label = format!("__{KEYWORD_ASMFN}_{}_{name}", state.get_next_id());
+        state.add_function_declaration(FunctionDeclaration::new(
+            name_token.clone(),
+            entry_label.clone(),
+            func_type.clone(),
+            StandardFunctionType::Interrupt,
+        ))?;
 
+        let asm_text = AsmCodeBlock::parse(tokens, state)?;
         let func = Rc::new(AsmFunctionDefinition {
             name: name_token,
             entry_label,
