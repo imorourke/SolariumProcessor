@@ -7,11 +7,16 @@
 #include kmalloc_dbg.cb
 #include kserialio.cb
 
+const K_SHELL_DEFAULT_INPUT_BUFFER_SIZE: u32 = 128;
+const K_SHELL_DEFAULT_ARG_SPLIT_SIZE: u32 = 8;
+
 struct k_shell_state_t {
     cwd: u16; // Current Directory
     disk: *k_fs_disk_t; // Current Disk
     auto_halt: u8;
 }
+
+global __k_shell_run_cmd: fn(*k_shell_state_t, i32, **u8) i32 = 0;
 
 fn k_shell_disk_open(state: *k_shell_state_t) i32 {
     if (state->disk == 0) {
@@ -60,6 +65,8 @@ fn k_shell_fn_help(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     k_io_print("  pwd           -> prints the current directory\n");
     k_io_print("  ls            -> lists entries in the current directory\n");
     k_io_print("  cat [file]    -> pipes the contents of the file into serial output\n");
+    k_io_print("  run [file]    -> runs each line of the provided file as if it were\n");
+    k_io_print("                   typed into the console as a script\n");
     k_io_print("  cd [file]     -> changes directory to the provided folder\n");
     k_io_print("                   or parent directory if '..' provided\n");
     k_io_print("  reset         -> resets the processor\n");
@@ -151,7 +158,9 @@ fn k_shell_fn_cd(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
             }
         }
     } else {
-        k_io_print("unexpected number of entries for cd\n");
+        k_io_print("unexpected number of entries for ");
+        k_io_print(argv[0]);
+        k_io_print("\n");
     }
 }
 
@@ -207,6 +216,8 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     } else {
         k_io_print("unexpected number of entries for ");
         k_io_print(argv[0]);
+        k_io_print("\n");
+        k_io_print_uint(argc);
         k_io_print("\n");
         return -1;
     }
@@ -320,6 +331,8 @@ fn k_shell_fn_mem(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
 }
 
 fn k_shell_fn_dbg(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    k_io_print_stat("DBG", argc);
+
     if (argc == 1) {
         k_io_print("Debug Output ");
         if (K_DBG_ENABLED) {
@@ -388,6 +401,143 @@ fn k_shell_split_args(input: *u8, args: **u8) i32 {
     }
 
     return count;
+}
+
+fn k_shell_fn_run(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if ((state : u32 == 0) || (state->disk : u32 == 0) || (state->cwd == 0)) {
+        return -1;
+    }
+
+    def arg_buffer: [K_SHELL_DEFAULT_ARG_SPLIT_SIZE]*u8;
+
+    if (argc == 2) {
+        def out_entry: k_fs_directory_entry_t;
+        if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
+            if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
+                def entry_hdr: k_fs_entry_header_t;
+                if (k_fs_read_entry_header(state->disk, out_entry.base_block, &entry_hdr) == 0) {
+                    // Add one to the data size for null character in the array
+                    const DATA_SIZE: u32 = 128;
+                    def run_data: [DATA_SIZE + 1]u8;
+                    def current_size: u32 = 0;
+
+                    while (current_size < entry_hdr.payload_size) {
+                        def read_size: u32 = DATA_SIZE;
+
+                        if (k_fs_read_entry_data_until(state->disk, out_entry.base_block, &run_data, &read_size, current_size, '\n') != 0) {
+                            k_io_print("READ ERROR\n");
+                            break;
+                        }
+
+                        // Add the null character to the end
+                        run_data[read_size] = 0;
+                        def input_data: *u8 = run_data;
+
+                        def count: i32 = k_shell_split_args(input_data, &arg_buffer);
+                        if (K_DBG_ENABLED) {
+                            k_io_print_stat("Arg Count", count);
+                        }
+                        __k_shell_run_cmd(state, &arg_buffer, count);
+                        current_size = current_size + read_size;
+                    }
+                    k_io_print("\n");
+                }
+
+                return 0;
+            } else {
+                k_io_print("entry '");
+                k_io_print(argv[1]);
+                k_io_print("' is not a file entry\n");
+                return -2;
+            }
+        } else {
+            k_io_print("unable to find entry with name '");
+            k_io_print(argv[1]);
+            k_io_print("'\n");
+            return -3;
+        }
+    } else {
+        k_io_print("unexpected number of entries for ");
+        k_io_print(argv[0]);
+        k_io_print("\n");
+        return -1;
+    }
+}
+
+fn k_shell_run_cmd(state: *k_shell_state_t, argv: **u8, argc: i32) i32 {
+    __k_shell_run_cmd = k_shell_run_cmd;
+
+    if (K_DBG_ENABLED) {
+        k_io_print("Arg Count: ");
+        k_io_print_uint(argc);
+        k_io_print("\n");
+
+        def i: i32 = 0;
+        while (i < argc) {
+            k_io_print("  [");
+            k_io_print_uint(i);
+            k_io_print("] = ");
+            k_io_print(argv[i]);
+            k_io_print("\n");
+            i = i + 1;
+        }
+    }
+
+    if (argc > 0) {
+        def cmd: *u8 = argv[0];
+        if (K_DBG_ENABLED) {
+            k_io_print("CMD: ");
+            k_io_print(cmd);
+            k_io_print("\n");
+        }
+
+        def sh_fn: fn(*k_shell_state_t,**u8,u32) i32 = 0;
+
+        if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0) {
+            sh_fn = k_shell_fn_help;
+        } else if (strcmp(cmd, "ls") == 0) {
+            sh_fn = k_shell_fn_ls;
+        } else if (strcmp(cmd, "cd") == 0) {
+            sh_fn = k_shell_fn_cd;
+        } else if (strcmp(cmd, "cat") == 0) {
+            sh_fn = k_shell_fn_cat;
+        } else if (strcmp(cmd, "halt") == 0) {
+            sh_fn = k_shell_fn_halt;
+        } else if (strcmp(cmd, "pwd") == 0) {
+            sh_fn = k_shell_fn_pwd;
+        } else if (strcmp(cmd, "reset") == 0) {
+            sh_fn = k_shell_fn_reset;
+        } else if (strcmp(cmd, "date") == 0) {
+            sh_fn = k_shell_fn_date;
+        } else if (strcmp(cmd, "mem") == 0) {
+            sh_fn = k_shell_fn_mem;
+        } else if (strcmp(cmd, "mount") == 0) {
+            sh_fn = k_shell_fn_mount;
+        } else if (strcmp(cmd, "umount") == 0) {
+            sh_fn = k_shell_fn_umount;
+        } else if (strcmp(cmd, "dbg") == 0) {
+            sh_fn = k_shell_fn_dbg;
+        } else if (strcmp(cmd, "run") == 0) {
+            sh_fn = k_shell_fn_run;
+        }
+
+        if (sh_fn != 0) {
+            def res: i32 = sh_fn(state, argv, argc);
+            if (res != 0) {
+                k_io_print("^! Error running ");
+                k_io_print(cmd);
+                k_io_print("\n   Return Code: ");
+                k_io_print_int(res);
+                k_io_print("\n");
+            }
+            return res;
+        } else {
+            k_io_print("^! Unknown Command: ");
+            k_io_print(cmd);
+            k_io_print("\n");
+            return -1;
+        }
+    }
 }
 
 #endif // K_SHELL

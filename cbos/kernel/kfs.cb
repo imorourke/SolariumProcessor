@@ -212,7 +212,7 @@ fn k_fs_read_entry_header(dev: *k_fs_disk_t, entry: u16, header: *k_fs_entry_hea
     return 0;
 }
 
-fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32) i32 {
+fn k_fs_read_entry_data_until_ptr(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32, until: *u8) i32 {
     if (!k_fs_entry_valid(entry)) {
         *size = 0;
         k_io_print("\nInvalid Entry: ");
@@ -253,6 +253,7 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
     def sector_base: u32 = sector_size * (entry : u32);
     def disk_offset: u32 = total_offset;
     def local_offset: u32 = 0;
+    *size = 0;
 
     while (local_offset < data_size) {
         def copy_size: u32 = data_size;
@@ -271,7 +272,34 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
         }
 
         k_fs_disk_move(dev->ctl, sector_base + disk_offset);
+
+        def k_found: u8 = 0;
+        if (until != 0) {
+            if (K_DBG_ENABLED) {
+                k_io_print("Searching for : ");
+                k_io_print_uint(*until);
+                k_io_print("\n");
+            }
+            def i: u32 = 0;
+            def x: u8 = *until;
+            while (i < copy_size) {
+                if (dev->ctl->data[i] == x) {
+                    copy_size = i + 1;
+                    k_found = 1;
+                    break;
+                } else {
+                    i = i + 1;
+                }
+            }
+        }
+
         k_memcpy(data + local_offset, &dev->ctl->data[0], copy_size);
+        *size = *size + copy_size;
+
+        if (k_found) {
+            return 0;
+        }
+
         local_offset = local_offset + copy_size;
         disk_offset = disk_offset + copy_size;
 
@@ -286,6 +314,14 @@ fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, of
     }
 
     return 0;
+}
+
+fn k_fs_read_entry_data_until(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32, until: u8) i32 {
+    return k_fs_read_entry_data_until_ptr(dev, entry, data, size, offset, &until);
+}
+
+fn k_fs_read_entry_data(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32) i32 {
+    return k_fs_read_entry_data_until_ptr(dev, entry, data, size, offset, 0);
 }
 
 fn k_fs_next_free_entry(dev: *k_fs_disk_t) u16 {

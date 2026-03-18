@@ -11,13 +11,10 @@
 #include <std/list.cb>
 #include <std/string.cb>
 
-const OS_INPUT_BUFFER_SIZE: u32 = 128;
-const OS_ARG_SIZE: u32 = 128;
-
 fn os_main() void {
     k_io_print("Starting C/Buoy OS\n");
-    def input_buffer: [OS_INPUT_BUFFER_SIZE]u8;
-    def arg_buffer: [OS_ARG_SIZE]*u8;
+    def input_buffer: [K_SHELL_DEFAULT_INPUT_BUFFER_SIZE]u8;
+    def arg_buffer: [K_SHELL_DEFAULT_ARG_SPLIT_SIZE]*u8;
     def run_shell: u8 = 1;
     def sh_state: k_shell_state_t;
     k_memset(&sh_state, 0, sizeof(k_shell_state_t));
@@ -28,77 +25,10 @@ fn os_main() void {
             asm { "halt"; }
         }
 
-        if (k_io_read_str_until(input_buffer, OS_INPUT_BUFFER_SIZE, '\n') > 0) {
+        if (k_io_read_str_until(input_buffer, K_SHELL_DEFAULT_INPUT_BUFFER_SIZE, '\n') > 0) {
             k_io_print(input_buffer);
             def count: i32 = k_shell_split_args(input_buffer, &arg_buffer);
-
-            if (K_DBG_ENABLED) {
-                k_io_print("Arg Count: ");
-                k_io_print_uint(count);
-                k_io_print("\n");
-
-                def i: i32 = 0;
-                while (i < count) {
-                    k_io_print("  [");
-                    k_io_print_uint(i);
-                    k_io_print("] = ");
-                    k_io_print(arg_buffer[i]);
-                    k_io_print("\n");
-                    i = i + 1;
-                }
-            }
-
-            if (count > 0) {
-                def cmd: *u8 = arg_buffer[0];
-                if (K_DBG_ENABLED) {
-                    k_io_print("CMD: ");
-                    k_io_print(cmd);
-                    k_io_print("\n");
-                }
-
-                def sh_fn: fn(*k_shell_state_t,**u8,u32) i32 = 0;
-
-                if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0) {
-                    sh_fn = k_shell_fn_help;
-                } else if (strcmp(cmd, "ls") == 0) {
-                    sh_fn = k_shell_fn_ls;
-                } else if (strcmp(cmd, "cd") == 0) {
-                    sh_fn = k_shell_fn_cd;
-                } else if (strcmp(cmd, "cat") == 0) {
-                    sh_fn = k_shell_fn_cat;
-                } else if (strcmp(cmd, "halt") == 0) {
-                    sh_fn = k_shell_fn_halt;
-                } else if (strcmp(cmd, "pwd") == 0) {
-                    sh_fn = k_shell_fn_pwd;
-                } else if (strcmp(cmd, "reset") == 0) {
-                    sh_fn = k_shell_fn_reset;
-                } else if (strcmp(cmd, "date") == 0) {
-                    sh_fn = k_shell_fn_date;
-                } else if (strcmp(cmd, "mem") == 0) {
-                    sh_fn = k_shell_fn_mem;
-                } else if (strcmp(cmd, "mount") == 0) {
-                    sh_fn = k_shell_fn_mount;
-                } else if (strcmp(cmd, "umount") == 0) {
-                    sh_fn = k_shell_fn_umount;
-                } else if (strcmp(cmd, "dbg") == 0) {
-                    sh_fn = k_shell_fn_dbg;
-                }
-
-                if (sh_fn != 0) {
-                    def res: i32 = sh_fn(&sh_state, &arg_buffer, count);
-                    if (res != 0) {
-                        k_io_print("^! Error running ");
-                        k_io_print(cmd);
-                        k_io_print("\n   Return Code: ");
-                        k_io_print_int(res);
-                        k_io_print("\n");
-                    }
-                } else {
-                    k_io_print("^! Unknown Command: ");
-                    k_io_print(cmd);
-                    k_io_print("\n");
-                }
-            }
+            k_shell_run_cmd(&sh_state, &arg_buffer, count);
         }
     }
 }

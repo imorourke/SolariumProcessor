@@ -47,7 +47,6 @@ fn main() void {
                         i = i + 4;
                     }
 
-
                     current_size = current_size + read_size;
 
                     print_i = (print_i + 1) % 8;
