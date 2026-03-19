@@ -9,7 +9,6 @@
 #include <memory>
 #include <stddef.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/stat.h>
 
 #include "cbfs.h"
@@ -85,7 +84,6 @@ struct CbFuseState {
     std::shared_mutex lock{};
     const char* base_file{};
     bool read_only{ false };
-    bool print_enabled{ false };
     std::unordered_map<uint16_t, fuse_mode_t> current_modes{};
 
     bool save_fs() {
@@ -108,16 +106,11 @@ struct CbFuseState {
         return entry;
     }
 
-    bool can_print_debug() const { return print_enabled; }
-
     static CbFuseState* get_instance() { return static_cast<CbFuseState*>(fuse_get_context()->private_data); }
 };
 
 static void cbfs_fuse_destroy(void* private_data) {
     auto state = static_cast<CbFuseState*>(private_data);
-    if (state->can_print_debug()) {
-        std::cout << "destroy()\n";
-    }
 
     if (state != nullptr) {
         state->save_fs();
@@ -206,17 +199,13 @@ static struct fuse_stat util_getstat(
 static int cbfs_fuse_getattr(
     const char* path,
     struct fuse_stat* stbuf,
-    struct fuse_file_info* fi
+    struct fuse_file_info*
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "getattr(" << path << ", " << fi << ", " << ((fi != nullptr) ? fi->fh : 0) << ")\n";
-    }
 
     try {
         *stbuf = util_getstat(*state, path);
-
         return 0;
     } catch (const cbfs_error& err) {
         return err.get_return_code();
@@ -224,7 +213,7 @@ static int cbfs_fuse_getattr(
 }
 
 static int cbfs_fuse_readdir(
-    const char* path,
+    const char*,
     void* buf,
     fuse_filler_t filler,
     fuse_off_t offset,
@@ -233,10 +222,6 @@ static int cbfs_fuse_readdir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-
-    if (state->can_print_debug()) {
-        std::cout << "readdir(" << path << ")\n";
-    }
 
     CbFsDirectoryList* entries{};
 
@@ -291,14 +276,11 @@ static int cbfs_fuse_readdir(
 }
 
 static int cbfs_fuse_statfs(
-    const char* path,
+    const char*,
     struct fuse_statfs_t* statfs
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "statfs(" << path << ")\n";
-    }
 
     try {
         CbFsStats fs_stats{};
@@ -337,9 +319,6 @@ static int cbfs_fuse_open(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "open(" << path << ", " << std::hex << fi->flags << ")\n";
-    }
 
     try {
         fi->fh = state->get_entry(path).entry_id;
@@ -356,9 +335,6 @@ static int cbfs_fuse_opendir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "opendir(" << path << ")\n";
-    }
 
     try {
         CbFsEntry entry = state->get_entry(path);
@@ -375,7 +351,7 @@ static int cbfs_fuse_opendir(
 }
 
 static int cbfs_fuse_read(
-    const char* path,
+    const char*,
     char* buf,
     size_t size,
     fuse_off_t offset,
@@ -383,9 +359,6 @@ static int cbfs_fuse_read(
 ) {
     const auto state = CbFuseState::get_instance();
     std::shared_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "read(" << path << ")\n";
-    }
 
     try {
         if (size > std::numeric_limits<int32_t>::max()) {
@@ -410,9 +383,6 @@ static int cbfs_fuse_mkdir(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "mkdir(" << path << ")\n";
-    }
 
     try {
         cbfs_error::check_return(cbfs_create_entry(state->fs, path, CbFsEntryType::Directory, nullptr, false));
@@ -429,9 +399,6 @@ static int cbfs_fuse_rename(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "mkdir(" << path << ", " << new_path << ")\n";
-    }
 
 #ifdef RENAME_EXCHANGE
     if ((flags & RENAME_EXCHANGE) == RENAME_EXCHANGE) {
@@ -455,9 +422,6 @@ static int cbfs_fuse_rename(
 static int cbfs_fuse_unlink(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "Unlinking " << path << std::endl;
-    }
 
     try {
         cbfs_error::check_return(cbfs_remove_entry(state->fs, path, CbFsEntryType::File));
@@ -470,9 +434,6 @@ static int cbfs_fuse_unlink(const char* path) {
 static int cbfs_fuse_rmdir(const char* path) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "rmdir(" << path << ")\n";
-    }
 
     try {
         cbfs_error::check_return(cbfs_remove_entry(state->fs, path, CbFsEntryType::Directory));
@@ -483,15 +444,12 @@ static int cbfs_fuse_rmdir(const char* path) {
 }
 
 static int cbfs_fuse_fsync(
-    const char* path,
+    const char*,
     int,
     struct fuse_file_info*
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "fsync(" << path << ")\n";
-    }
 
     if (!state->save_fs()) {
         return -ENOSYS;
@@ -507,9 +465,6 @@ static int cbfs_fuse_create(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "create(" << path << ", " << std::hex << mode << ", " << std::hex << fi->flags << ")\n";
-    }
 
     const bool can_truncate = (mode & (O_CREAT | O_TRUNC)) == (O_CREAT | O_TRUNC);
 
@@ -541,9 +496,6 @@ static int cbfs_fuse_write(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "write(" << path << ", " << fi << ")\n";
-    }
 
     try {
         uint16_t entry_val;
@@ -554,7 +506,6 @@ static int cbfs_fuse_write(
         } else {
             entry = state->get_entry(path);
             entry_val = entry.entry_id;
-            std::cout << " >> write(" << path << ", " << fi << ", " << entry_val << ")" << std::endl;
         }
 
         const size_t want_size = size + offset;
@@ -572,15 +523,12 @@ static int cbfs_fuse_write(
 }
 
 static int cbfs_fuse_truncate(
-    const char* path,
+    const char*,
     fuse_off_t size,
     fuse_file_info* fi
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "truncate(" << path << ")\n";
-    }
 
     try {
         cbfs_error::check_return(cbfs_truncate(state->fs, fi->fh, static_cast<uint32_t>(size)));
@@ -617,9 +565,6 @@ static int cbfs_fuse_utimens(
 ) {
     const auto state = CbFuseState::get_instance();
     std::unique_lock lk(state->lock);
-    if (state->can_print_debug()) {
-        std::cout << "utimens(" << path << ", " << tv << ", " << ((tv != nullptr) ? tv->tv_sec : 0) << ")\n";
-    }
 
     try {
         uint16_t hdl{};
@@ -649,7 +594,6 @@ static int cbfs_fuse_utimens(
 struct options_t {
     bool file_read_only;
     bool randomize;
-    bool func_calls;
     const char* base_file;
 };
 
@@ -661,9 +605,8 @@ enum {
 #define CBFS_OPTION(t, p) { t, offsetof(options_t, p), 1 }
 
 static const struct fuse_opt cbfs_option_spec[] = {
-    CBFS_OPTION("file=%s", base_file), CBFS_OPTION("mem", file_read_only),     CBFS_OPTION("rand", randomize),
-    CBFS_OPTION("calls", func_calls),  FUSE_OPT_KEY("--version", KEY_VERSION), FUSE_OPT_KEY("-V", KEY_VERSION),
-    FUSE_OPT_KEY("--help", KEY_HELP),  FUSE_OPT_KEY("-h", KEY_HELP),           FUSE_OPT_END,
+    CBFS_OPTION("file=%s", base_file), CBFS_OPTION("mem", file_read_only), CBFS_OPTION("rand", randomize),
+    FUSE_OPT_KEY("--help", KEY_HELP),  FUSE_OPT_KEY("-h", KEY_HELP),       FUSE_OPT_END,
 };
 
 #undef CBFS_OPTION
@@ -676,8 +619,6 @@ static void* cbfs_fuse_init(
 
     config->use_ino = false;
     config->kernel_cache = true;
-
-    state->print_enabled = state->print_enabled || (config->debug != 0);
 
     CbFsStats fs_stats{};
     if (cbfs_get_stats(state->fs, &fs_stats) == CbFsResult::Success) {
@@ -729,8 +670,7 @@ static int cbfs_opt_proc(
             "cbfs options:\n"
             "    -o file=PATH           base file to load a filesystem from\n"
             "    -o mem                 reads the FS from a file, but will not save\n"
-            "    -o rand                randomizes used sectors\n"
-            "    -o calls               provides information on function calls\n",
+            "    -o rand                randomizes used sectors\n",
             outargs->argv[0]
         );
         fuse_opt_add_arg(outargs, "-h");
@@ -781,7 +721,6 @@ int main(
     std::unique_ptr<CbFuseState> state = std::make_unique<CbFuseState>();
     state->base_file = options.base_file;
     state->read_only = options.file_read_only != 0;
-    state->print_enabled = options.func_calls;
     state->fs = cbfs_open(state->base_file, options.randomize);
     if (state->fs == nullptr) {
         std::cerr << "Unable to open a valid filesystem\n";
