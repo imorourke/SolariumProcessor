@@ -359,7 +359,7 @@ fn k_fs_set_entry_size(dev: *k_fs_disk_t, entry: u16, hdr: *k_fs_entry_header_t)
                 dev->entry_table_dirty = 1;
             }
         } else if ((i + 1) >= required_sectors) {
-            // TODO - FINISH HERE!
+            // TODO: FINISH HERE!
         }
         sector = next;
         i = i + 1;

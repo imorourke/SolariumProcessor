@@ -122,11 +122,15 @@ impl TryFrom<u8> for DataType {
     }
 }
 
-// Bit Formatting:
-// | 31 30 29 28 27 26 25 24 | 23 22 21 | 20 19 18 17 16 | 15 14 13 | 12 11 10  9  8 |  7  6  5 |  4  3  2  1  0 |
-// | Opcode                  | Arg 0                     | Arg 1                     | Arg 2                     |
-// | Opcode                  | DType 0  | Arg 0 (Reg)    | DType 1  | Arg 1 (Reg)    | DType 2  | Arg 2 (Reg)    |
-// | Opcode                  | ImmTodo  | Immediate Value                                                        |
+/// Provides helpful utilities in working with instruction words
+///
+/// General bit formatting depends on the format of the opcode, but typically consists of one of the following options:
+///
+///  | 31 30 29 28 27 26 25 24 | 23 22 21 | 20 19 18 17 16 | 15 14 13 | 12 11 10  9  8 |  7  6  5 |  4  3  2  1  0 |
+///  |-------------------------|----------|----------------|----------|----------------|----------|----------------|
+///  | Opcode                  | Arg 0    |                | Arg 1    | ...            | Arg 2    | ...            |
+///  | Opcode                  | DType 0  | Arg 0 (Reg)    | DType 1  | Arg 1 (Reg)    | DType 2  | Arg 2 (Reg)    |
+///  | Opcode                  | DType    | Register       | U16/I16  | ...            | ...      | ...            |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction {
     data: [u8; Self::NUM_BYTES],

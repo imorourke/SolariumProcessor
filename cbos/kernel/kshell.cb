@@ -16,6 +16,7 @@ struct k_shell_state_t {
     auto_halt: u8;
 }
 
+// TODO: Add real
 global __k_shell_run_cmd: fn(*k_shell_state_t, i32, **u8) i32 = 0;
 
 fn k_shell_disk_open(state: *k_shell_state_t) i32 {

@@ -31,7 +31,7 @@ pub fn tokenize_file(file: &Path) -> Result<Vec<Token>, TokenError> {
 pub fn tokenize<T: IntoIterator<Item = (String, Option<PreprocessorLocation>)>>(
     lines: T,
 ) -> Result<Vec<Token>, TokenError> {
-    // TODO - impl iterator?
+    // TODO: impl iterator?
     // Define the maximum count for operators
     const MAX_OPERATOR_CHAR_COUNT: usize = 2;
 
