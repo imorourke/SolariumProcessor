@@ -165,9 +165,9 @@ static struct fuse_stat cbfs_util_getstat(
 
 #ifdef __APPLE__
 #define STATFIELD(NAME) NAME
-#define TIMEFIELD(NAME) NAME ## espec
+#define TIMEFIELD(NAME) NAME##espec
 #else
-#define STATFIELD(NAME) st_ ## NAME
+#define STATFIELD(NAME) st_##NAME
 #define TIMEFIELD(NAME) STATFIELD(NAME)
 #endif
 
@@ -590,6 +590,26 @@ static int cbfs_fuse_truncate(
     }
 }
 
+static int cbfs_fuse_chmod(
+    const char* path,
+    mode_t,
+    struct fuse_file_info* fi
+) {
+    const auto state = CbFuseState::get_instance();
+    std::unique_lock lk(state->lock);
+
+    try {
+        if (fi != nullptr) {
+            state->get_entry(fi->fh);
+        } else {
+            state->get_entry(path);
+        }
+        return 0;
+    } catch (const cbfs_error& err) {
+        return err.get_return_code();
+    }
+}
+
 static int cbfs_fuse_utimens(
     const char* path,
     const fuse_timespec* tv,
@@ -688,6 +708,7 @@ static constexpr struct fuse_operations generate_fuse_opers() {
     opers.fsyncdir = cbfs_fuse_fsync;
     opers.truncate = cbfs_fuse_truncate;
     opers.utimens = cbfs_fuse_utimens;
+    opers.chmod = cbfs_fuse_chmod;
     return opers;
 }
 
