@@ -12,9 +12,12 @@
 #include <std/string.cb>
 
 fn os_main() void {
+    k_shell_global_init();
     k_io_print("Starting C/Buoy OS\n");
+
     def input_buffer: [K_SHELL_DEFAULT_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [K_SHELL_DEFAULT_ARG_SPLIT_SIZE]*u8;
+
     def run_shell: u8 = 1;
     def sh_state: k_shell_state_t;
     k_memset(&sh_state, 0, sizeof(k_shell_state_t));
