@@ -23,7 +23,7 @@ fn main() -> eframe::Result<()> {
                 width: img.width(),
                 height: img.height(),
             })
-            .with_app_id("com.orourke.Solarium.VJib"),
+            .with_app_id("visual-jib"),
         ..eframe::NativeOptions::default()
     };
 
