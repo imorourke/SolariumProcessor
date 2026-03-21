@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Visual/Jib
+GenericName=Computer Emulator
+X-GNOME-FullName=Visual/Jib
+Comment=Visual/Jib Emulator
+Keywords=Development;Emulator;
+Exec=visual-jib
+Icon=visual-jib
+Terminal=false
+Type=Application
+Categories=Development
+StartupNotify=true
