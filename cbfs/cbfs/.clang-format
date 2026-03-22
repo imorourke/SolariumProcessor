@@ -10,6 +10,9 @@ FixNamespaceComments: false
 ColumnLimit: 140
 
 Cpp11BracedListStyle: false
-BinPackArguments: false
+BinPackArguments: AlwaysOnePerLine
 BinPackParameters: AlwaysOnePerLine
 AlignAfterOpenBracket: BlockIndent
+ArrayInitializerAlignmentStyle: Left
+AlignArrayOfStructures: Left
+PackConstructorInitializers: false
