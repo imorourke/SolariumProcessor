@@ -8,6 +8,7 @@
 #include <fuse3/fuse_opt.h>
 #include <limits>
 #include <memory>
+#include <span>
 #include <stddef.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -618,38 +619,17 @@ static constexpr struct fuse_operations generate_fuse_opers() {
 
 static const struct fuse_operations cbfs_fuse_oper = generate_fuse_opers();
 
-static int cbfs_opt_proc(void *,       // data
-                         const char *, // arg
-                         int key, struct fuse_args *outargs) {
-  switch (key) {
-  case KEY_HELP:
-    fprintf(stdout,
-            "usage: %s [options] mountpoint\n"
-            "\n"
-            "cbfs options:\n"
-            "    -o file=PATH           base file to load a filesystem from\n"
-            "    -o mem                 reads the FS from a file, but will not "
-            "save\n"
-            "    -o rand                randomizes used sectors\n",
-            outargs->argv[0]);
-    fuse_opt_add_arg(outargs, "-h");
-    outargs->argv[0][0] = '\0';
-    fuse_main(outargs->argc, outargs->argv, &cbfs_fuse_oper, nullptr);
-    exit(0);
-  case KEY_VERSION:
-    fprintf(stdout, "cbfs version 0.1\n");
-    fuse_opt_add_arg(outargs, "--version");
-    fuse_main(outargs->argc, outargs->argv, &cbfs_fuse_oper, nullptr);
-    exit(0);
-  }
-  return 1;
-}
-
 struct FuseArgContainer {
-  struct fuse_args args;
+  struct fuse_args args{};
 
   FuseArgContainer(int argc, char *argv[]) {
     args = FUSE_ARGS_INIT(argc, argv);
+  }
+
+  FuseArgContainer(std::span<const char *> argv) {
+    for (const auto &i : argv) {
+      fuse_opt_add_arg(&args, i);
+    }
   }
 
   FuseArgContainer(const FuseArgContainer &) = delete;
@@ -660,10 +640,54 @@ struct FuseArgContainer {
   ~FuseArgContainer() { fuse_opt_free_args(&args); }
 };
 
-int main(int argc, char *argv[]) {
-  FuseArgContainer args(argc, argv);
+static void cbfs_print_usage(const char *prog);
 
+static int cbfs_opt_proc(void *,       // data
+                         const char *, // arg
+                         int key, struct fuse_args *outargs) {
+  switch (key) {
+  case KEY_HELP:
+    cbfs_print_usage(outargs->argv[0]);
+    exit(0);
+  case KEY_VERSION:
+    fprintf(stdout, "cbfs version 0.1\n");
+    fuse_opt_add_arg(outargs, "--version");
+    fuse_main(outargs->argc, outargs->argv, &cbfs_fuse_oper, nullptr);
+    exit(0);
+  }
+  return 1;
+}
+
+static void cbfs_print_usage(const char *prog) {
+  fprintf(stdout,
+          "usage: %s [options] <device|image> <mountpoint>\n"
+          "\n"
+          "cbfs options:\n"
+          "    -o mem                 operates only in memory\n"
+          "    -o rand                randomizes used sectors\n",
+          prog);
+
+  auto argvals = std::to_array<const char *>({
+      "",
+      "-h",
+  });
+  const auto args = FuseArgContainer(argvals);
+  fuse_main(args.args.argc, args.args.argv, &cbfs_fuse_oper, nullptr);
+}
+
+int main(int argc, char *argv[]) {
+  // Extract out the device path
   options_t options{};
+  if ((argc < 3) || (argv[argc - 2][0] == '-') || (argv[argc - 1][0] == '-')) {
+    cbfs_print_usage(argv[0]);
+    return 1;
+  } else {
+    options.base_file = argv[argc - 2];
+    argv[argc - 2] = argv[argc - 1];
+    argc -= 1;
+  }
+
+  FuseArgContainer args(argc, argv);
   fuse_opt_parse(&args.args, &options, cbfs_option_spec.data(), cbfs_opt_proc);
 
   if (options.base_file == nullptr) {
