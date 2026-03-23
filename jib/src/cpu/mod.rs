@@ -993,6 +993,7 @@ impl Processor {
     pub fn step_devices(&mut self) -> Result<bool, ProcessorError> {
         let mut triggered = false;
 
+        // Step all devices
         for dev in self.devices.clone() {
             if let Some(action) = dev.borrow_mut().on_step() {
                 match action {
