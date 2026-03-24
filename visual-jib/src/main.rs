@@ -3,7 +3,6 @@ mod cpu_thread;
 mod messages;
 
 use app::VisualJib;
-use eframe::egui::Visuals;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
@@ -30,10 +29,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         VisualJib::name(),
         native_options,
-        Box::new(|cc| {
-            cc.egui_ctx.set_visuals(Visuals::light());
-            Ok(Box::<VisualJib>::default())
-        }),
+        Box::new(|_| Ok(Box::<VisualJib>::default())),
     )
 }
 
