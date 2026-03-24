@@ -244,6 +244,9 @@ impl Processor {
     /// Defines the number of supported interrupts per interrupt class
     pub const NUM_INTERRUPT_PER_CLASS: u32 = InterruptController::NUM_INTERRUPTS / 2;
 
+    /// Defines the number of non-maskable interrupts for error conditions
+    pub const NUM_NON_MASKABLE_INTERRUPTS: u32 = 8;
+
     ///Providesthe base address for the hardware interrupts
     pub const BASE_HW_INT_ADDR: u32 = 0x100;
 
@@ -538,6 +541,7 @@ impl Processor {
         if !self
             .registers
             .get_status_flag(RegisterFlag::InterruptEnable)?
+            && int.to_index() >= Self::NUM_NON_MASKABLE_INTERRUPTS
         {
             return Ok(false);
         }
@@ -694,6 +698,34 @@ impl Processor {
     }
 
     pub fn step(&mut self) -> Result<(), ProcessorError> {
+        if let Err(err) = self.step_no_catch() {
+            match err {
+                ProcessorError::Operation(_)
+                | ProcessorError::UnknownInstruction(_)
+                | ProcessorError::OpcodeAlignment(_)
+                | ProcessorError::DataType(_)
+                | ProcessorError::UnsupportedDataType(_, _)
+                | ProcessorError::Register(_) => {
+                    // TODO: Argument with PC?
+                    self.interrupt_controller.queue_interrupt(0)?;
+                    self.check_and_call_interrupt()?;
+                }
+                ProcessorError::Memory(_) => {
+                    self.interrupt_controller.queue_interrupt(1)?; // TODO: Argument with memory address?
+                    self.check_and_call_interrupt()?;
+                }
+                ProcessorError::UnknownInterruptIndex(_)
+                | ProcessorError::UnsupportedInterrupt(_)
+                | ProcessorError::StackUnderflow => self.reset(ResetType::Soft)?,
+            };
+
+            Ok(())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn step_no_catch(&mut self) -> Result<(), ProcessorError> {
         self.step_devices()?;
 
         let mut inst_jump = Some(1);
@@ -1007,17 +1039,21 @@ impl Processor {
         // Run the next interrupt if there is an interrupt queued and either:
         // (1) no interrupt is currently running
         // (2) the next interrupt has a lower number
-        triggered |= if let Some(next_interrupt) = self.interrupt_controller.has_interrupt()
+        triggered |= self.check_and_call_interrupt()?;
+
+        Ok(triggered)
+    }
+
+    fn check_and_call_interrupt(&mut self) -> Result<bool, ProcessorError> {
+        if let Some(next_interrupt) = self.interrupt_controller.has_interrupt()
             && self
                 .get_executing_interrupt()?
                 .is_none_or(|x| next_interrupt < x)
         {
-            self.call_interrupt(next_interrupt.try_into()?, None)?
+            self.call_interrupt(next_interrupt.try_into()?, None)
         } else {
-            false
-        };
-
-        Ok(triggered)
+            Ok(false)
+        }
     }
 
     fn stack_push(&mut self, val: u32) -> Result<(), ProcessorError> {

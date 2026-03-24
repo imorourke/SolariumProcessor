@@ -15,6 +15,8 @@ fn os_main() void {
     k_shell_global_init();
     k_io_print("Starting C/Buoy OS\n");
 
+    def a: u8 = *(0xE0000000u32 : *u8);
+
     def input_buffer: [K_SHELL_DEFAULT_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [K_SHELL_DEFAULT_ARG_SPLIT_SIZE]*u8;
 
@@ -40,20 +42,27 @@ global K_OS_THREAD: [4096]u8;
 
 fnint irq_noop() void {}
 
+fnint irq_reset() void {
+    asm { "reset"; }
+}
+
 fn main() void {
+    // Set CPU error handlers
+    k_irq_set(0, irq_reset);
+    k_irq_set(1, irq_reset);
+
     k_device_init(0);
     k_io_init();
     k_rtc_init();
 
-    SERIAL_DEV->interrupt_num = 2;
-    SERIAL_DEV->interrupt_char = '\n';
-
     k_tsk_init(os_main, K_OS_THREAD);
 
-    k_irq_set(1, k_tsk_yield);
-    k_clock_configure(1000, 1);
+    k_irq_set(8, k_tsk_yield);
+    k_clock_configure(1000, 8);
 
-    k_irq_set(2, irq_noop);
+    SERIAL_DEV->interrupt_num = 9;
+    SERIAL_DEV->interrupt_char = '\n';
+    k_irq_set(9, irq_noop);
 
     k_tsk_main();
     k_cpu_reset();
