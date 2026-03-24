@@ -7,6 +7,63 @@ use crate::{
     memory::{MemorySegment, MemorySegmentError},
 };
 
+/// Implements a simple circular buffer to store data within a known quantity of items
+#[derive(Clone, Copy)]
+pub struct CircularBuffer<T: Copy + Clone + Default, const S: usize> {
+    /// The raw data values
+    buffer: [T; S],
+    /// The next index to write to
+    idx_write: usize,
+    /// The next index to read from
+    idx_read: usize,
+}
+
+impl<T: Default + Clone + Copy, const S: usize> CircularBuffer<T, S> {
+    /// Provides the next index for the given size
+    const fn next_idx(i: usize) -> usize {
+        (i + 1) % S
+    }
+
+    /// Pushes an element into the buffer
+    pub fn push(&mut self, val: T) {
+        let next_write = Self::next_idx(self.idx_write);
+        if next_write == self.idx_read {
+            self.idx_read = Self::next_idx(self.idx_read);
+        }
+        self.buffer[self.idx_write] = val;
+        self.idx_write = next_write;
+    }
+
+    /// Pops an element from the buffer
+    pub fn pop(&mut self) -> Option<T> {
+        if let Some(val) = self.peek() {
+            self.idx_read = Self::next_idx(self.idx_read);
+            Some(val)
+        } else {
+            None
+        }
+    }
+
+    /// Peeks at the next element to be read from the buffer
+    pub fn peek(&self) -> Option<T> {
+        if self.idx_read != self.idx_write {
+            Some(self.buffer[self.idx_read])
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Default + Clone + Copy, const S: usize> Default for CircularBuffer<T, S> {
+    fn default() -> Self {
+        Self {
+            buffer: [T::default(); S],
+            idx_write: 0,
+            idx_read: 0,
+        }
+    }
+}
+
 /// Provides a memory serial I/O memory-mapped device
 pub struct SerialInputOutputDevice {
     /// Provides the base address for the input device
