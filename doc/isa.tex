@@ -64,7 +64,7 @@ There are 32 total registers present on the Jib. These are defined generally as 
     \label{table:register-setup}
 \end{table}
 
-The program counter indicates the next instruction to be read. At the beginning of the processor cycle, the instruction at the memory address of the program counter is read in and processed. Then, the program counter is incremented at the end of each instruction cycle. If this value is needed to be modified, it is recommended to use the absolute \texttt{jmp}, or the relative jump instruction \texttt{jmpr} (see Section \ref{sec:instructions}), as opposed to writing to the register directly. This will automatically account for the increment at the end of the instruction cycle.
+The program counter indicates the next instruction to be read. At the beginning of a processor cycle, the instruction at the memory address of the program counter is read in and processed. The program counter is incremented at the end of the cycle. It is recommended to use the \texttt{jmp} or \texttt{jmpr} instructions (see Section \ref{sec:instructions}) to modify the program counter, as opposed to writing to the register directly.
 
 The global stack pointer maintains the global stack, as defined in Section \ref{sec:the-stack}. This provides the absolute address of the current stack location. Thus, when the stack is empty, it points to the stack base address, and when the stack is completely full it points to the memory location just above the last stack entry, or the base address plus the stack size. This value should not be edited by-hand to maintain the consistency of the program execution, but is instead modified by the stack instructions \texttt{push}, \texttt{pop}, \texttt{popr}, \texttt{call}, \texttt{ret}, \texttt{retint}, and \texttt{int}, as well as hardware interrupts. This should be loaded by the init program by assembly, however, to provide the default base location for the stack.
 
@@ -111,29 +111,24 @@ Since the architecture of the Jib is 32-bit, this means that the basic word, and
     \label{table:instruction-formatting}
 \end{table}
 
-This is contrasted with the typical assembly language formatting, which is provided as
+This is contrasted with the typical assembly language formatting, which is provided as follows, where the number of arguments depends on the required number of arguments for the instruction.
 
 \begin{center}
     \texttt{instruction <arg2> <arg1> <arg0>}
 \end{center}
 
-where the number of arguments depends on the required number of arguments for the instruction.
-
 Certain arguments require type information. When this is present, the type code resides in the upper 3 bits of the argument byte (\texttt{0xE0}), while the register resides in the lower 5 bits (\texttt{0x1F}). Type codes are provided in Table \ref{table:type-codes}.
 
 \begin{table}[h!]
 	\centering
-	\begin{tabular}{c|cc|c}
+	\begin{tabular}{c|cc|c|c|cc|c|}
 		\hline
-		Type & Code & Size in Bytes & Description \\
+		Type & Code & Size in Bytes & Description & Type & Code & Size in Bytes & Description \\
 		\hline
-		 U8 & 1 & 1 & Unsigned byte \\
-		 I8 & 2 & 1 & Signed byte \\
-		 U16 & 3 & 2 & Unsigned short\\
-		 I16 & 4 & 2 & Signed short \\
-		 U32 & 5 & 4 & Unsigned integer \\
-		 I32 & 6 & 4 & Signed integer \\
-		 F32 & 7 & 4 & 32-bit floating point \\
+		 U8 & 1 & 1 & Unsigned byte & I8 & 2 & 1 & Signed byte \\
+		 U16 & 3 & 2 & Unsigned short& I16 & 4 & 2 & Signed short \\
+		 U32 & 5 & 4 & Unsigned integer & I32 & 6 & 4 & Signed integer \\
+		 F32 & 7 & 4 & 32-bit floating point & {} & {} & {} & {} \\
 		\hline
 	\end{tabular}
 	\caption{The supported type codes that are associated with certain instruction codes}
@@ -395,9 +390,28 @@ Jib computers, by default, utilize the following character map. This is similar 
 \section{Devices}
 \label{sec:devices}
 
-Devices are memory-mapped in Jib. This means that reading or writing to special regions in memory facilitate the communication with these external devices. In a typical Jib computer, the device region consists of up to 64 devices, starting at memory address \texttt{0xFFFFA000}, with each device allocating up to 32 bytes of memory. Not all devices will make use all the available memory slots for a given device. In these cases, a memory exception will be provided if any of these invalid addresses are read from or written to.
+Devices are memory-mapped in Jib. This means that reading or writing to special regions in memory facilitate the communication with these external devices. In a typical Jib computer, the device region consists of up to 64 devices, starting at memory address \texttt{0xFFFFA000}, with each device allocating up to 32 \textit{(1024?)} bytes of memory. Not all devices will make use all the available memory slots for a given device. In these cases, a memory exception will be provided if any of these invalid addresses are read from or written to. Available devices are listed in Table \ref{table:dev-ids}.
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l|ll}
+		\hline
+		Device & ID & {} \\
+		\hline
+		0 & None & {} \\
+		1 & Serial I/O & (Section \ref{sec:dev-serial}) \\
+		2 & IRQ Clock & (Section \ref{sec:dev-irq-clock}) \\
+		3 & RTC Clock & (Section \ref{sec:dev-rtc-clock}) \\
+		4 & RTC Timer & (Section \ref{sec:dev-rtc-timer}) \\
+		5 & Block Device & (Section \ref{sec:dev-block-device}) \\
+		\hline
+	\end{tabular}
+	\caption{Device IDs allow for easy enumeration of different devices}
+	\label{table:dev-ids}
+\end{table}
 
 \subsection{Serial Input and Output}
+\label{sec:dev-serial}
 
 The serial input and output device is one of the simplest devices. It essentially consists of a device two queues, one for input, and another for output. Each of these queues has an internal buffer size of 256 words. If any words are attempted to be added to the queue once either queue is full, no additional data is read and that data is lost.
 
@@ -409,7 +423,7 @@ The memory mapping for the serial input and output device is provided in Table \
         \hline
         Offset & Type & Read/Write & Usage \\
         \hline
-        \texttt{0} & u16 & Read & Device ID 1 \\
+        \texttt{0} & u16 & Read & Device ID \\
         \texttt{2} & u8 & Read & Provides the current input queue size \\
         \texttt{3} & u8 & Read & Pops and provides a word off the front of the input queue \\
         & & & If no data is available, will return \texttt{0} by default \\
@@ -425,6 +439,7 @@ The memory mapping for the serial input and output device is provided in Table \
 \end{table}
 
 \subsection{IRQ Clock}
+\label{sec:dev-irq-clock}
 
 The IRQ clock provides a means to trigger a specific hardware interrupt at a regular interval of clock cycles. This consists of a settable interval (or set to 0 to disable), as well as a settable interrupt to trigger. Available in memory is the ability to read any of these two settable parameters, as well as a readable indication of the current clock cycle count. The memory mapping is provided in Table \ref{table:dev-irq-clock}.
 
@@ -434,7 +449,7 @@ The IRQ clock provides a means to trigger a specific hardware interrupt at a reg
 		\hline
 		Offset & Type & Read/Write & Usage \\
 		\hline
-		\texttt{0} & u16 & Read & Device ID 2 \\
+		\texttt{0} & u16 & Read & Device ID \\
 		\texttt{2} & u32 & Read/Write & Gets/sets the clock interval in CPU cycles. Set to 0 to disable. \\
 		\texttt{6} & u32 & Read & Provides the current clock counter in CPU cycles. \\
 		{} & {} & {} & Will be between 0 and the above interval. \\
@@ -443,6 +458,77 @@ The IRQ clock provides a means to trigger a specific hardware interrupt at a reg
 	\end{tabular}
 	\caption{Serial Input and Output device provides a simple data structure to read and write data streams}
 	\label{table:dev-irq-clock}
+\end{table}
+
+\subsection{RTC Clock}
+\label{sec:dev-rtc-clock}
+
+The RTC clock device provides a clock providing accurate wall-time. This provides direct memory access to the current time, and is typically provided as UTC time. The device specification is provided in Table \ref{table:dev-rtc-clock}.
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l|lll}
+		\hline
+		Offset & Type & Read/Write & Usage \\
+		\hline
+		\texttt{0} & u16 & Read & Device ID \\
+		\texttt{2} & u16 & Read & Years \\
+		\texttt{4} & u8 & Read & Months (1-12) \\
+		\texttt{5} & u8 & Read & Days (1-31) \\
+		\texttt{6} & u8 & Read & Hours (0-23) \\
+		\texttt{7} & u8 & Read & Minutes (0-59) \\
+		\texttt{8} & u8 & Read & Seconds (0-59) \\
+		\texttt{9} & u8 & Read & Hundredths of a second (0-99) \\
+		\hline
+	\end{tabular}
+	\caption{Real time clock provides current wall time for programs}
+	\label{table:dev-rtc-clock}
+\end{table}
+
+\subsection{RTC Timer}
+\label{sec:dev-rtc-timer}
+
+The RTC Timer device allows for timing parameters based on a specific wall time, as opposed to a number of CPU cycles, as provided by the IRQ clock in Section \ref{sec:dev-irq-clock}. The specification for the RTC timer is provided in Table \ref{table:dev-rtc-timer}.
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l|lll}
+		\hline
+		Offset & Type & Read/Write & Usage \\
+		\hline
+		\texttt{0} & u16 & Read & Device ID \\
+		\texttt{2} & u8 & Read/Write & Selected IRQ \\
+		\texttt{3} & u8 & Read/Write & Timer repeat flag \\
+		\texttt{4} & u32 & Read/Write & Timer period, in milliseconds \\
+		\hline
+	\end{tabular}
+	\caption{Real time timer provides a way to provide timing based on elapsed time instead of cycles}
+	\label{table:dev-rtc-timer}
+\end{table}
+
+\subsection{Block Device}
+\label{sec:dev-block-device}
+
+A block device allows for reading and writing from a mass storage device. This provides a way to read a block device in chunks, as a "block" of data. Block device mappings are provided in Table \ref{table:dev-block-device}.
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l|lll}
+		\hline
+		Offset & Type & Read/Write & Usage \\
+		\hline
+		\texttt{0} & u16 & Read & Device ID \\
+		\texttt{2} & u8 & Read/Write & Drive parked  \\
+		\texttt{3} & u8 & Read & Drive ready? \\
+		\texttt{4} & u32 & Read/Write & Drive Target Offset \\
+		\texttt{8} & u8 & Write & Move to offset when non-zero \\
+		\texttt{9} & u8 & Write & Write data when non-zero \\
+		\texttt{10} & u16 & Read/Write & Memory window size (max of 256) \\
+		\texttt{12} & [256]u8 & Read/Write & Memory window (if 0 sets to max) \\
+		\hline
+	\end{tabular}
+	\caption{Block device allows reading and writing of data from a mass-storage device}
+	\label{table:dev-block-device}
 \end{table}
 
 \pagebreak

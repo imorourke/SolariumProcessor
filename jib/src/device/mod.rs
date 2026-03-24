@@ -36,7 +36,7 @@ impl DeviceType {
             Self::IrqClock => 2,
             Self::RtcClock => 3,
             Self::RtcTimer => 4,
-            Self::BlockDevice => u16::MAX,
+            Self::BlockDevice => 5,
         }
     }
 }
