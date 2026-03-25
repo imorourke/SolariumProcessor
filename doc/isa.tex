@@ -1,10 +1,12 @@
 \documentclass{article}
 \usepackage[paper=a4paper,margin=1in]{geometry}
 
-\usepackage{amsmath}
-\usepackage{graphicx}
 \usepackage{listings}
+\usepackage{graphicx}
 
+\usepackage{amsmath}
+
+%\usepackage[pdftex, pdfauthor={Ian O'Rourke}, pdftitle={Jib ISA}]
 \pdfinfo{
 	/Author (Ian O'Rourke)
 	/Title (Jib Instruction Set Architecture)
@@ -197,10 +199,10 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			C & 0 & 7 & \texttt{push [a]} & \texttt{mem[\$SP += 4] = R[a]} \\
 			A & 0 & 8 & \texttt{pop} & \texttt{\$SP -= 4} \\
 			C & 0 & 9 & \texttt{popr [a]} & \texttt{R[a] = mem[\$SP -= 4]} \\
-			C & 0 & 10 & \texttt{jmp [a]} & \texttt{\$PC = R[a]} \\
-			C & 0 & 11 & \texttt{jmpr [a]} & \texttt{\$PC += R[a]} \\
-			B & 0 & 12 & \texttt{jmpri <imm>} & \texttt{\$PC += Imm} (Signed) \\
-			A & 0 & 15 & \texttt{halt} & Stop Program Execution \\
+			C & 0 & A & \texttt{jmp [a]} & \texttt{\$PC = R[a]} \\
+			C & 0 & B & \texttt{jmpr [a]} & \texttt{\$PC += R[a]} \\
+			B & 0 & C & \texttt{jmpri <imm>} & \texttt{\$PC += Imm} (Signed) \\
+			A & 0 & F & \texttt{halt} & Stop Program Execution \\
 
 			G & 1 & 0 & \texttt{ld [a] [b]} & \texttt{R[a] = mem[R[b]]} \\
 			G & 1 & 1 & \texttt{ldr [a] [b]} & \texttt{R[a] = mem[\$PC + R[b]]} \\
@@ -231,20 +233,20 @@ All available instructions are listed in Table \ref{table:instruction-table}. No
 			A & 5 & 0 & \texttt{brk} & Debug Breakpoint (capturable by hardware if supported; \\
 			{} & {} & {} & {} & otherwise, acts as a \texttt{noop}) \\
 
-			I & 10 & 0 & \texttt{add [dst] [a] [b]} & \texttt{R[dst] = R[a] + R[b]} \\
-			I & 10 & 1 & \texttt{sub [dst] [a] [b]} & \texttt{R[dst] = R[a] - R[b]} \\
-			I & 10 & 2 & \texttt{mul [dst] [a] [b]} & \texttt{R[dst] = R[a] * R[b]} \\
-			I & 10 & 3 & \texttt{div [dst] [a] [b]} & \texttt{R[dst] = R[a] / R[b]} \\
-			I & 10 & 4 & \texttt{rem [dst] [a] [b]} & \texttt{R[dst] = R[a] \% R[b]} \\
-			G & 10 & 5 & \texttt{neg [dst] [a]} & \texttt{R[dst] = -R[a]} \\
+			I & A & 0 & \texttt{add [dst] [a] [b]} & \texttt{R[dst] = R[a] + R[b]} \\
+			I & A & 1 & \texttt{sub [dst] [a] [b]} & \texttt{R[dst] = R[a] - R[b]} \\
+			I & A & 2 & \texttt{mul [dst] [a] [b]} & \texttt{R[dst] = R[a] * R[b]} \\
+			I & A & 3 & \texttt{div [dst] [a] [b]} & \texttt{R[dst] = R[a] / R[b]} \\
+			I & A & 4 & \texttt{rem [dst] [a] [b]} & \texttt{R[dst] = R[a] \% R[b]} \\
+			G & A & 5 & \texttt{neg [dst] [a]} & \texttt{R[dst] = -R[a]} \\
 
-			I & 11 & 0 & \texttt{band [dst] [a] [b]} & \texttt{R[dst] = R[a] \& R[b]} \\
-			I & 11 & 1 & \texttt{bor [dst] [a] [b]} & \texttt{R[dst] = R[a] | R[b]} \\
-			I & 11 & 2 & \texttt{bxor [dst] [a] [b]} & \texttt{R[dst] = R[a] $\wedge$ R[b]} \\
-			I & 11 & 3 & \texttt{bshl [dst] [a] [b]} & \texttt{R[dst] = R[a] << R[b]} \\
-			I & 11 & 4 & \texttt{bshr [dst] [a] [b]} & \texttt{R[dst] = R[a] >> R[b]} \\
-			G & 11 & 5 & \texttt{bnot [dst] [a]} & \texttt{R[dst] = \textasciitilde R[a]} \\
-			D & 11 & 6 & \texttt{bswp [dst] [a]} & \texttt{R[dst] = R[a] (Swapped Bytes)} \\
+			I & B & 0 & \texttt{band [dst] [a] [b]} & \texttt{R[dst] = R[a] \& R[b]} \\
+			I & B & 1 & \texttt{bor [dst] [a] [b]} & \texttt{R[dst] = R[a] | R[b]} \\
+			I & B & 2 & \texttt{bxor [dst] [a] [b]} & \texttt{R[dst] = R[a] $\wedge$ R[b]} \\
+			I & B & 3 & \texttt{bshl [dst] [a] [b]} & \texttt{R[dst] = R[a] << R[b]} \\
+			I & B & 4 & \texttt{bshr [dst] [a] [b]} & \texttt{R[dst] = R[a] >> R[b]} \\
+			G & B & 5 & \texttt{bnot [dst] [a]} & \texttt{R[dst] = \textasciitilde R[a]} \\
+			D & B & 6 & \texttt{bswp [dst] [a]} & \texttt{R[dst] = R[a] (Swapped Bytes)} \\
 			\hline
 		\end{tabular}
 	\end{footnotesize}
