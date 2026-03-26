@@ -1,6 +1,16 @@
 #include "jib.h"
 
+#ifdef __APPLE__
+#include <machine/endian.h>
+
+#define be16toh(x) ntohs(x)
+#define be32toh(x) ntohl(x)
+
+#define htobe16(x) htons(x)
+#define htobe32(x) htonl(x)
+#else
 #include <endian.h>
+#endif
 
 namespace jib {
 
