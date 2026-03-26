@@ -1,79 +1,144 @@
 #pragma once
 
+#include <endian.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+#include <string>
+#include <vector>
 
 namespace jib {
 
-const size_t NUM_REGISTERS = 32;
+static const size_t NUM_REGISTERS = 32;
+
+class ProcessorException {
+public:
+    ProcessorException(const std::string& msg);
+    ~ProcessorException() = default;
+
+    virtual const char* what() const;
+
+protected:
+    std::string msg;
+};
+
+class MemoryException : public ProcessorException {
+public:
+    MemoryException(const std::string& msg, uint32_t addr);
+
+private:
+    uint32_t addr;
+};
 
 struct StatusFlags {
-  uint32_t val;
+    uint32_t val;
 
-  StatusFlags(uint32_t val) : val(val) {}
+    StatusFlags(uint32_t val);
+
+    bool get_flag(uint32_t flag) const;
+    StatusFlags with_flag(uint32_t flag, bool value) const;
+    void set_flag(uint32_t flag, bool value);
+
+    static const uint32_t FLAG_INTERRUPTS_ENABLED;
 };
 
 struct Registers {
-  uint32_t registers[NUM_REGISTERS];
+    uint32_t registers[NUM_REGISTERS];
 
-  const size_t REG_PC = 0;
-  const size_t REG_STAT = 1;
-  const size_t REG_SP = 2;
-  const size_t REG_LDO = 3;
-  const size_t REG_RET = 4;
-  const size_t REG_BASE = 5;
+    uint32_t get(size_t i) const;
+
+    void set(size_t i, uint32_t val);
+
+    static const size_t REG_PC;
+    static const size_t REG_STAT;
+    static const size_t REG_SP;
+    static const size_t REG_LDO;
+    static const size_t REG_RET;
+    static const size_t REG_BASE;
+};
+
+class MemorySegment {
+    std::vector<uint8_t> data;
+
+public:
+    size_t size() const;
+
+    uint8_t get_u8(uint32_t addr);
+    uint16_t get_u16(uint32_t addr);
+    uint32_t get_u32(uint32_t addr);
+
+    uint8_t peek_u8(uint32_t addr) const;
+    uint16_t peek_u16(uint32_t addr) const;
+    uint32_t peek_u32(uint32_t addr) const;
+
+    void set_u8(uint32_t addr, uint8_t val);
+    void set_u16(uint32_t addr, uint16_t val);
+    void set_u32(uint32_t addr, uint32_t val);
 };
 
 class MemoryMap {
+    struct SegmentInfo {
+        MemorySegment* segment;
+        uint32_t base;
+        uint32_t top;
+
+        bool contains(uint32_t addr) const;
+    };
+
+    std::vector<SegmentInfo> segments;
+    SegmentInfo* last_segment;
+
 public:
-  uint8_t get_u8(uint32_t addr);
-  uint16_t get_u16(uint32_t addr);
-  uint32_t get_u32(uint32_t addr);
+    MemoryMap();
+    ~MemoryMap();
 
-  uint8_t peek_u8(uint32_t addr) const;
-  uint16_t peek_u16(uint32_t addr) const;
-  uint32_t peek_u32(uint32_t addr) const;
+    MemoryMap(const MemoryMap&) = delete;
+    MemoryMap& operator=(const MemoryMap&) = delete;
 
-  void set_u8(uint32_t addr, uint8_t val);
-  void set_u16(uint32_t addr, uint16_t val);
-  void set_u32(uint32_t addr, uint32_t val);
+    uint8_t get_u8(uint32_t addr);
+    uint16_t get_u16(uint32_t addr);
+    uint32_t get_u32(uint32_t addr);
+
+    uint8_t peek_u8(uint32_t addr) const;
+    uint16_t peek_u16(uint32_t addr) const;
+    uint32_t peek_u32(uint32_t addr) const;
+
+    void set_u8(uint32_t addr, uint8_t val);
+    void set_u16(uint32_t addr, uint16_t val);
+    void set_u32(uint32_t addr, uint32_t val);
+
+private:
+    const SegmentInfo& get_segment(uint32_t addr) const;
 };
 
 enum class DataType : uint32_t {
-  U8 = 1,
-  I8 = 2,
-  U16 = 3,
-  I16 = 4,
-  U32 = 5,
-  I32 = 6,
-  F32 = 7,
-};
-
-class Instruction {
-  uint32_t value;
-
-  Instruction(uint32_t val) : value(val) {}
-
-  uint8_t get_opcode() const { return static_cast<uint8_t>(value & 0xFF); }
+    U8 = 1,
+    I8 = 2,
+    U16 = 3,
+    I16 = 4,
+    U32 = 5,
+    I32 = 6,
+    F32 = 7,
 };
 
 class Processor {
-  MemoryMap memory;
-  Registers registers;
+    MemoryMap memory;
+    Registers registers;
 
 public:
-  enum class ResetType {
-    Hard,
-    Soft,
-  };
+    enum class ResetType {
+        Hard,
+        Soft,
+    };
 
-  uint32_t get_reset_vector(uint32_t vector_num) {
-    return memory.get_u32(0x100 + sizeof(uint32_t) * vector_num);
-  }
+    uint32_t get_reset_vector(uint32_t vector_num);
 
-  void reset(ResetType reset = ResetType::Hard) {
-    const uint32_t vec = get_reset_vector((reset == ResetType::Hard) ? 0 : 1);
-  }
+    void reset(ResetType reset = ResetType::Hard);
+
+    bool queue_interrupt(size_t interrupt);
+
+    void step();
 };
 
 } // namespace jib
