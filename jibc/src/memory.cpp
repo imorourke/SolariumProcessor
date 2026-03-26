@@ -81,7 +81,7 @@ void MemorySegment::set_u32(uint32_t addr, uint32_t val) {
 /// MEMORY MAP
 
 MemoryMap::MemoryMap()
-    : last_segment{ NULL } {}
+    : last_segment(NULL) {}
 
 MemoryMap::~MemoryMap() {
     for (size_t i = 0; i < segments.size(); ++i) {

@@ -9,6 +9,7 @@ add_library(
     )
 
 target_include_directories(jibc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(jibc PROPERTIES CXX_STANDARD 98)
 
 if(MSVC)
     target_compile_options(cbfs PRIVATE /W4 /WX)

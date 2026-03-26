@@ -7,6 +7,8 @@ namespace jib {
 ProcessorException::ProcessorException(const std::string& msg)
     : msg(msg) {}
 
+ProcessorException::~ProcessorException() {}
+
 const char* ProcessorException::what() const { return msg.c_str(); }
 
 MemoryException::MemoryException(const std::string& msg, uint32_t addr)
@@ -58,14 +60,14 @@ public:
         : value(val) {}
 
     uint8_t get_opcode() const { return static_cast<uint8_t>(value & 0xFF); }
-    uint8_t get_arg0() const { return static_cast<uint8_t>((value >> 8) && 0xFF); }
-    uint8_t get_arg1() const { return static_cast<uint8_t>((value >> 16) && 0xFF); }
-    uint8_t get_arg2() const { return static_cast<uint8_t>((value >> 24) && 0xFF); }
+    uint8_t get_arg0() const { return static_cast<uint8_t>((value >> 8) & 0xFF); }
+    uint8_t get_arg1() const { return static_cast<uint8_t>((value >> 16) & 0xFF); }
+    uint8_t get_arg2() const { return static_cast<uint8_t>((value >> 24) & 0xFF); }
 };
 
 uint32_t Processor::get_reset_vector(uint32_t vector_num) { return memory.get_u32(0x100 + sizeof(uint32_t) * vector_num); }
 
-void Processor::reset(ResetType reset) { const uint32_t vec = get_reset_vector((reset == ResetType::Hard) ? 0 : 1); }
+void Processor::reset(ResetType reset) { const uint32_t vec = get_reset_vector((reset == RESET_HARD) ? 0 : 1); }
 
 bool Processor::queue_interrupt(size_t interrupt) { return false; }
 
@@ -147,7 +149,7 @@ void Processor::step() {
     case OP_CPU_HALT:
         break;
     case OP_CPU_RESET:
-        reset(ResetType::Soft);
+        reset(RESET_SOFT);
         break;
     case OP_FLAGS_INTERRUPT_ENABLE:
         registers.set(
@@ -167,7 +169,12 @@ void Processor::step() {
     }
 
     if (jump_val != 0) {
+#if !defined(__GNUC__) || __GNUC__ >= 7
         __builtin_add_overflow(pc, jump_val, &pc);
+#else
+        pc += jump_val;
+#endif
+
         registers.set(Registers::REG_PC, pc);
     }
 }

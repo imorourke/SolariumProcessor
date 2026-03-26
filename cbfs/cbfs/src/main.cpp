@@ -677,10 +677,10 @@ struct FuseArgContainer {
         }
     }
 
-    FuseArgContainer(const FuseArgContainer&) = delete;
-    FuseArgContainer(FuseArgContainer&&) = delete;
-    FuseArgContainer& operator=(FuseArgContainer&) = delete;
-    FuseArgContainer& operator=(FuseArgContainer&&) = delete;
+    FuseArgContainer(const FuseArgContainer&);
+    FuseArgContainer(FuseArgContainer&&);
+    FuseArgContainer& operator=(FuseArgContainer&);
+    FuseArgContainer& operator=(FuseArgContainer&&);
 
     ~FuseArgContainer() { fuse_opt_free_args(&args); }
 };

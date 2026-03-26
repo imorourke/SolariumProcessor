@@ -14,7 +14,7 @@ static const size_t NUM_REGISTERS = 32;
 class ProcessorException {
 public:
     ProcessorException(const std::string& msg);
-    ~ProcessorException() = default;
+    ~ProcessorException();
 
     virtual const char* what() const;
 
@@ -92,8 +92,8 @@ public:
     MemoryMap();
     ~MemoryMap();
 
-    MemoryMap(const MemoryMap&) = delete;
-    MemoryMap& operator=(const MemoryMap&) = delete;
+    MemoryMap(const MemoryMap&);
+    MemoryMap& operator=(const MemoryMap&);
 
     uint8_t get_u8(uint32_t addr);
     uint16_t get_u16(uint32_t addr);
@@ -111,14 +111,14 @@ private:
     const SegmentInfo& get_segment(uint32_t addr) const;
 };
 
-enum class DataType : uint32_t {
-    U8 = 1,
-    I8 = 2,
-    U16 = 3,
-    I16 = 4,
-    U32 = 5,
-    I32 = 6,
-    F32 = 7,
+enum DataType {
+    DT_U8 = 1,
+    DT_I8 = 2,
+    DT_U16 = 3,
+    DT_I16 = 4,
+    DT_U32 = 5,
+    DT_I32 = 6,
+    DT_F32 = 7,
 };
 
 class Processor {
@@ -126,14 +126,14 @@ class Processor {
     Registers registers;
 
 public:
-    enum class ResetType {
-        Hard,
-        Soft,
+    enum ResetType {
+        RESET_HARD,
+        RESET_SOFT,
     };
 
     uint32_t get_reset_vector(uint32_t vector_num);
 
-    void reset(ResetType reset = ResetType::Hard);
+    void reset(ResetType reset = RESET_HARD);
 
     bool queue_interrupt(size_t interrupt);
 
