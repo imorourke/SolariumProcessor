@@ -1,19 +1,17 @@
-use alloc::collections::VecDeque;
 use core::cell::RefCell;
 
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice};
 
 use crate::{
-    device::{DeviceAction, DeviceType},
+    device::{DeviceAction, DeviceType, circ_buf::CircularBufferDyn},
     memory::{MemorySegment, MemorySegmentError},
 };
 
 /// Provides a memory serial I/O memory-mapped device
 pub struct SerialInputOutputDevice {
     /// Provides the base address for the input device
-    input_queue: RefCell<VecDeque<u8>>,
-    output_queue: VecDeque<u8>,
-    buffer_size: usize,
+    input_queue: RefCell<CircularBufferDyn<u8>>,
+    output_queue: CircularBufferDyn<u8>,
     interrupt_char: u8,
     interrupt_num: u8,
     interrupt_triggered: bool,
@@ -35,9 +33,8 @@ impl SerialInputOutputDevice {
     pub fn new(buffer_size: usize) -> SerialInputOutputDevice {
         // Construct the serial device output
         Self {
-            input_queue: RefCell::new(VecDeque::new()),
-            output_queue: VecDeque::new(),
-            buffer_size,
+            input_queue: RefCell::new(CircularBufferDyn::<u8>::new(buffer_size)),
+            output_queue: CircularBufferDyn::<u8>::new(buffer_size),
             interrupt_char: 0,
             interrupt_num: 0,
             interrupt_triggered: false,
@@ -56,20 +53,16 @@ impl SerialInputOutputDevice {
 
     /// Pushes the input value into the input queue
     pub fn push_input(&mut self, val: u8) -> bool {
-        if self.input_queue.borrow().len() < self.buffer_size {
-            self.input_queue.borrow_mut().push_back(val);
-            if self.interrupt_char != 0 && val == self.interrupt_char && self.interrupt_num != 0 {
-                self.interrupt_triggered = true;
-            }
-            true
-        } else {
-            false
+        self.input_queue.borrow_mut().push(val);
+        if self.interrupt_char != 0 && val == self.interrupt_char && self.interrupt_num != 0 {
+            self.interrupt_triggered = true;
         }
+        true
     }
 
     /// Pops the output value from the output queue and returns
     pub fn pop_output(&mut self) -> Option<u8> {
-        self.output_queue.pop_front()
+        self.output_queue.pop()
     }
 
     fn common_get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
@@ -89,8 +82,8 @@ impl SerialInputOutputDevice {
             Self::OFFSET_OUTPUT_DATA
             | Self::OFFSET_INPUT_RESET_IN
             | Self::OFFSET_INPUT_RESET_OUT => Ok(0),
-            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow().front() {
-                Some(v) => Ok(*v),
+            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow().peek() {
+                Some(v) => Ok(v),
                 None => Ok(0),
             },
             Self::OFFSET_INTERRUPT_NUM => Ok(self.interrupt_num),
@@ -105,7 +98,7 @@ impl MemorySegment for SerialInputOutputDevice {
     fn get(&self, offset: u32) -> Result<u8, MemorySegmentError> {
         // Use the offset values to determine the action to take
         match offset {
-            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow_mut().pop_front() {
+            Self::OFFSET_INPUT_DATA => match self.input_queue.borrow_mut().pop() {
                 Some(v) => Ok(v),
                 None => Ok(0),
             },
@@ -130,15 +123,8 @@ impl MemorySegment for SerialInputOutputDevice {
         // Extract the offset and match based on the result
         match offset {
             Self::OFFSET_OUTPUT_DATA => {
-                if self.output_queue.len() < self.buffer_size {
-                    self.output_queue.push_back(data);
-                    Ok(())
-                } else if let Some(x) = self.output_queue.back_mut() {
-                    *x = data;
-                    Ok(())
-                } else {
-                    Err(MemorySegmentError::InvalidMemoryWrite(offset, data))
-                }
+                self.output_queue.push(data);
+                Ok(())
             }
             Self::OFFSET_INPUT_RESET_IN => {
                 if data != 0 {

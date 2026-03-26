@@ -1015,8 +1015,10 @@ impl Processor {
 
         // Step the program counter
         if let Some(jmp_val) = inst_jump {
-            self.registers
-                .set(Register::ProgramCounter, pc + jmp_val * 4)?;
+            self.registers.set(
+                Register::ProgramCounter,
+                pc + jmp_val * Self::BYTES_PER_WORD,
+            )?;
         }
 
         Ok(())

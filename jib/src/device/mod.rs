@@ -1,4 +1,5 @@
 mod block_device;
+mod circ_buf;
 mod irq_clock;
 #[cfg(feature = "rtcdev")]
 mod rtc_clock;
