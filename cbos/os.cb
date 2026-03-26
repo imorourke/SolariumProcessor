@@ -15,8 +15,6 @@ fn os_main() void {
     k_shell_global_init();
     k_io_print("Starting C/Buoy OS\n");
 
-    def a: u8 = *(0xE0000000u32 : *u8);
-
     def input_buffer: [K_SHELL_DEFAULT_INPUT_BUFFER_SIZE]u8;
     def arg_buffer: [K_SHELL_DEFAULT_ARG_SPLIT_SIZE]*u8;
 
