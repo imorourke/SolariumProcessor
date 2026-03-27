@@ -58,10 +58,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| {
-                    cc.egui_ctx.set_visuals(Visuals::light());
-                    Ok(Box::<VisualJib>::default())
-                }),
+                Box::new(|_| Ok(Box::<VisualJib>::default())),
             )
             .await;
 
