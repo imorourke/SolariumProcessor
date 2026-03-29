@@ -175,6 +175,8 @@ private:
     void stack_push(word_t val);
     word_t stack_pop();
 
+    int32_t get_executing_interrupt() const;
+
     void push_all_registers();
     void pop_all_registers(bool save_return);
 

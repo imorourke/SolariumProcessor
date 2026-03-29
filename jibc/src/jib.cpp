@@ -179,6 +179,10 @@ public:
     uint8_t get_arg0() const { return static_cast<uint8_t>((value >> 8) & 0xFF); }
     uint8_t get_arg1() const { return static_cast<uint8_t>((value >> 16) & 0xFF); }
     uint8_t get_arg2() const { return static_cast<uint8_t>((value >> 24) & 0xFF); }
+
+    uint16_t imm_unsigned() const { return (static_cast<uint16_t>(get_arg1()) << 8) | static_cast<uint16_t>(get_arg2()); }
+
+    int16_t imm_signed() const { return static_cast<int16_t>(imm_unsigned()); }
 };
 
 // Processor
@@ -244,6 +248,15 @@ word_t Processor::stack_pop() {
     return memory.get_u32(sp_curr);
 }
 
+int32_t Processor::get_executing_interrupt() const {
+    StatusFlags flags = registers.get_flags();
+    if (flags.get_flag(StatusFlags::FLAG_INTERRUPT_EXECUTING)) {
+        return flags.get_executing_interrupt();
+    } else {
+        return -1;
+    }
+}
+
 void Processor::push_all_registers() {
     for (size_t i = 0; i < NUM_REGISTERS; ++i) {
         stack_push(registers.get(i));
@@ -285,7 +298,9 @@ void Processor::step() {
     switch (op) {
     case OP_CPU_NOOP:
     case OP_DEBUG_BREAK:
+        break;
     case OP_CPU_HALT:
+        jump_val = 0;
         break;
     case OP_CPU_RESET:
         reset(RESET_SOFT);
@@ -302,6 +317,45 @@ void Processor::step() {
     } break;
     case OP_CPU_INTERRUPT:
         queue_interrupt(inst.get_arg0());
+        break;
+    case OP_CPU_INTERRUPT_REGISTER:
+        queue_interrupt(inst.get_arg0());
+        break;
+    case OP_CPU_CALL:
+        registers.set(Registers::REG_PC, pc + sizeof(word_t));
+        push_all_registers();
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()));
+        jump_val = 0;
+        break;
+    case OP_CPU_INTERRUPT_RETURN: {
+        int int_index = get_executing_interrupt();
+        if (int_index >= 0) {
+            interrupts.clear_interrupt(int_index);
+        }
+    }
+    case OP_CPU_RETURN:
+        pop_all_registers(op == OP_CPU_RETURN);
+        jump_val = 0;
+        break;
+    case OP_CPU_PUSH:
+        stack_push(registers.get(inst.get_arg0()));
+        break;
+    case OP_CPU_POP:
+        stack_pop();
+        break;
+    case OP_CPU_POP_REG: {
+        word_t val = stack_pop();
+        registers.set(inst.get_arg0(), val);
+    } break;
+    case OP_CPU_JUMP:
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()));
+        jump_val = 0;
+        break;
+    case OP_CPU_JUMP_REL:
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()) + pc);
+        break;
+    case OP_CPU_JUMP_REL_IMM:
+        registers.set(Registers::REG_PC, pc + inst.imm_signed());
         break;
     default:
         throw "error value";
