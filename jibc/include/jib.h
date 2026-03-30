@@ -50,11 +50,34 @@ struct StatusFlags {
     static const word_t FLAG_CARRY;
 };
 
+enum DataType {
+    DT_U8 = 1,
+    DT_I8 = 2,
+    DT_U16 = 3,
+    DT_I16 = 4,
+    DT_U32 = 5,
+    DT_I32 = 6,
+    DT_F32 = 7,
+};
+
+ size_t data_type_byte_size(DataType dt);
+ bool data_type_is_signed(DataType dt);
+ bool data_type_is_integral(DataType dt);
+
+struct RegisterValue {
+    uint8_t reg;
+    DataType dt;
+
+    RegisterValue(uint8_t reg, DataType dt);
+};
+
 struct Registers {
     word_t registers[NUM_REGISTERS];
 
     word_t get(size_t i) const;
+    word_t get(const RegisterValue& r) const;
     void set(size_t i, word_t val);
+    void set(const RegisterValue& r, word_t val);
 
     bool interrupt_enabled() const;
 
@@ -144,16 +167,6 @@ public:
 
     static const size_t NUM_INTERRUPTS;
     static const size_t NUM_NON_MASKABLE;
-};
-
-enum DataType {
-    DT_U8 = 1,
-    DT_I8 = 2,
-    DT_U16 = 3,
-    DT_I16 = 4,
-    DT_U32 = 5,
-    DT_I32 = 6,
-    DT_F32 = 7,
 };
 
 class Processor {

@@ -1,5 +1,15 @@
 #include "jib.h"
-#include <cstddef>
+
+#include <cmath>
+#include <endian.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#if !defined(__GNUC__) || __GNUC__ >= 7
+#define USE_OVERFLOW_FUNC
+#endif
 
 namespace jib {
 
@@ -112,11 +122,215 @@ const word_t StatusFlags::VAL_INTERRUPT_BASE = 2;
 const word_t StatusFlags::VAL_INTERRUPT_MASK = 0x3F;
 const word_t StatusFlags::FLAG_CARRY = 8;
 
+/// DATA TYPES
+
+size_t data_type_byte_size(DataType dt) {
+    switch (dt) {
+    case DT_I8:
+    case DT_U8:
+        return 1;
+    case DT_I16:
+    case DT_U16:
+        return 2;
+    case DT_I32:
+    case DT_U32:
+    case DT_F32:
+        return 4;
+    default:
+        throw ProcessorException("unknown data type");
+    }
+}
+
+bool data_type_is_signed(DataType dt) {
+    switch (dt) {
+    case DT_I8:
+    case DT_I16:
+    case DT_I32:
+    case DT_F32:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool data_type_is_integral(DataType dt) {
+    switch (dt) {
+    case DT_I8:
+    case DT_U8:
+    case DT_I16:
+    case DT_U16:
+    case DT_I32:
+    case DT_U32:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static word_t f32_to_bits(float val) {
+    word_t out;
+    memcpy(&out, &val, sizeof(word_t));
+    return out;
+}
+
+static float bits_to_f32(word_t val) {
+    float out;
+    memcpy(&out, &val, sizeof(float));
+    return out;
+}
+
+template <typename SRC, typename DST> word_t resulting_value_signed_dest(word_t value) {
+    return static_cast<uint32_t>(static_cast<int32_t>(static_cast<DST>(static_cast<SRC>(value))));
+}
+
+word_t data_type_convert(word_t value, DataType src, DataType dst) {
+    switch (dst) {
+    case DT_U8:
+        switch (src) {
+        case DT_U8:
+        case DT_U16:
+        case DT_U32:
+            return value & 0xFF;
+        case DT_I8:
+        case DT_I16:
+        case DT_I32:
+            return static_cast<uint32_t>(static_cast<int32_t>(value)) & 0xFF;
+        case DT_F32:
+            return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value))) & 0xFF;
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_U16:
+        switch (src) {
+        case DT_U8:
+        case DT_U16:
+        case DT_U32:
+            return value & 0xFFFF;
+        case DT_I8:
+        case DT_I16:
+        case DT_I32:
+            return static_cast<uint32_t>(static_cast<int32_t>(value)) & 0xFFFF;
+        case DT_F32:
+            return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value))) & 0xFFFF;
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_U32:
+        switch (src) {
+        case DT_U8:
+        case DT_U16:
+        case DT_U32:
+            return value;
+        case DT_I8:
+        case DT_I16:
+        case DT_I32:
+            return static_cast<uint32_t>(static_cast<int32_t>(value));
+        case DT_F32:
+            return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value)));
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_I8:
+        switch (src) {
+        case DT_U8:
+            return resulting_value_signed_dest<uint8_t, int8_t>(value);
+        case DT_U16:
+            return resulting_value_signed_dest<uint16_t, int8_t>(value);
+        case DT_U32:
+            return resulting_value_signed_dest<uint32_t, int8_t>(value);
+        case DT_I8:
+            return resulting_value_signed_dest<int8_t, int8_t>(value);
+        case DT_I16:
+            return resulting_value_signed_dest<int16_t, int8_t>(value);
+        case DT_I32:
+            return resulting_value_signed_dest<int32_t, int8_t>(value);
+        case DT_F32:
+            return resulting_value_signed_dest<int32_t, int8_t>(static_cast<int32_t>(bits_to_f32(value)));
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_I16:
+        switch (src) {
+        case DT_U8:
+            return resulting_value_signed_dest<uint8_t, int16_t>(value);
+        case DT_U16:
+            return resulting_value_signed_dest<uint16_t, int16_t>(value);
+        case DT_U32:
+            return resulting_value_signed_dest<uint32_t, int16_t>(value);
+        case DT_I8:
+            return resulting_value_signed_dest<int8_t, int16_t>(value);
+        case DT_I16:
+            return resulting_value_signed_dest<int16_t, int16_t>(value);
+        case DT_I32:
+            return resulting_value_signed_dest<int32_t, int16_t>(value);
+        case DT_F32:
+            return resulting_value_signed_dest<int32_t, int16_t>(static_cast<int32_t>(bits_to_f32(value)));
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_I32:
+        switch (src) {
+        case DT_U8:
+            return resulting_value_signed_dest<uint8_t, int32_t>(value);
+        case DT_U16:
+            return resulting_value_signed_dest<uint16_t, int32_t>(value);
+        case DT_U32:
+            return resulting_value_signed_dest<uint32_t, int32_t>(value);
+        case DT_I8:
+            return resulting_value_signed_dest<int8_t, int32_t>(value);
+        case DT_I16:
+            return resulting_value_signed_dest<int16_t, int32_t>(value);
+        case DT_I32:
+            return resulting_value_signed_dest<int32_t, int32_t>(value);
+        case DT_F32:
+            return resulting_value_signed_dest<int32_t, int32_t>(static_cast<int32_t>(bits_to_f32(value)));
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    case DT_F32:
+        switch (src) {
+        case DT_U8:
+            return f32_to_bits(static_cast<float>(static_cast<uint8_t>(value)));
+        case DT_U16:
+            return f32_to_bits(static_cast<float>(static_cast<uint16_t>(value)));
+        case DT_U32:
+            return f32_to_bits(static_cast<float>(static_cast<uint32_t>(value)));
+        case DT_I8:
+            return f32_to_bits(static_cast<float>(static_cast<int8_t>(value)));
+        case DT_I16:
+            return f32_to_bits(static_cast<float>(static_cast<int16_t>(value)));
+        case DT_I32:
+            return f32_to_bits(static_cast<float>(static_cast<int32_t>(value)));
+        case DT_F32:
+            return value;
+        default:
+            throw ProcessorException("unknown data type");
+        }
+        break;
+    default:
+        throw ProcessorException("unknown data type");
+    }
+}
+
 /// REGISTERS
+
+RegisterValue::RegisterValue(uint8_t reg, DataType dt)
+    : reg(reg),
+      dt(dt) {}
 
 word_t Registers::get(size_t i) const { return registers[i]; }
 
+word_t Registers::get(const RegisterValue& r) const { return registers[r.reg]; }
+
 void Registers::set(size_t i, word_t val) { registers[i] = val; }
+
+void Registers::set(const RegisterValue& r, word_t val) { registers[r.reg] = val; }
 
 bool Registers::interrupt_enabled() const { return get_flags().get_flag(StatusFlags::FLAG_INTERRUPT_ENABLED); }
 
@@ -180,9 +394,16 @@ public:
     uint8_t get_arg1() const { return static_cast<uint8_t>((value >> 16) & 0xFF); }
     uint8_t get_arg2() const { return static_cast<uint8_t>((value >> 24) & 0xFF); }
 
+    RegisterValue get_arg0_register() const { return reg_from_arg(get_arg0()); }
+    RegisterValue get_arg1_register() const { return reg_from_arg(get_arg1()); }
+    RegisterValue get_arg2_register() const { return reg_from_arg(get_arg2()); }
+
     uint16_t imm_unsigned() const { return (static_cast<uint16_t>(get_arg1()) << 8) | static_cast<uint16_t>(get_arg2()); }
 
     int16_t imm_signed() const { return static_cast<int16_t>(imm_unsigned()); }
+
+private:
+    static RegisterValue reg_from_arg(uint8_t val) { return RegisterValue(val & 0x1F, static_cast<DataType>((val >> 5) & 7)); }
 };
 
 // Processor
@@ -289,11 +510,232 @@ void Processor::reset(ResetType reset) {
 
 bool Processor::queue_interrupt(size_t interrupt) { return false; }
 
+struct OperationValue {
+    word_t value;
+    bool carry;
+
+    OperationValue()
+        : value(0),
+          carry(false) {}
+
+    OperationValue(word_t value, bool carry = false)
+        : value(value),
+          carry(carry) {}
+};
+
+template <typename T>
+static T dt_swap_bytes(T val);
+
+template <>
+int8_t dt_swap_bytes<int8_t>(int8_t val) {
+    return val;
+}
+
+template <>
+uint8_t dt_swap_bytes<uint8_t>(uint8_t val) {
+    return val;
+}
+
+template <>
+int16_t dt_swap_bytes<int16_t>(int16_t val) {
+    return __bswap_constant_16(val);
+}
+
+template <>
+uint16_t dt_swap_bytes<uint16_t>(uint16_t val) {
+    return __bswap_constant_16(val);
+}
+
+template <>
+int32_t dt_swap_bytes<int32_t>(int32_t val) {
+    return __bswap_constant_32(val);
+}
+
+template <>
+uint32_t dt_swap_bytes<uint32_t>(uint32_t val) {
+    return __bswap_constant_32(val);
+}
+
+struct ArithmaticOperationsBase {
+    virtual OperationValue add(word_t a, word_t b) = 0;
+    virtual OperationValue sub(word_t a, word_t b) = 0;
+    virtual OperationValue mul(word_t a, word_t b) = 0;
+    virtual OperationValue div(word_t a, word_t b) = 0;
+    virtual OperationValue rem(word_t a, word_t b) = 0;
+    virtual OperationValue neg(word_t a) = 0;
+};
+
+struct BitwiseOperationsBase {
+    virtual OperationValue band(word_t a, word_t b) = 0;
+    virtual OperationValue bor(word_t a, word_t b) = 0;
+    virtual OperationValue bxor(word_t a, word_t b) = 0;
+    virtual OperationValue bsftr(word_t a, word_t b) = 0;
+    virtual OperationValue bsftl(word_t a, word_t b) = 0;
+    virtual OperationValue bnot(word_t a, word_t b) = 0;
+    virtual OperationValue bswap(word_t a, word_t b) = 0;
+};
+
+struct RelationalOperationsBase {
+    virtual bool gt(word_t a, word_t b) = 0;
+    virtual bool geq(word_t a, word_t b) = 0;
+    virtual bool lt(word_t a, word_t b) = 0;
+    virtual bool leq(word_t a, word_t b) = 0;
+    virtual bool eq(word_t a, word_t b) = 0;
+    virtual bool neq(word_t a, word_t b) = 0;
+};
+
+template <typename T> struct ArithmaticOperations : public ArithmaticOperationsBase, public RelationalOperationsBase {
+    static word_t to_word(T res) { return static_cast<uint32_t>(static_cast<int32_t>(res)); }
+
+    OperationValue add(word_t a, word_t b) {
+        T res;
+        bool carry;
+#ifdef USE_OVERFLOW_FUNC
+        carry = __builtin_add_overflow(static_cast<T>(a), static_cast<T>(b), &res);
+#else
+        res = static_cast<T>(a) + static_cast<T>(b);
+        carry = false;
+#endif
+        return OperationValue(to_word(res), carry);
+    }
+
+    OperationValue sub(word_t a, word_t b) {
+        T res;
+        bool carry;
+#ifdef USE_OVERFLOW_FUNC
+        carry = __builtin_sub_overflow(static_cast<T>(a), static_cast<T>(b), &res);
+#else
+        res = static_cast<T>(a) - static_cast<T>(b);
+        carry = false;
+#endif
+        return OperationValue(to_word(res), carry);
+    }
+
+    OperationValue mul(word_t a, word_t b) {
+        T res;
+        bool carry;
+#ifdef USE_OVERFLOW_FUNC
+        carry = __builtin_mul_overflow(static_cast<T>(a), static_cast<T>(b), &res);
+#else
+        res = static_cast<T>(a) * static_cast<T>(b);
+        carry = false;
+#endif
+        return OperationValue(to_word(res), carry);
+    }
+
+    OperationValue div(word_t a, word_t b) {
+        word_t res = to_word(static_cast<T>(a) / static_cast<T>(b));
+        return OperationValue(res, false);
+    }
+
+    OperationValue rem(word_t a, word_t b) {
+        word_t res = to_word(static_cast<T>(a) % static_cast<T>(b));
+        return OperationValue(res, false);
+    }
+
+    OperationValue neg(word_t a) {
+        word_t res = to_word(-static_cast<T>(a));
+        return OperationValue(res, false);
+    }
+
+    OperationValue band(word_t a, word_t b) {
+        return OperationValue(static_cast<T>(a) & static_cast<T>(b));
+    }
+
+    OperationValue bor(word_t a, word_t b) {
+        return OperationValue(static_cast<T>(a) | static_cast<T>(b));
+    }
+
+    OperationValue bxor(word_t a, word_t b) {
+        return OperationValue(static_cast<T>(a) ^ static_cast<T>(b));
+    }
+
+    OperationValue bsftr(word_t a, word_t b) {
+        return OperationValue(static_cast<T>(a) >> b, false); // TODO
+    }
+
+    OperationValue bsftl(word_t a, word_t b) {
+        return OperationValue(static_cast<T>(a) << b, false); // TODO
+    }
+
+    OperationValue bnot(word_t a) {
+        return OperationValue(to_word(~static_cast<T>(a)));
+    }
+
+    OperationValue bswap(word_t a) {
+        return OperationValue(to_word(dt_swap_bytes(static_cast<T>(a))));
+    }
+
+    bool gt(word_t a, word_t b) { return static_cast<T>(a) > static_cast<T>(b); }
+
+    bool geq(word_t a, word_t b) { return static_cast<T>(a) >= static_cast<T>(b); }
+
+    bool lt(word_t a, word_t b) { return static_cast<T>(a) < static_cast<T>(b); }
+
+    bool leq(word_t a, word_t b) { return static_cast<T>(a) <= static_cast<T>(b); }
+
+    bool eq(word_t a, word_t b) { return static_cast<T>(a) == static_cast<T>(b); }
+
+    bool neq(word_t a, word_t b) { return static_cast<T>(a) != static_cast<T>(b); }
+};
+
+template <> struct ArithmaticOperations<float> : public ArithmaticOperationsBase, public RelationalOperationsBase {
+    OperationValue add(word_t a, word_t b) {
+        word_t res = f32_to_bits(bits_to_f32(a) + bits_to_f32(b));
+        return OperationValue(res);
+    }
+
+    OperationValue sub(word_t a, word_t b) {
+        word_t res = f32_to_bits(bits_to_f32(a) - bits_to_f32(b));
+        return OperationValue(res);
+    }
+
+    OperationValue mul(word_t a, word_t b) {
+        word_t res = f32_to_bits(bits_to_f32(a) * bits_to_f32(b));
+        return OperationValue(res);
+    }
+
+    OperationValue div(word_t a, word_t b) {
+        word_t res = f32_to_bits(bits_to_f32(a) / bits_to_f32(b));
+        return OperationValue(res);
+    }
+
+    OperationValue rem(word_t a, word_t b) {
+        word_t res = f32_to_bits(fmod(bits_to_f32(a), bits_to_f32(b)));
+        return OperationValue(res);
+    }
+
+    OperationValue neg(word_t a) {
+        word_t res = f32_to_bits(-bits_to_f32(a));
+        return OperationValue(res);
+    }
+
+    bool gt(word_t a, word_t b) { return bits_to_f32(a) > bits_to_f32(b); }
+
+    bool geq(word_t a, word_t b) { return bits_to_f32(a) >= bits_to_f32(b); }
+
+    bool lt(word_t a, word_t b) { return bits_to_f32(a) < bits_to_f32(b); }
+
+    bool leq(word_t a, word_t b) { return bits_to_f32(a) <= bits_to_f32(b); }
+
+    bool eq(word_t a, word_t b) { return bits_to_f32(a) == bits_to_f32(b); }
+
+    bool neq(word_t a, word_t b) { return bits_to_f32(a) != bits_to_f32(b); }
+};
+
+static ArithmaticOperations<uint8_t> OPERS_U8;
+static ArithmaticOperations<uint16_t> OPERS_U16;
+static ArithmaticOperations<uint32_t> OPERS_U32;
+static ArithmaticOperations<int8_t> OPERS_I8;
+static ArithmaticOperations<int16_t> OPERS_I16;
+static ArithmaticOperations<int32_t> OPERS_I32;
+static ArithmaticOperations<float> OPERS_F32;
+
 void Processor::step() {
     word_t pc = memory.get_u32(registers.get(Registers::REG_PC));
     const Instruction inst(pc);
     const uint8_t op = inst.get_opcode();
-    int32_t jump_val = sizeof(word_t);
+    int32_t jump_val = 1;
 
     switch (op) {
     case OP_CPU_NOOP:
@@ -324,7 +766,7 @@ void Processor::step() {
     case OP_CPU_CALL:
         registers.set(Registers::REG_PC, pc + sizeof(word_t));
         push_all_registers();
-        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()));
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0_register()));
         jump_val = 0;
         break;
     case OP_CPU_INTERRUPT_RETURN: {
@@ -338,31 +780,291 @@ void Processor::step() {
         jump_val = 0;
         break;
     case OP_CPU_PUSH:
-        stack_push(registers.get(inst.get_arg0()));
+        stack_push(registers.get(inst.get_arg0_register()));
         break;
     case OP_CPU_POP:
         stack_pop();
         break;
     case OP_CPU_POP_REG: {
         word_t val = stack_pop();
-        registers.set(inst.get_arg0(), val);
+        registers.set(inst.get_arg0_register(), val);
     } break;
     case OP_CPU_JUMP:
-        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()));
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0_register()));
         jump_val = 0;
         break;
     case OP_CPU_JUMP_REL:
-        registers.set(Registers::REG_PC, registers.get(inst.get_arg0()) + pc);
+        registers.set(Registers::REG_PC, registers.get(inst.get_arg0_register()) + pc);
         break;
     case OP_CPU_JUMP_REL_IMM:
         registers.set(Registers::REG_PC, pc + inst.imm_signed());
         break;
+    case OP_LOGIC_NOT:
+        registers.set(inst.get_arg0_register(), (registers.get(inst.get_arg1_register()) != 0) ? 0 : 1);
+        break;
+    case OP_LOGIC_BOOL:
+        registers.set(inst.get_arg0_register(), (registers.get(inst.get_arg1_register()) != 0) ? 0 : 1);
+        break;
+    case OP_LOGIC_TEST_ZERO:
+        jump_val = (registers.get(inst.get_arg0_register()) == 0) ? 1 : 2;
+        break;
+    case OP_LOGIC_TEST_NOT_ZERO:
+        jump_val = (registers.get(inst.get_arg0_register()) != 0) ? 1 : 2;
+        break;
+    case OP_MEM_LOAD_IMM: {
+        RegisterValue reg = inst.get_arg0_register();
+        switch (reg.dt) {
+        case DT_I16:
+            registers.set(reg, static_cast<uint32_t>(inst.imm_signed()));
+            break;
+        case DT_U16:
+            registers.set(reg, static_cast<uint32_t>(inst.imm_unsigned()));
+            break;
+        default:
+            throw ProcessorException("unknown immediate data type provided");
+        }
+    } break;
+    case OP_MEM_LOAD:
+    case OP_MEM_LOAD_REL:
+    case OP_MEM_LOAD_IMM_REL:
+    case OP_MEM_LOAD_NEXT:
+    case OP_MEM_LOAD_NEXT_OFFSET: {
+        RegisterValue reg_target = inst.get_arg0_register();
+        word_t addr;
+        switch (op) {
+        case OP_MEM_LOAD:
+            addr = registers.get(inst.get_arg1_register());
+            break;
+        case OP_MEM_LOAD_REL:
+            addr = registers.get(inst.get_arg1_register()) + pc;
+            break;
+        case OP_MEM_LOAD_IMM_REL:
+            addr = pc + inst.imm_signed();
+            break;
+        case OP_MEM_LOAD_NEXT:
+            addr = pc + sizeof(word_t);
+            jump_val = 2;
+            break;
+        case OP_MEM_LOAD_NEXT_OFFSET:
+            addr = pc + sizeof(word_t) + registers.get(Registers::REG_LDO);
+            break;
+        default:
+            throw ProcessorException("unknown load instruction found");
+        }
+
+        if (data_type_is_integral(reg_target.dt)) {
+            if (data_type_is_signed(reg_target.dt)) {
+                switch (data_type_byte_size(reg_target.dt)) {
+                case 1:
+                    registers.set(reg_target, static_cast<uint32_t>(static_cast<int32_t>(static_cast<int8_t>(memory.get_u8(addr)))));
+                    break;
+                case 2:
+                    registers.set(reg_target, static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(memory.get_u16(addr)))));
+                    break;
+                case 4:
+                    registers.set(reg_target, memory.get_u32(addr));
+                    break;
+                default:
+                    throw ProcessorException("unknown signed byte size");
+                }
+            } else {
+                switch (data_type_byte_size(reg_target.dt)) {
+                case 1:
+                    registers.set(reg_target, memory.get_u8(addr));
+                    break;
+                case 2:
+                    registers.set(reg_target, memory.get_u16(addr));
+                    break;
+                case 4:
+                    registers.set(reg_target, memory.get_u32(addr));
+                    break;
+                default:
+                    throw ProcessorException("unknown unsigned byte size");
+                }
+            }
+        } else {
+            throw ProcessorException("unable to load non-integral data");
+        }
+
+    } break;
+    case OP_MEM_SAVE:
+    case OP_MEM_SAVE_REL: {
+        RegisterValue reg_target = inst.get_arg0_register();
+        word_t val_src = registers.get(inst.get_arg1_register());
+
+        word_t addr;
+        switch (op) {
+        case OP_MEM_SAVE_REL:
+            addr = inst.imm_signed() + registers.get(reg_target);
+            break;
+        default:
+            addr = registers.get(reg_target);
+            break;
+        }
+
+        switch (data_type_byte_size(reg_target.dt)) {
+        case 1:
+            memory.set_u8(addr, static_cast<uint8_t>(val_src & 0xFF));
+            break;
+        case 2:
+            memory.set_u16(addr, static_cast<uint16_t>(val_src & 0xFFFF));
+            break;
+        case 4:
+            memory.set_u32(addr, val_src);
+            break;
+        default:
+            throw ProcessorException("unknown save data type size");
+        }
+    } break;
+    case OP_MEM_COPY:
+        registers.set(inst.get_arg0_register(), registers.get(inst.get_arg1_register()));
+        break;
+    case OP_MEM_CONV: {
+        const RegisterValue r0 = inst.get_arg0_register();
+        const RegisterValue r1 = inst.get_arg1_register();
+        registers.set(r0, data_type_convert(registers.get(r1), r1.dt, r0.dt));
+    } break;
+
+    case OP_MATH_ADD:
+    case OP_MATH_SUB:
+    case OP_MATH_MUL:
+    case OP_MATH_DIV:
+    case OP_MATH_REM:
+    case OP_MATH_NEG: {
+        RegisterValue reg = inst.get_arg0_register();
+
+        ArithmaticOperationsBase* arith;
+        switch (reg.dt) {
+        case DT_U8:
+            arith = &OPERS_U8;
+            break;
+        case DT_U16:
+            arith = &OPERS_U16;
+            break;
+        case DT_U32:
+            arith = &OPERS_U32;
+            break;
+        case DT_I8:
+            arith = &OPERS_I8;
+            break;
+        case DT_I16:
+            arith = &OPERS_I16;
+            break;
+        case DT_I32:
+            arith = &OPERS_I32;
+            break;
+        case DT_F32:
+            arith = &OPERS_F32;
+            break;
+        default:
+            throw ProcessorException("unknown data type");
+        }
+
+        word_t val_a = registers.get(inst.get_arg1_register());
+        word_t val_b = registers.get(inst.get_arg2_register());
+
+        OperationValue res;
+        switch (op) {
+        case OP_MATH_ADD:
+            res = arith->add(val_a, val_b);
+            break;
+        case OP_MATH_SUB:
+            res = arith->sub(val_a, val_b);
+            break;
+        case OP_MATH_MUL:
+            res = arith->mul(val_a, val_b);
+            break;
+        case OP_MATH_DIV:
+            res = arith->div(val_a, val_b);
+            break;
+        case OP_MATH_REM:
+            res = arith->rem(val_a, val_b);
+            break;
+        case OP_MATH_NEG:
+            res = arith->neg(val_a);
+            break;
+        default:
+            throw ProcessorException("unknown instruction");
+        }
+
+        registers.set(reg, res.value);
+        StatusFlags sf = registers.get_flags();
+        sf.set_flag(StatusFlags::FLAG_CARRY, res.carry);
+        registers.set_flags(sf);
+    } break;
+
+    case OP_TEST_EQ:
+    case OP_TEST_NEQ:
+    case OP_TEST_GREATER:
+    case OP_TEST_GREATER_EQ:
+    case OP_TEST_LESS:
+    case OP_TEST_LESS_EQ: {
+        RegisterValue reg = inst.get_arg0_register();
+
+        RelationalOperationsBase* arith;
+        switch (reg.dt) {
+        case DT_U8:
+            arith = &OPERS_U8;
+            break;
+        case DT_U16:
+            arith = &OPERS_U16;
+            break;
+        case DT_U32:
+            arith = &OPERS_U32;
+            break;
+        case DT_I8:
+            arith = &OPERS_I8;
+            break;
+        case DT_I16:
+            arith = &OPERS_I16;
+            break;
+        case DT_I32:
+            arith = &OPERS_I32;
+            break;
+        case DT_F32:
+            arith = &OPERS_F32;
+            break;
+        default:
+            throw ProcessorException("unknown data type");
+        }
+
+        word_t val_a = registers.get(inst.get_arg1_register());
+        word_t val_b = registers.get(inst.get_arg2_register());
+
+        bool res;
+        switch (op) {
+        case OP_TEST_EQ:
+            res = arith->eq(val_a, val_b);
+            break;
+        case OP_TEST_NEQ:
+            res = arith->neq(val_a, val_b);
+            break;
+        case OP_TEST_GREATER:
+            res = arith->gt(val_a, val_b);
+            break;
+        case OP_TEST_GREATER_EQ:
+            res = arith->geq(val_a, val_b);
+            break;
+        case OP_TEST_LESS:
+            res = arith->lt(val_a, val_b);
+            break;
+        case OP_TEST_LESS_EQ:
+            res = arith->leq(val_a, val_b);
+            break;
+        default:
+            throw ProcessorException("unknown instruction");
+        }
+
+        registers.set(reg, res ? 1 : 0);
+    } break;
+
     default:
         throw "error value";
     }
 
     if (jump_val != 0) {
-#if !defined(__GNUC__) || __GNUC__ >= 7
+        jump_val *= sizeof(word_t);
+#ifdef USE_OVERFLOW_FUNC
         __builtin_add_overflow(pc, jump_val, &pc);
 #else
         pc += jump_val;
