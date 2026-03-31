@@ -1,9 +1,8 @@
 use core::cell::RefCell;
-
+use circ_buff::CircularBufferDyn;
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice};
-
 use crate::{
-    device::{DeviceAction, DeviceType, circ_buf::CircularBufferDyn},
+    device::{DeviceAction, DeviceType},
     memory::{MemorySegment, MemorySegmentError},
 };
 

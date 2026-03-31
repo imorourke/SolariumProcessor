@@ -131,7 +131,7 @@ impl TryFrom<u8> for DataType {
 ///  | Opcode                  | Arg 0    |                | Arg 1    | ...            | Arg 2    | ...            |
 ///  | Opcode                  | DType 0  | Arg 0 (Reg)    | DType 1  | Arg 1 (Reg)    | DType 2  | Arg 2 (Reg)    |
 ///  | Opcode                  | DType    | Register       | U16/I16  | ...            | ...      | ...            |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction {
     data: [u8; Self::NUM_BYTES],
 }
