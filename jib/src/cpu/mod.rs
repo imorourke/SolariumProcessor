@@ -829,15 +829,19 @@ impl Processor {
                 self.registers
                     .set(inst.arg0_register(), if val != 0 { 1 } else { 0 })?;
             }
-            Self::OP_TEST_ZERO | Self::OP_TEST_NOT_ZERO => {
-                let val = self.registers.get(inst.arg0_register())?;
-                let is_true = match opcode {
-                    Self::OP_TEST_ZERO => val == 0,
-                    Self::OP_TEST_NOT_ZERO => val != 0,
-                    _ => return Err(ProcessorError::UnknownInstruction(inst)),
-                };
-
-                inst_jump = Some(if is_true { 1 } else { 2 });
+            Self::OP_TEST_ZERO => {
+                inst_jump = Some(if self.registers.get(inst.arg0_register())? == 0 {
+                    1
+                } else {
+                    2
+                });
+            }
+            Self::OP_TEST_NOT_ZERO => {
+                inst_jump = Some(if self.registers.get(inst.arg0_register())? != 0 {
+                    1
+                } else {
+                    2
+                });
             }
             Self::OP_LOAD_IMM => {
                 let dt = inst.arg0_data_type()?;
@@ -859,14 +863,8 @@ impl Processor {
                 let dt = inst.arg0_data_type()?;
                 let addr = match opcode {
                     Self::OP_LOAD => self.registers.get(inst.arg1_register())?,
-                    Self::OP_LOAD_REL => {
-                        self.registers.get(inst.arg1_register())?
-                            + self.registers.get(Register::ProgramCounter)?
-                    }
-                    Self::OP_LOAD_IMM_REL => {
-                        (self.registers.get(Register::ProgramCounter)? as i32 + inst.imm_signed())
-                            as u32
-                    }
+                    Self::OP_LOAD_REL => self.registers.get(inst.arg1_register())? + pc,
+                    Self::OP_LOAD_IMM_REL => (pc as i32 + inst.imm_signed()) as u32,
                     Self::OP_LOAD_NEXT => {
                         inst_jump = Some(2);
                         pc + 4
@@ -884,10 +882,11 @@ impl Processor {
                         match dt.byte_size() {
                             1 => self
                                 .registers
-                                .set(reg_target, (self.memory.get(addr)? as i32) as u32)?,
-                            2 => self
-                                .registers
-                                .set(reg_target, (self.memory.get_u16(addr)? as i32) as u32)?,
+                                .set(reg_target, (self.memory.get(addr)? as i8 as i32) as u32)?,
+                            2 => self.registers.set(
+                                reg_target,
+                                (self.memory.get_u16(addr)? as i16 as i32) as u32,
+                            )?,
                             4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
                             _ => return Err(ProcessorError::UnknownInstruction(inst)),
                         }
