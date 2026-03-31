@@ -9,6 +9,7 @@
 
 #define htobe16(x) htons(x)
 #define htobe32(x) htonl(x)
+
 #else
 #include <endian.h>
 #endif

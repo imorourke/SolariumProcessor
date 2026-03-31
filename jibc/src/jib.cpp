@@ -1,11 +1,16 @@
 #include "jib.h"
 
 #include <cmath>
-#include <endian.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#ifdef __APPLE__
+#include <machine/endian.h>
+#else
+#include <endian.h>
+#endif
 
 #if !defined(__GNUC__) || __GNUC__ >= 7
 #define USE_OVERFLOW_FUNC
@@ -538,22 +543,22 @@ uint8_t dt_swap_bytes<uint8_t>(uint8_t val) {
 
 template <>
 int16_t dt_swap_bytes<int16_t>(int16_t val) {
-    return __bswap_constant_16(val);
+    return __builtin_bswap16(val);
 }
 
 template <>
 uint16_t dt_swap_bytes<uint16_t>(uint16_t val) {
-    return __bswap_constant_16(val);
+    return __builtin_bswap16(val);
 }
 
 template <>
 int32_t dt_swap_bytes<int32_t>(int32_t val) {
-    return __bswap_constant_32(val);
+    return __builtin_bswap32(val);
 }
 
 template <>
 uint32_t dt_swap_bytes<uint32_t>(uint32_t val) {
-    return __bswap_constant_32(val);
+    return __builtin_bswap32(val);
 }
 
 struct ArithmaticOperationsBase {
@@ -571,8 +576,8 @@ struct BitwiseOperationsBase {
     virtual OperationValue bxor(word_t a, word_t b) = 0;
     virtual OperationValue bsftr(word_t a, word_t b) = 0;
     virtual OperationValue bsftl(word_t a, word_t b) = 0;
-    virtual OperationValue bnot(word_t a, word_t b) = 0;
-    virtual OperationValue bswap(word_t a, word_t b) = 0;
+    virtual OperationValue bnot(word_t a) = 0;
+    virtual OperationValue bswap(word_t a) = 0;
 };
 
 struct RelationalOperationsBase {
@@ -584,7 +589,7 @@ struct RelationalOperationsBase {
     virtual bool neq(word_t a, word_t b) = 0;
 };
 
-template <typename T> struct ArithmaticOperations : public ArithmaticOperationsBase, public RelationalOperationsBase {
+template <typename T> struct TypeOperations : public ArithmaticOperationsBase, public RelationalOperationsBase, public BitwiseOperationsBase {
     static word_t to_word(T res) { return static_cast<uint32_t>(static_cast<int32_t>(res)); }
 
     OperationValue add(word_t a, word_t b) {
@@ -679,7 +684,7 @@ template <typename T> struct ArithmaticOperations : public ArithmaticOperationsB
     bool neq(word_t a, word_t b) { return static_cast<T>(a) != static_cast<T>(b); }
 };
 
-template <> struct ArithmaticOperations<float> : public ArithmaticOperationsBase, public RelationalOperationsBase {
+template <> struct TypeOperations<float> : public ArithmaticOperationsBase, public RelationalOperationsBase {
     OperationValue add(word_t a, word_t b) {
         word_t res = f32_to_bits(bits_to_f32(a) + bits_to_f32(b));
         return OperationValue(res);
@@ -723,13 +728,13 @@ template <> struct ArithmaticOperations<float> : public ArithmaticOperationsBase
     bool neq(word_t a, word_t b) { return bits_to_f32(a) != bits_to_f32(b); }
 };
 
-static ArithmaticOperations<uint8_t> OPERS_U8;
-static ArithmaticOperations<uint16_t> OPERS_U16;
-static ArithmaticOperations<uint32_t> OPERS_U32;
-static ArithmaticOperations<int8_t> OPERS_I8;
-static ArithmaticOperations<int16_t> OPERS_I16;
-static ArithmaticOperations<int32_t> OPERS_I32;
-static ArithmaticOperations<float> OPERS_F32;
+static TypeOperations<uint8_t> OPERS_U8;
+static TypeOperations<uint16_t> OPERS_U16;
+static TypeOperations<uint32_t> OPERS_U32;
+static TypeOperations<int8_t> OPERS_I8;
+static TypeOperations<int16_t> OPERS_I16;
+static TypeOperations<int32_t> OPERS_I32;
+static TypeOperations<float> OPERS_F32;
 
 void Processor::step() {
     word_t pc = memory.get_u32(registers.get(Registers::REG_PC));
@@ -983,6 +988,77 @@ void Processor::step() {
         case OP_MATH_NEG:
             res = arith->neg(val_a);
             break;
+        default:
+            throw ProcessorException("unknown instruction");
+        }
+
+        registers.set(reg, res.value);
+        StatusFlags sf = registers.get_flags();
+        sf.set_flag(StatusFlags::FLAG_CARRY, res.carry);
+        registers.set_flags(sf);
+    } break;
+
+    case OP_BITS_BAND:
+    case OP_BITS_BOR:
+    case OP_BITS_BXOR:
+    case OP_BITS_BSHL:
+    case OP_BITS_BSHR:
+    case OP_BITS_BNOT:
+   case OP_BITS_BSWAP: {
+        RegisterValue reg = inst.get_arg0_register();
+
+        BitwiseOperationsBase* opers;
+        switch (reg.dt) {
+        case DT_U8:
+            opers = &OPERS_U8;
+            break;
+        case DT_U16:
+            opers = &OPERS_U16;
+            break;
+        case DT_U32:
+            opers = &OPERS_U32;
+            break;
+        case DT_I8:
+            opers = &OPERS_I8;
+            break;
+        case DT_I16:
+            opers = &OPERS_I16;
+            break;
+        case DT_I32:
+            opers = &OPERS_I32;
+            break;
+        case DT_F32:
+        throw ProcessorException("unsupported data type");
+        default:
+            throw ProcessorException("unknown data type");
+        }
+
+        word_t val_a = registers.get(inst.get_arg1_register());
+        word_t val_b = registers.get(inst.get_arg2_register());
+
+        OperationValue res;
+        switch (op) {
+        case OP_BITS_BAND:
+            res = opers->band(val_a, val_b);
+            break;
+        case OP_BITS_BOR:
+            res = opers->bor(val_a, val_b);
+            break;
+        case OP_BITS_BXOR:
+            res = opers->bxor(val_a, val_b);
+            break;
+        case OP_BITS_BSHL:
+            res = opers->bsftl(val_a, val_b);
+            break;
+        case OP_BITS_BSHR:
+            res = opers->bsftr(val_a, val_b);
+            break;
+        case OP_BITS_BNOT:
+            res = opers->bnot(val_a);
+            break;
+            case OP_BITS_BSWAP:
+                res = opers->bswap(val_a);
+                break;
         default:
             throw ProcessorException("unknown instruction");
         }
