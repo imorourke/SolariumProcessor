@@ -6,11 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#ifdef __APPLE__
-#include <machine/endian.h>
-#else
-#include <endian.h>
-#endif
+#include "memory_helpers.h"
 
 #if !defined(__GNUC__) || __GNUC__ >= 7
 #define USE_OVERFLOW_FUNC
@@ -88,20 +84,29 @@ static const uint8_t OP_BITS_BSWAP = OP_BASE_BITS | 6;
 
 /// EXCEPTIONS
 
-ProcessorException::ProcessorException(const std::string& msg)
-    : msg(msg) {}
-
 ProcessorException::~ProcessorException() {}
 
-const char* ProcessorException::what() const { return msg.c_str(); }
+InterruptException::InterruptException(size_t irq)
+    : irq(irq) {}
 
-MemoryException::MemoryException(const std::string& msg, uint32_t addr)
-    : ProcessorException(msg),
-      addr(addr) {}
+InstructionException::InstructionException(word_t inst)
+    : inst(inst) {}
+
+UnknownInstructionException::UnknownInstructionException(word_t inst)
+    : InstructionException(inst) {}
+
+DataTypeException::DataTypeException(word_t inst, DataType dt)
+    : InstructionException(inst),
+      dt(dt) {}
+
+UnknownException::UnknownException(const std::string& msg)
+    : msg(msg) {}
+
+const char* UnknownException::what() const { return msg.c_str(); }
 
 /// STATUS FLAGS
 
-StatusFlags::StatusFlags(uint32_t val)
+StatusFlags::StatusFlags(word_t val)
     : val(val) {}
 
 bool StatusFlags::get_flag(word_t flag) const { return (val & (1 << flag)) != 0; }
@@ -142,7 +147,7 @@ size_t data_type_byte_size(DataType dt) {
     case DT_F32:
         return 4;
     default:
-        throw ProcessorException("unknown data type");
+        throw DataTypeException(0, dt);
     }
 }
 
@@ -203,7 +208,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value))) & 0xFF;
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_U16:
@@ -219,7 +224,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value))) & 0xFFFF;
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_U32:
@@ -235,7 +240,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return static_cast<uint32_t>(static_cast<int32_t>(bits_to_f32(value)));
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_I8:
@@ -255,7 +260,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return resulting_value_signed_dest<int32_t, int8_t>(static_cast<int32_t>(bits_to_f32(value)));
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_I16:
@@ -275,7 +280,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return resulting_value_signed_dest<int32_t, int16_t>(static_cast<int32_t>(bits_to_f32(value)));
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_I32:
@@ -295,7 +300,7 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return resulting_value_signed_dest<int32_t, int32_t>(static_cast<int32_t>(bits_to_f32(value)));
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     case DT_F32:
@@ -315,11 +320,11 @@ word_t data_type_convert(word_t value, DataType src, DataType dst) {
         case DT_F32:
             return value;
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(0, src);
         }
         break;
     default:
-        throw ProcessorException("unknown data type");
+        throw DataTypeException(0, dst);
     }
 }
 
@@ -357,6 +362,9 @@ const size_t Registers::REG_ARG_BASE = 5;
 const size_t InterruptController::NUM_INTERRUPTS = 64;
 const size_t InterruptController::NUM_NON_MASKABLE = 8;
 
+InterruptController::InterruptController()
+    : interrupts(0) {}
+
 int32_t InterruptController::has_interrupt() const {
     for (size_t i = 0; i < NUM_INTERRUPTS; ++i) {
         if ((interrupts & (1 << i)) != 0) {
@@ -371,7 +379,7 @@ void InterruptController::queue_interrupt(size_t num) {
     if (num < NUM_INTERRUPTS) {
         interrupts |= (1 << num);
     } else {
-        throw ProcessorException("invalid interrupt index provided to set");
+        throw InterruptException(num);
     }
 }
 
@@ -379,7 +387,7 @@ void InterruptController::clear_interrupt(size_t num) {
     if (num < NUM_INTERRUPTS) {
         interrupts &= ~(1 << num);
     } else {
-        throw ProcessorException("invalid interrupt index provided to clear");
+        throw InterruptException(num);
     }
 }
 
@@ -419,7 +427,7 @@ word_t Processor::get_interrupt_address(size_t interrupt) {
     if (interrupt < InterruptController::NUM_INTERRUPTS) {
         return INTERRUPT_BASE + sizeof(uint32_t) * interrupt;
     } else {
-        throw ProcessorException("interrupt count exceeds limit");
+        throw InterruptException(interrupt);
     }
 }
 
@@ -465,7 +473,7 @@ void Processor::stack_push(word_t val) {
 word_t Processor::stack_pop() {
     word_t sp_curr = registers.get(Registers::REG_SP);
     if (sp_curr < sizeof(word_t)) {
-        throw ProcessorException("stack underflow");
+        throw StackUnderflow();
     }
 
     sp_curr -= sizeof(word_t);
@@ -500,6 +508,12 @@ void Processor::pop_all_registers(bool save_return) {
     }
 }
 
+uint8_t Processor::get_current_op() { return Instruction(get_current_inst()).get_opcode(); }
+
+word_t Processor::get_current_inst() { return memory.get_u32(get_current_pc()); }
+
+word_t Processor::get_current_pc() const { return registers.get(Registers::REG_PC); }
+
 void Processor::reset(ResetType reset) {
     if (reset == RESET_HARD) {
         memory.reset();
@@ -513,7 +527,10 @@ void Processor::reset(ResetType reset) {
     interrupts.reset();
 }
 
-bool Processor::queue_interrupt(size_t interrupt) { return false; }
+bool Processor::queue_interrupt(size_t interrupt) {
+    (void)interrupt;
+    return false;
+}
 
 struct OperationValue {
     word_t value;
@@ -527,39 +544,6 @@ struct OperationValue {
         : value(value),
           carry(carry) {}
 };
-
-template <typename T>
-static T dt_swap_bytes(T val);
-
-template <>
-int8_t dt_swap_bytes<int8_t>(int8_t val) {
-    return val;
-}
-
-template <>
-uint8_t dt_swap_bytes<uint8_t>(uint8_t val) {
-    return val;
-}
-
-template <>
-int16_t dt_swap_bytes<int16_t>(int16_t val) {
-    return __builtin_bswap16(val);
-}
-
-template <>
-uint16_t dt_swap_bytes<uint16_t>(uint16_t val) {
-    return __builtin_bswap16(val);
-}
-
-template <>
-int32_t dt_swap_bytes<int32_t>(int32_t val) {
-    return __builtin_bswap32(val);
-}
-
-template <>
-uint32_t dt_swap_bytes<uint32_t>(uint32_t val) {
-    return __builtin_bswap32(val);
-}
 
 struct ArithmaticOperationsBase {
     virtual OperationValue add(word_t a, word_t b) = 0;
@@ -589,7 +573,8 @@ struct RelationalOperationsBase {
     virtual bool neq(word_t a, word_t b) = 0;
 };
 
-template <typename T> struct TypeOperations : public ArithmaticOperationsBase, public RelationalOperationsBase, public BitwiseOperationsBase {
+template <typename T>
+struct TypeOperations : public ArithmaticOperationsBase, public RelationalOperationsBase, public BitwiseOperationsBase {
     static word_t to_word(T res) { return static_cast<uint32_t>(static_cast<int32_t>(res)); }
 
     OperationValue add(word_t a, word_t b) {
@@ -643,17 +628,11 @@ template <typename T> struct TypeOperations : public ArithmaticOperationsBase, p
         return OperationValue(res, false);
     }
 
-    OperationValue band(word_t a, word_t b) {
-        return OperationValue(static_cast<T>(a) & static_cast<T>(b));
-    }
+    OperationValue band(word_t a, word_t b) { return OperationValue(static_cast<T>(a) & static_cast<T>(b)); }
 
-    OperationValue bor(word_t a, word_t b) {
-        return OperationValue(static_cast<T>(a) | static_cast<T>(b));
-    }
+    OperationValue bor(word_t a, word_t b) { return OperationValue(static_cast<T>(a) | static_cast<T>(b)); }
 
-    OperationValue bxor(word_t a, word_t b) {
-        return OperationValue(static_cast<T>(a) ^ static_cast<T>(b));
-    }
+    OperationValue bxor(word_t a, word_t b) { return OperationValue(static_cast<T>(a) ^ static_cast<T>(b)); }
 
     OperationValue bsftr(word_t a, word_t b) {
         return OperationValue(static_cast<T>(a) >> b, false); // TODO
@@ -663,13 +642,9 @@ template <typename T> struct TypeOperations : public ArithmaticOperationsBase, p
         return OperationValue(static_cast<T>(a) << b, false); // TODO
     }
 
-    OperationValue bnot(word_t a) {
-        return OperationValue(to_word(~static_cast<T>(a)));
-    }
+    OperationValue bnot(word_t a) { return OperationValue(to_word(~static_cast<T>(a))); }
 
-    OperationValue bswap(word_t a) {
-        return OperationValue(to_word(dt_swap_bytes(static_cast<T>(a))));
-    }
+    OperationValue bswap(word_t a) { return OperationValue(to_word(swap_bytes(static_cast<T>(a)))); }
 
     bool gt(word_t a, word_t b) { return static_cast<T>(a) > static_cast<T>(b); }
 
@@ -737,8 +712,9 @@ static TypeOperations<int32_t> OPERS_I32;
 static TypeOperations<float> OPERS_F32;
 
 void Processor::step() {
-    word_t pc = memory.get_u32(registers.get(Registers::REG_PC));
-    const Instruction inst(pc);
+    word_t pc = get_current_pc();
+    word_t inst_word = get_current_inst();
+    const Instruction inst(inst_word);
     const uint8_t op = inst.get_opcode();
     int32_t jump_val = 1;
 
@@ -779,7 +755,7 @@ void Processor::step() {
         if (int_index >= 0) {
             interrupts.clear_interrupt(int_index);
         }
-    }
+    } break;
     case OP_CPU_RETURN:
         pop_all_registers(op == OP_CPU_RETURN);
         jump_val = 0;
@@ -826,7 +802,7 @@ void Processor::step() {
             registers.set(reg, static_cast<uint32_t>(inst.imm_unsigned()));
             break;
         default:
-            throw ProcessorException("unknown immediate data type provided");
+            throw DataTypeException(inst_word, reg.dt);
         }
     } break;
     case OP_MEM_LOAD:
@@ -854,7 +830,7 @@ void Processor::step() {
             addr = pc + sizeof(word_t) + registers.get(Registers::REG_LDO);
             break;
         default:
-            throw ProcessorException("unknown load instruction found");
+            throw UnknownInstructionException(op);
         }
 
         if (data_type_is_integral(reg_target.dt)) {
@@ -870,7 +846,7 @@ void Processor::step() {
                     registers.set(reg_target, memory.get_u32(addr));
                     break;
                 default:
-                    throw ProcessorException("unknown signed byte size");
+                    throw DataTypeException(inst_word, reg_target.dt);
                 }
             } else {
                 switch (data_type_byte_size(reg_target.dt)) {
@@ -884,11 +860,11 @@ void Processor::step() {
                     registers.set(reg_target, memory.get_u32(addr));
                     break;
                 default:
-                    throw ProcessorException("unknown unsigned byte size");
+                    throw DataTypeException(inst_word, reg_target.dt);
                 }
             }
         } else {
-            throw ProcessorException("unable to load non-integral data");
+            throw DataTypeException(inst_word, reg_target.dt);
         }
 
     } break;
@@ -918,7 +894,7 @@ void Processor::step() {
             memory.set_u32(addr, val_src);
             break;
         default:
-            throw ProcessorException("unknown save data type size");
+            throw DataTypeException(inst_word, reg_target.dt);
         }
     } break;
     case OP_MEM_COPY:
@@ -962,7 +938,7 @@ void Processor::step() {
             arith = &OPERS_F32;
             break;
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(inst_word, reg.dt);
         }
 
         word_t val_a = registers.get(inst.get_arg1_register());
@@ -989,7 +965,7 @@ void Processor::step() {
             res = arith->neg(val_a);
             break;
         default:
-            throw ProcessorException("unknown instruction");
+            throw UnknownInstructionException(op);
         }
 
         registers.set(reg, res.value);
@@ -1004,7 +980,7 @@ void Processor::step() {
     case OP_BITS_BSHL:
     case OP_BITS_BSHR:
     case OP_BITS_BNOT:
-   case OP_BITS_BSWAP: {
+    case OP_BITS_BSWAP: {
         RegisterValue reg = inst.get_arg0_register();
 
         BitwiseOperationsBase* opers;
@@ -1027,10 +1003,8 @@ void Processor::step() {
         case DT_I32:
             opers = &OPERS_I32;
             break;
-        case DT_F32:
-        throw ProcessorException("unsupported data type");
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(inst_word, reg.dt);
         }
 
         word_t val_a = registers.get(inst.get_arg1_register());
@@ -1056,11 +1030,11 @@ void Processor::step() {
         case OP_BITS_BNOT:
             res = opers->bnot(val_a);
             break;
-            case OP_BITS_BSWAP:
-                res = opers->bswap(val_a);
-                break;
+        case OP_BITS_BSWAP:
+            res = opers->bswap(val_a);
+            break;
         default:
-            throw ProcessorException("unknown instruction");
+            throw UnknownInstructionException(inst_word);
         }
 
         registers.set(reg, res.value);
@@ -1101,7 +1075,7 @@ void Processor::step() {
             arith = &OPERS_F32;
             break;
         default:
-            throw ProcessorException("unknown data type");
+            throw DataTypeException(inst_word, reg.dt);
         }
 
         word_t val_a = registers.get(inst.get_arg1_register());
@@ -1128,14 +1102,14 @@ void Processor::step() {
             res = arith->leq(val_a, val_b);
             break;
         default:
-            throw ProcessorException("unknown instruction");
+            throw UnknownInstructionException(op);
         }
 
         registers.set(reg, res ? 1 : 0);
     } break;
 
     default:
-        throw "error value";
+        throw UnknownInstructionException(inst_word);
     }
 
     if (jump_val != 0) {

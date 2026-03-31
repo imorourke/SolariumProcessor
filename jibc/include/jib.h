@@ -13,10 +13,46 @@ typedef uint32_t word_t;
 
 static const size_t NUM_REGISTERS = 32;
 
+enum DataType { DT_U8 = 1, DT_I8 = 2, DT_U16 = 3, DT_I16 = 4, DT_U32 = 5, DT_I32 = 6, DT_F32 = 7 };
+
+enum DeviceType { DEV_NONE = 0, DEV_SERIAL = 1, DEV_IRQ_CLOCK = 2, DEV_RTC_CLOCK = 3, DEV_RTC_TIMER = 4, DEV_BLOCK = 5 };
+
 class ProcessorException {
 public:
-    ProcessorException(const std::string& msg);
-    ~ProcessorException();
+    virtual ~ProcessorException();
+};
+
+class StackUnderflow : public ProcessorException {};
+
+class InterruptException : public ProcessorException {
+public:
+    InterruptException(size_t irq);
+
+    size_t irq;
+};
+
+class InstructionException : public ProcessorException {
+public:
+    InstructionException(word_t inst);
+
+    word_t inst;
+};
+
+class UnknownInstructionException : public InstructionException {
+public:
+    UnknownInstructionException(word_t inst);
+};
+
+class DataTypeException : public InstructionException {
+public:
+    DataTypeException(word_t inst, DataType dt);
+
+    DataType dt;
+};
+
+class UnknownException : public ProcessorException {
+public:
+    UnknownException(const std::string& msg);
 
     virtual const char* what() const;
 
@@ -24,11 +60,12 @@ protected:
     std::string msg;
 };
 
+enum MemoryExceptionType { MemFaultInvalidAddress, MemFaultReadOnlyMemory, MemFaultNoSegment };
+
 class MemoryException : public ProcessorException {
 public:
-    MemoryException(const std::string& msg, word_t addr);
-
-private:
+    MemoryException(MemoryExceptionType status, word_t addr);
+    MemoryExceptionType status;
     word_t addr;
 };
 
@@ -50,19 +87,169 @@ struct StatusFlags {
     static const word_t FLAG_CARRY;
 };
 
-enum DataType {
-    DT_U8 = 1,
-    DT_I8 = 2,
-    DT_U16 = 3,
-    DT_I16 = 4,
-    DT_U32 = 5,
-    DT_I32 = 6,
-    DT_F32 = 7,
+size_t data_type_byte_size(DataType dt);
+bool data_type_is_signed(DataType dt);
+bool data_type_is_integral(DataType dt);
+
+class MemorySegment {
+public:
+    virtual ~MemorySegment();
+
+    virtual size_t size() const = 0;
+
+    virtual uint8_t get_u8(word_t addr);
+    virtual uint16_t get_u16(word_t addr);
+    virtual uint32_t get_u32(word_t addr);
+
+    virtual uint8_t peek_u8(word_t addr) const = 0;
+    virtual uint16_t peek_u16(word_t addr) const;
+    virtual uint32_t peek_u32(word_t addr) const;
+
+    virtual void set_u8(word_t addr, uint8_t val) = 0;
+    virtual void set_u16(word_t addr, uint16_t val);
+    virtual void set_u32(word_t addr, uint32_t val);
+
+    virtual void reset() = 0;
 };
 
- size_t data_type_byte_size(DataType dt);
- bool data_type_is_signed(DataType dt);
- bool data_type_is_integral(DataType dt);
+class ReadWriteMemorySegment : public MemorySegment {
+    const size_t _size;
+    uint8_t* const _data;
+
+public:
+    ReadWriteMemorySegment(size_t size);
+    ~ReadWriteMemorySegment();
+
+    size_t size() const;
+
+    uint8_t peek_u8(word_t addr) const;
+    uint16_t peek_u16(word_t addr) const;
+    uint32_t peek_u32(word_t addr) const;
+
+    void set_u8(word_t addr, uint8_t val);
+    void set_u16(word_t addr, uint16_t val);
+    void set_u32(word_t addr, uint32_t val);
+
+    void reset();
+};
+
+class ReadOnlyMemorySegment : public MemorySegment {
+    const size_t _size;
+    const uint8_t* const _data;
+
+public:
+    ReadOnlyMemorySegment(const uint8_t* data, size_t size);
+
+    size_t size() const;
+
+    uint8_t peek_u8(word_t addr) const;
+    uint16_t peek_u16(word_t addr) const;
+    uint32_t peek_u32(word_t addr) const;
+
+    void set_u8(word_t addr, uint8_t val);
+    void set_u16(word_t addr, uint16_t val);
+    void set_u32(word_t addr, uint32_t val);
+
+    void reset();
+};
+
+class MemoryMap {
+    struct SegmentInfo {
+        MemorySegment* segment;
+        word_t base;
+        word_t top;
+
+        bool contains(word_t addr) const;
+    };
+
+    std::vector<SegmentInfo> segments;
+    SegmentInfo* last_segment;
+
+public:
+    MemoryMap();
+
+    uint8_t get_u8(word_t addr);
+    uint16_t get_u16(word_t addr);
+    uint32_t get_u32(word_t addr);
+
+    uint8_t peek_u8(word_t addr) const;
+    uint16_t peek_u16(word_t addr) const;
+    uint32_t peek_u32(word_t addr) const;
+
+    void set_u8(word_t addr, uint8_t val);
+    void set_u16(word_t addr, uint16_t val);
+    void set_u32(word_t addr, uint32_t val);
+
+    void reset();
+
+private:
+    const SegmentInfo& get_segment(word_t addr) const;
+};
+
+struct DeviceAction {
+    size_t interrupt_num;
+    bool call_interrupt;
+
+    DeviceAction()
+        : interrupt_num(0),
+          call_interrupt(false) {}
+};
+
+const size_t DEFAULT_DEVICE_SIZE = 32;
+
+class DeviceBase : public MemorySegment {
+public:
+    virtual ~DeviceBase() {}
+    virtual DeviceAction on_step() {
+        DeviceAction act;
+        act.call_interrupt = false;
+        return act;
+    }
+
+    virtual DeviceType device_type() const = 0;
+
+    virtual size_t size() const { return DEFAULT_DEVICE_SIZE; }
+};
+
+template <typename T> struct MemoryLinker {
+    T& value;
+    MemoryLinker(T& value)
+        : value(value) {}
+
+    uint8_t get_be_byte(size_t i) const {
+        uint8_t arr[sizeof(T)];
+        memcpy(&arr, &value, sizeof(T));
+        return arr[i];
+    }
+
+    void set_be_byte(size_t i, uint8_t x) {
+        uint8_t arr[sizeof(T)];
+        memcpy(&arr, &value, sizeof(T));
+        arr[i] = x;
+        memcpy(&value, &arr, sizeof(T));
+    }
+};
+
+class BlankDevice : public DeviceBase {
+public:
+    DeviceType device_type() const { return DEV_NONE; }
+
+    uint8_t peek_u8(word_t addr) const {
+        if (addr < size()) {
+            return 0;
+        } else {
+            throw MemoryException(MemFaultInvalidAddress, addr);
+        }
+    }
+
+    void set_u8(word_t addr, uint8_t val) {
+        if (addr < size()) {
+            (void)val;
+        } else {
+            throw MemoryException(MemFaultInvalidAddress, addr);
+        }
+    }
+};
 
 struct RegisterValue {
     uint8_t reg;
@@ -94,71 +281,13 @@ struct Registers {
     static const size_t REG_ARG_BASE;
 };
 
-class MemorySegment {
-    std::vector<uint8_t> data;
-
-public:
-    size_t size() const;
-
-    virtual uint8_t get_u8(word_t addr);
-    virtual uint16_t get_u16(word_t addr);
-    virtual uint32_t get_u32(word_t addr);
-
-    virtual uint8_t peek_u8(word_t addr) const;
-    virtual uint16_t peek_u16(word_t addr) const;
-    virtual uint32_t peek_u32(word_t addr) const;
-
-    virtual void set_u8(word_t addr, uint8_t val);
-    virtual void set_u16(word_t addr, uint16_t val);
-    virtual void set_u32(word_t addr, uint32_t val);
-
-    virtual void reset();
-};
-
-class MemoryMap {
-    struct SegmentInfo {
-        MemorySegment* segment;
-        word_t base;
-        word_t top;
-
-        bool contains(word_t addr) const;
-    };
-
-    std::vector<SegmentInfo> segments;
-    SegmentInfo* last_segment;
-
-public:
-    MemoryMap();
-    ~MemoryMap();
-
-    MemoryMap(const MemoryMap&);
-    MemoryMap& operator=(const MemoryMap&);
-
-    uint8_t get_u8(word_t addr);
-    uint16_t get_u16(word_t addr);
-    uint32_t get_u32(word_t addr);
-
-    uint8_t peek_u8(word_t addr) const;
-    uint16_t peek_u16(word_t addr) const;
-    uint32_t peek_u32(word_t addr) const;
-
-    void set_u8(word_t addr, uint8_t val);
-    void set_u16(word_t addr, uint16_t val);
-    void set_u32(word_t addr, uint32_t val);
-
-    void reset();
-
-private:
-    const SegmentInfo& get_segment(word_t addr) const;
-};
-
 class InterruptController {
     uint64_t interrupts;
 
+public:
     InterruptController();
 
-public:
-    // Returns > 0 for a valid interrupt
+    // Returns >= 0 for a valid interrupt
     int32_t has_interrupt() const;
     void queue_interrupt(size_t num);
     void clear_interrupt(size_t num);
@@ -175,10 +304,7 @@ class Processor {
     InterruptController interrupts;
 
 public:
-    enum ResetType {
-        RESET_HARD,
-        RESET_SOFT,
-    };
+    enum ResetType { RESET_HARD, RESET_SOFT };
 
 private:
     word_t get_interrupt_address(size_t interrupt);
@@ -194,8 +320,9 @@ private:
     void pop_all_registers(bool save_return);
 
 public:
-    uint8_t get_current_op() const;
-    uint32_t get_current_pc() const;
+    uint8_t get_current_op();
+    word_t get_current_inst();
+    word_t get_current_pc() const;
 
     void reset(ResetType reset = RESET_HARD);
 
