@@ -5,8 +5,7 @@ use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 pub struct CpuState {
     running_prev: bool,
-    running: bool,
-    multiplier: f64,
+    step_repeat_count: i64,
     #[cfg(not(target_arch = "wasm32"))]
     run_thread: bool,
     last_code: Option<(u32, Vec<u8>)>,
@@ -23,8 +22,7 @@ impl CpuState {
     pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Result<Self, ComputerError> {
         let s = Self {
             running_prev: false,
-            running: false,
-            multiplier: 1.0,
+            step_repeat_count: 1,
             #[cfg(not(target_arch = "wasm32"))]
             run_thread: true,
             last_code: None,
@@ -80,8 +78,9 @@ impl CpuState {
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
                 UiToThread::CpuStep => {
-                    if let Err(e) = state.computer.step_cpu(false) {
-                        return Ok(Some(ThreadToUi::LogMessage(e.to_string())));
+                    if let Err(e) = state.computer.step_cpu(None, false) {
+                        let msg = format!("{}\n{}", state.get_inst_history().join("\n"), e);
+                        return Ok(Some(ThreadToUi::LogMessage(msg)));
                     }
                 }
                 UiToThread::CpuRun(set) => {
@@ -101,7 +100,7 @@ impl CpuState {
                     }
                 }
                 UiToThread::SetMultiplier(m) => {
-                    state.multiplier = m;
+                    state.step_repeat_count = 2i64.pow(m as u32);
                 }
                 UiToThread::SetCode(data) => {
                     state.last_code = Some((data.start_address, data.bytes));
@@ -124,8 +123,7 @@ impl CpuState {
                         resp_memory.push(
                             state
                                 .computer
-                                .cpu
-                                .memory_inspect(base + i)
+                                .memory_inspect_u8(base + i)
                                 .unwrap_or_default(),
                         );
                     }
@@ -185,9 +183,8 @@ impl CpuState {
                     Err(RecvError) => panic!("receive error!"),
                 }
             } else {
-                if self.running && self.computer.cpu.step_devices().unwrap() {
-                    // TODO - HERE!
-                    self.running = true;
+                if self.computer.get_running_requested() {
+                    self.computer.step_devices()?;
                 }
 
                 match self.rx.try_recv() {
@@ -204,47 +201,43 @@ impl CpuState {
             }
         }
 
-        if self.running {
-            let step_repeat_count = 2i64.pow(self.multiplier as u32);
-
-            for _ in 0..step_repeat_count {
-                if let Err(msg) = self.computer.step_cpu(true) {
-                    self.running = false;
+        if self.computer.get_running() {
+            for _ in 0..self.step_repeat_count {
+                if let Err(msg) = self.computer.step_cpu(self.breakpoint, true) {
+                    self.computer.set_running_request(false);
                     self.tx
                         .send(ThreadToUi::LogMessage(msg.to_string()))
                         .unwrap();
                     break;
                 }
 
-                if !self.running {
+                if !self.computer.get_running() {
                     break;
                 }
             }
         }
 
         // Send Registers
+        let rs = self.computer.get_register_state();
         self.tx
-            .send(ThreadToUi::RegisterState(Box::new(
-                self.computer.cpu.get_register_state(),
-            )))
+            .send(ThreadToUi::RegisterState(Box::new(rs)))
             .unwrap();
 
-        let pc = self
-            .computer
-            .cpu
-            .get_register_state()
+        let pc = rs
             .get(jib::cpu::Register::ProgramCounter)
-            .unwrap_or(0);
-        let mem = self.computer.cpu.memory_inspect_u32(pc).unwrap_or(0);
+            .unwrap_or_default();
+        let mem = self.computer.memory_inspect_u32(pc).unwrap_or_default();
 
         self.tx
             .send(ThreadToUi::ProgramCounterValue(pc, mem))
             .unwrap();
 
         // Send CPU state
-        if self.running_prev != self.running {
-            self.running_prev = self.running;
-            self.tx.send(ThreadToUi::CpuRunning(self.running)).unwrap();
+        if self.running_prev != self.computer.get_running() {
+            self.running_prev = self.computer.get_running();
+            self.tx
+                .send(ThreadToUi::CpuRunning(self.running_prev))
+                .unwrap();
         }
 
         // Check for serial output
@@ -277,7 +270,7 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
             break;
         }
 
-        if state.running {
+        if state.computer.get_running() {
             std::thread::sleep(std::time::Duration::from_millis(CpuState::THREAD_LOOP_MS));
         }
     }

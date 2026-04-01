@@ -5,7 +5,7 @@ use core::{cell::RefCell, fmt::Display};
 #[cfg(not(target_arch = "wasm32"))]
 use jib::device::RtcTimerDevice;
 use jib::{
-    cpu::{Instruction, Processor, ProcessorError},
+    cpu::{Instruction, Processor, ProcessorError, RegisterManager},
     device::{
         BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
         RtcClockDevice, SerialInputOutputDevice,
@@ -17,15 +17,14 @@ use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput};
 use std::{format, path::Path, rc::Rc, vec, vec::Vec};
 
 pub struct JibComputer {
-    pub running: bool,
-    pub running_requested: bool,
+    running: bool,
+    running_requested: bool,
     bootloader: bool,
-    pub cpu: Processor,
+    cpu: Processor,
     dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
     #[cfg(not(target_arch = "wasm32"))]
     dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
     inst_history: CircularBuffer<(u32, Instruction), 10>,
-    breakpoint: Option<u32>,
     hard_drive: Rc<RefCell<BlockDevice>>,
     #[cfg(test)]
     step_count: u128,
@@ -50,7 +49,6 @@ impl JibComputer {
             #[cfg(not(target_arch = "wasm32"))]
             dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
             inst_history: Default::default(),
-            breakpoint: None,
             hard_drive: Self::create_hard_drive()?,
             #[cfg(test)]
             step_count: 0,
@@ -113,27 +111,39 @@ impl JibComputer {
         self.inst_history.elts()
     }
 
-    pub fn step_cpu(&mut self, enable_breakpoints: bool) -> Result<bool, ComputerError> {
+    pub fn get_register_state(&self) -> RegisterManager {
+        self.cpu.get_register_state()
+    }
+
+    pub fn memory_inspect_u8(&self, addr: u32) -> Result<u8, ComputerError> {
+        Ok(self.cpu.memory_inspect(addr)?)
+    }
+
+    pub fn memory_inspect_u32(&self, addr: u32) -> Result<u32, ComputerError> {
+        Ok(self.cpu.memory_inspect_u32(addr)?)
+    }
+
+    pub fn step_cpu(
+        &mut self,
+        breakpoint: Option<u32>,
+        auto_break: bool,
+    ) -> Result<bool, ComputerError> {
         let pc = self.cpu.get_current_pc().unwrap_or(0);
         if let Ok(inst) = self.cpu.get_current_inst() {
             self.inst_history.push((pc, inst));
         }
 
-        if let Some(brk) = self.breakpoint
-            && brk == pc
-            && enable_breakpoints
-        {
-            self.running = false;
-            return Ok(false);
-        }
-
-        let debug_stop = if let Ok(op) = self.cpu.get_current_op() {
+        let debug_stop = if auto_break && let Ok(op) = self.cpu.get_current_op() {
             op == Processor::OP_DEBUG_BREAK || op == Processor::OP_HALT
+        } else if let Some(brk) = breakpoint {
+            brk == pc
         } else {
             false
         };
 
         if debug_stop {
+            self.running = false;
+            self.running_requested = false;
             return Ok(false);
         }
 
@@ -264,7 +274,7 @@ impl JibComputer {
         if !self.bootloader
             && let Some((start, code)) = input_code
         {
-            self.cpu.memory_set_range(start, &code)?;
+            self.cpu.memory_set_range(start, code)?;
         }
 
         if self.running_requested {
@@ -272,6 +282,15 @@ impl JibComputer {
         }
 
         Ok(())
+    }
+
+    pub fn step_devices(&mut self) -> Result<bool, ComputerError> {
+        Ok(if self.cpu.step_devices()? {
+            self.running = true;
+            true
+        } else {
+            false
+        })
     }
 
     pub fn use_bootloader(&mut self, value: bool) -> Result<(), ComputerError> {
@@ -294,15 +313,22 @@ impl JibComputer {
         }
     }
 
-    pub fn set_running_request(&mut self, running_requested: bool) {
-        self.running_requested = running_requested;
-        if !self.running_requested {
-            self.running = false;
+    pub fn set_running_request(&mut self, running_requested: bool) -> bool {
+        if running_requested != self.running_requested {
+            self.running = running_requested;
+            self.running_requested = running_requested;
+            true
+        } else {
+            false
         }
     }
 
     pub fn get_running(&self) -> bool {
         self.running
+    }
+
+    pub fn get_running_requested(&self) -> bool {
+        self.running_requested
     }
 
     pub fn set_code(&mut self, asm: AssemblerOutput) -> Result<(), ComputerError> {
@@ -417,7 +443,7 @@ mod test {
         let mut iter_count = 0;
 
         while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
-            cpu.step_cpu(false).unwrap();
+            cpu.step_cpu(None, false).unwrap();
             while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
                 serial_output.push(c);
             }

@@ -277,7 +277,7 @@ impl eframe::App for VisualJib {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.read_cpu_responses();
 
         // Remove old windows

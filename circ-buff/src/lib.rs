@@ -105,11 +105,7 @@ impl<T: Default + Clone + Copy, const S: usize> CircularBuffer<T, S> {
 
     /// Peeks at the next element to be read from the buffer
     fn peek_idx(&self) -> Option<(T, usize)> {
-        if let Some(idx) = self.idx_read {
-            Some((self.buffer[idx], idx))
-        } else {
-            None
-        }
+        self.idx_read.map(|idx| (self.buffer[idx], idx))
     }
 
     /// Pops an element from the buffer
@@ -257,11 +253,7 @@ impl<T: Default + Clone + Copy> CircularBufferDyn<T> {
 
     /// Peeks at the next element to be read from the buffer
     fn peek_idx(&self) -> Option<(T, usize)> {
-        if let Some(idx) = self.idx_read {
-            Some((self.buffer[idx], idx))
-        } else {
-            None
-        }
+        self.idx_read.map(|idx| (self.buffer[idx], idx))
     }
 
     /// Pops an element from the buffer
