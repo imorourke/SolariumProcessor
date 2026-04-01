@@ -1,190 +1,49 @@
 use crate::messages::{ThreadToUi, UiToThread};
-use cbfs_lib::FileSystemError;
-use cbuoy::{CodeGenerationOptions, PreprocessorError, ProgramType, TokenError};
-#[cfg(not(target_arch = "wasm32"))]
-use jib::device::RtcTimerDevice;
-use jib::{
-    cpu::{Instruction, Processor, ProcessorError},
-    device::{
-        BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
-        RtcClockDevice, SerialInputOutputDevice,
-    },
-    memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
-};
-use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput, InstructionList};
-use std::{
-    cell::RefCell,
-    fmt::Display,
-    path::Path,
-    rc::Rc,
-    sync::mpsc::{Receiver, RecvError, Sender, TryRecvError},
-};
-
-struct CircularBuffer<T, const S: usize> {
-    history: [Option<T>; S],
-    index: usize,
-    last: Option<T>,
-}
-
-impl<T: Clone + PartialEq + Eq, const S: usize> CircularBuffer<T, S> {
-    pub fn reset(&mut self) {
-        self.history.fill(None);
-        self.index = 0;
-        self.last = None;
-    }
-
-    pub fn push(&mut self, val: T) {
-        let new_last = Some(val);
-        if new_last != self.last {
-            self.history[self.index] = new_last.clone();
-            self.index = (self.index + 1) % self.history.len();
-            self.last = new_last;
-        }
-    }
-
-    pub fn list(&self) -> Vec<T> {
-        let mut vals = Vec::new();
-
-        for i in 0..self.history.len() {
-            let iv = (self.index + i) % self.history.len();
-
-            if let Some(t) = self.history[iv].as_ref() {
-                vals.push(t.clone());
-            }
-        }
-
-        vals
-    }
-}
-
-impl<T: Clone + PartialEq + Eq, const S: usize> Default for CircularBuffer<T, S> {
-    fn default() -> Self {
-        const {
-            assert!(S > 0);
-        }
-
-        Self {
-            history: [const { None }; S],
-            index: 0,
-            last: None,
-        }
-    }
-}
+use jib_asm::InstructionList;
+use jib_computer::{ComputerError, JibComputer};
+use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 pub struct CpuState {
-    running: bool,
-    running_requested: bool,
     running_prev: bool,
-    use_bootloader: bool,
+    running: bool,
     multiplier: f64,
     #[cfg(not(target_arch = "wasm32"))]
     run_thread: bool,
-    cpu: Processor,
-    dev_serial_io: Rc<RefCell<SerialInputOutputDevice>>,
-    #[cfg(not(target_arch = "wasm32"))]
-    dev_rtc_timer: Rc<RefCell<RtcTimerDevice>>,
     last_code: Option<(u32, Vec<u8>)>,
-    inst_history: CircularBuffer<(u32, Instruction), 10>,
-    inst_map: InstructionList,
+    computer: JibComputer,
     breakpoint: Option<u32>,
-    step_count: u128,
+    inst_map: InstructionList,
     rx: Receiver<UiToThread>,
     tx: Sender<ThreadToUi>,
-    hard_drive: Rc<RefCell<BlockDevice>>,
 }
 
 impl CpuState {
-    const INIT_MEMORY_SIZE: u32 = 0x40000000;
-    pub const BOOTLOADER_START: u32 = 0xFFFF0000;
-    const DEVICE_START_ADDR: u32 = 0xFFFFA000;
-    const DEVICE_HD_START_ADDR: u32 = 0xFFFFB000;
-    const DEVICE_COUNT: usize =
-        ((Self::DEVICE_HD_START_ADDR - Self::DEVICE_START_ADDR) / DEVICE_MEM_SIZE) as usize;
-    pub const THREAD_LOOP_MS: u64 = 50;
-    const MSGS_PER_LOOP: u64 = 1000;
+    pub const THREAD_LOOP_MS: u64 = 25;
 
     pub fn new(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) -> Result<Self, ComputerError> {
-        let mut s = Self {
+        let s = Self {
+            running_prev: false,
+            running: false,
+            multiplier: 1.0,
             #[cfg(not(target_arch = "wasm32"))]
             run_thread: true,
-            running: false,
-            running_requested: false,
-            running_prev: false,
-            use_bootloader: false,
-            multiplier: 1.0,
-            cpu: Processor::default(),
-            dev_serial_io: Rc::new(RefCell::new(SerialInputOutputDevice::new(2048))),
-            #[cfg(not(target_arch = "wasm32"))]
-            dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
             last_code: None,
-            inst_history: Default::default(),
+            computer: JibComputer::new()?,
             inst_map: InstructionList::default(),
             breakpoint: None,
-            step_count: 0,
             rx,
             tx,
-            hard_drive: Self::create_hard_drive()?,
         };
 
-        s.tx.send(ThreadToUi::BootloaderState(s.use_bootloader))
+        s.tx.send(ThreadToUi::BootloaderState(s.computer.using_bootloader()))
             .unwrap();
 
-        s.reset()?;
         Ok(s)
     }
 
-    fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
-        // Compile OS into a file
-        let kernel_data = Self::compile_kernel_code(include_str!("../../cbos/os.cb"), None)?.bytes;
-
-        let mut fs = cbfs_lib::FileSystem::new("root", 256, 4096)?;
-        fs.create_entry(
-            fs.root_sector(),
-            "hello.txt",
-            cbfs_lib::EntryType::File,
-            b"Hello, world!",
-        )?;
-        fs.create_entry(
-            fs.root_sector(),
-            "test.run",
-            cbfs_lib::EntryType::File,
-            b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
-        )?;
-        fs.create_entry(
-            fs.root_sector(),
-            "boot.bin",
-            cbfs_lib::EntryType::File,
-            &kernel_data,
-        )?;
-        let root_dir = fs.create_entry(
-            fs.root_sector(),
-            "root",
-            cbfs_lib::EntryType::Directory,
-            &[],
-        )?;
-        let build_date: &'static str = env!("BUILD_DATE");
-        fs.create_entry(
-            root_dir,
-            "version",
-            cbfs_lib::EntryType::File,
-            format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
-        )?;
-        let src = fs.create_entry(root_dir, "src", cbfs_lib::EntryType::Directory, &[])?;
-
-        for (path, code) in cbuoy::DEFAULT_FILES.iter() {
-            if let Some(name) = path.split('/').next_back()
-                && name.len() < cbfs_lib::VolumeHeader::VOLUME_NAME_SIZE
-            {
-                fs.create_entry(src, name, cbfs_lib::EntryType::File, code.as_bytes())?;
-            }
-        }
-
-        Ok(Rc::new(RefCell::new(BlockDevice::new(fs.get_fs_bytes()?))))
-    }
-
     fn get_inst_history(&self) -> Vec<String> {
-        self.inst_history
-            .list()
+        self.computer
+            .get_inst_history()
             .into_iter()
             .map(|(pc, inst)| {
                 format!(
@@ -197,173 +56,9 @@ impl CpuState {
             .collect::<Vec<_>>()
     }
 
-    fn step_cpu(&mut self, enable_breakpoints: bool) -> Result<(), ThreadToUi> {
-        let pc = self.cpu.get_current_pc().unwrap_or(0);
-        if let Ok(inst) = self.cpu.get_current_inst() {
-            self.inst_history.push((pc, inst));
-        }
-
-        if let Some(brk) = self.breakpoint
-            && brk == pc
-            && enable_breakpoints
-        {
-            self.running = false;
-
-            let msg = format!(
-                "Breaking at 0x{brk:08x}\n{}",
-                self.get_inst_history()
-                    .into_iter()
-                    .map(|s| format!("    {s}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-            return Err(ThreadToUi::LogMessage(msg));
-        }
-
-        let debug_stop = if let Ok(op) = self.cpu.get_current_op() {
-            op == Processor::OP_DEBUG_BREAK || op == Processor::OP_HALT
-        } else {
-            false
-        };
-
-        self.step_count += 1;
-        let res = self.cpu.step();
-
-        if let Err(e) = res {
-            let msg = format!(
-                "{}\n{}",
-                e,
-                self.get_inst_history()
-                    .into_iter()
-                    .map(|s| format!("    {s}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-
-            Err(ThreadToUi::LogMessage(msg))
-        } else {
-            if debug_stop {
-                self.running = false;
-            }
-
-            Ok(())
-        }
-    }
-
-    pub fn compile_kernel_code(
-        code: &str,
-        start_offset: Option<u32>,
-    ) -> Result<AssemblerOutput, ComputerError> {
-        let preprocessed =
-            cbuoy::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
-
-        let tokens = preprocessed.tokenize().unwrap();
-
-        let options = CodeGenerationOptions {
-            prog_type: ProgramType::Kernel {
-                stack_loc: ProgramType::DEFAULT_STACK_LOC,
-                start_offset: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
-            },
-            trim_code: true,
-            ..Default::default()
-        };
-
-        let tokens = cbuoy::parse(tokens, options).and_then(|x| x.get_assembler())?;
-        Ok(jib_asm::assemble_tokens(tokens)?)
-    }
-
     fn reset(&mut self) -> Result<(), ComputerError> {
-        const INIT_RO_LEN: u32 = Processor::BASE_HW_INT_ADDR;
-
-        self.cpu = Processor::default();
-        self.dev_serial_io.borrow_mut().reset();
-
-        self.inst_history.reset();
-        self.step_count = 0;
-
-        let mut reset_vec_data: Vec<u8> = vec![0; INIT_RO_LEN as usize];
-        let start_loc = if self.use_bootloader {
-            Self::BOOTLOADER_START
-        } else {
-            ProgramType::DEFAULT_START_OFFSET
-        };
-
-        for (i, x) in start_loc.to_be_bytes().iter().enumerate() {
-            reset_vec_data[i] = *x;
-            reset_vec_data[i + std::mem::size_of::<u32>()] = *x;
-        }
-
-        assert!(reset_vec_data.len() == INIT_RO_LEN as usize);
-
-        self.cpu.memory_add_segment(
-            0,
-            Rc::new(RefCell::new(ReadOnlySegment::new(reset_vec_data))),
-        )?;
-
-        self.cpu.memory_add_segment(
-            INIT_RO_LEN,
-            Rc::new(RefCell::new(ReadWriteSegment::new(
-                (Self::INIT_MEMORY_SIZE - INIT_RO_LEN) as usize,
-            ))),
-        )?;
-
-        self.cpu.memory_add_segment(
-            Self::BOOTLOADER_START,
-            Rc::new(RefCell::new(ReadWriteSegment::new(
-                (Self::DEVICE_START_ADDR - Self::BOOTLOADER_START) as usize,
-            ))),
-        )?;
-
-        let blank_dev = Rc::new(RefCell::new(BlankDevice));
-        let devices: [Rc<RefCell<dyn ProcessorDevice>>; _] = [
-            self.dev_serial_io.clone(),
-            Rc::new(RefCell::new(InterruptClockDevice::default())),
-            Rc::new(RefCell::new(RtcClockDevice)),
-            #[cfg(not(target_arch = "wasm32"))]
-            self.dev_rtc_timer.clone(),
-        ];
-
-        for i in 0..Self::DEVICE_COUNT {
-            let dev_loc = Self::DEVICE_START_ADDR + (i as u32) * DEVICE_MEM_SIZE;
-
-            let dev = if let Some(d) = devices.get(i) {
-                self.cpu.device_add(d.clone())?;
-                d.clone()
-            } else {
-                blank_dev.clone()
-            };
-
-            self.cpu.memory_add_segment(dev_loc, dev)?;
-        }
-
-        self.cpu.device_add(self.hard_drive.clone())?;
-        self.cpu
-            .memory_add_segment(Self::DEVICE_HD_START_ADDR, self.hard_drive.clone())?;
-
-        self.cpu.reset(jib::cpu::ResetType::Hard)?;
-
-        // Compile and setup bootloader
-        for (i, x) in Self::compile_kernel_code(
-            include_str!("../../cbos/bootloader.cb"),
-            Some(Self::BOOTLOADER_START),
-        )?
-        .bytes
-        .iter()
-        .enumerate()
-        {
-            self.cpu.memory_set(Self::BOOTLOADER_START + i as u32, *x)?;
-        }
-
-        if !self.use_bootloader
-            && let Some((start, code)) = &self.last_code
-        {
-            self.cpu.memory_set_range(*start, code)?;
-        }
-
-        if self.running_requested {
-            self.running = true;
-        }
-
+        self.computer
+            .reset(self.last_code.as_ref().map(|x| (x.0, x.1.as_slice())))?;
         Ok(())
     }
 
@@ -374,22 +69,23 @@ impl CpuState {
         ) -> Result<Option<ThreadToUi>, ComputerError> {
             match msg {
                 UiToThread::UseBootloader(bootloader) => {
-                    state.use_bootloader = bootloader;
+                    state.computer.use_bootloader(bootloader)?;
                     state.reset()?;
                     state
                         .tx
-                        .send(ThreadToUi::BootloaderState(state.use_bootloader))
+                        .send(ThreadToUi::BootloaderState(
+                            state.computer.using_bootloader(),
+                        ))
                         .unwrap();
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
                 UiToThread::CpuStep => {
-                    if let Err(e) = state.step_cpu(false) {
-                        return Ok(Some(e));
+                    if let Err(e) = state.computer.step_cpu(false) {
+                        return Ok(Some(ThreadToUi::LogMessage(e.to_string())));
                     }
                 }
                 UiToThread::CpuRun(set) => {
-                    state.running = set;
-                    state.running_requested = set;
+                    state.computer.set_running_request(set);
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::Exit => state.run_thread = false,
@@ -398,14 +94,10 @@ impl CpuState {
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
                 UiToThread::CpuIrq(irq) => {
-                    if !state.cpu.trigger_hardware_interrupt(irq as u32)? {
+                    if !state.computer.trigger_irq(irq as u32)? {
                         return Ok(Some(ThreadToUi::LogMessage(format!(
                             "irq {irq} not triggered"
                         ))));
-                    }
-
-                    if state.running_requested && !state.running && state.cpu.step_devices()? {
-                        state.running = true;
                     }
                 }
                 UiToThread::SetMultiplier(m) => {
@@ -416,30 +108,26 @@ impl CpuState {
                     state.reset()?;
                     return Ok(Some(ThreadToUi::ProcessorReset));
                 }
-                UiToThread::SerialInput(s) => {
-                    for c in s.chars().chain(['\n']) {
-                        match jib::text::character_to_byte(c) {
-                            Ok(word) => {
-                                if !state.dev_serial_io.borrow_mut().push_input(word) {
-                                    return Ok(Some(ThreadToUi::LogMessage(
-                                        "device serial input buffer full".to_string(),
-                                    )));
-                                } else if state.running_requested
-                                    && !state.running
-                                    && state.cpu.step_devices()?
-                                {
-                                    state.running = true;
-                                }
-                            }
-                            Err(e) => return Ok(Some(ThreadToUi::LogMessage(e.to_string()))),
-                        }
+                UiToThread::SerialInput(s) => match state.computer.set_serial_input(&s) {
+                    Ok(true) => (),
+                    Ok(false) => {
+                        return Ok(Some(ThreadToUi::LogMessage(
+                            "device serial input buffer full".to_string(),
+                        )));
                     }
-                }
+                    Err(e) => return Ok(Some(ThreadToUi::LogMessage(e.to_string()))),
+                },
                 UiToThread::RequestMemory(base, size) => {
                     // Send memory if needed
                     let mut resp_memory = Vec::new();
                     for i in 0..size {
-                        resp_memory.push(state.cpu.memory_inspect(base + i).unwrap_or_default());
+                        resp_memory.push(
+                            state
+                                .computer
+                                .cpu
+                                .memory_inspect(base + i)
+                                .unwrap_or_default(),
+                        );
                     }
                     state
                         .tx
@@ -447,8 +135,7 @@ impl CpuState {
                         .unwrap();
                 }
                 UiToThread::DiskReset => {
-                    state.hard_drive = CpuState::create_hard_drive()?;
-                    state.reset().unwrap();
+                    state.reset()?;
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
@@ -457,7 +144,7 @@ impl CpuState {
                     save_container(
                         &ContainerHeader::default(),
                         &cbfs_lib::FileSystem::read_bytes(
-                            &mut state.hard_drive.borrow().data.as_slice(),
+                            &mut state.computer.get_disk_data()?.as_slice(),
                         )?,
                         std::path::Path::new("hd.cbfs"),
                     )
@@ -474,12 +161,14 @@ impl CpuState {
         }
     }
 
-    pub fn process_messages(&mut self, blocking: bool) -> Result<(), ()> {
-        if self.running {
-            for _ in 0..Self::MSGS_PER_LOOP {
+    pub fn process_messages(&mut self, blocking: bool) -> Result<(), ComputerError> {
+        const MSGS_PERLOOP: usize = 1000;
+
+        if self.computer.get_running() {
+            for _ in 0..MSGS_PERLOOP {
                 let resp = match self.rx.try_recv() {
                     Ok(msg) => self.handle_msg(msg),
-                    Err(TryRecvError::Disconnected) => return Err(()),
+                    Err(TryRecvError::Disconnected) => panic!("disconnected!"),
                     Err(TryRecvError::Empty) => break,
                 };
 
@@ -490,20 +179,21 @@ impl CpuState {
                 }
             }
         } else {
-            let resp = if blocking && !self.running_requested {
+            let resp = if blocking && !self.computer.get_running() {
                 match self.rx.recv() {
                     Ok(msg) => self.handle_msg(msg),
-                    Err(RecvError) => return Err(()),
+                    Err(RecvError) => panic!("receive error!"),
                 }
             } else {
-                if self.running_requested && self.cpu.step_devices().unwrap() {
+                if self.running && self.computer.cpu.step_devices().unwrap() {
+                    // TODO - HERE!
                     self.running = true;
                 }
 
                 match self.rx.try_recv() {
                     Ok(msg) => self.handle_msg(msg),
                     Err(TryRecvError::Empty) => return Ok(()),
-                    Err(TryRecvError::Disconnected) => return Err(()),
+                    Err(TryRecvError::Disconnected) => panic!("disconnected!"),
                 }
             };
 
@@ -518,9 +208,11 @@ impl CpuState {
             let step_repeat_count = 2i64.pow(self.multiplier as u32);
 
             for _ in 0..step_repeat_count {
-                if let Err(msg) = self.step_cpu(true) {
+                if let Err(msg) = self.computer.step_cpu(true) {
                     self.running = false;
-                    self.tx.send(msg).unwrap();
+                    self.tx
+                        .send(ThreadToUi::LogMessage(msg.to_string()))
+                        .unwrap();
                     break;
                 }
 
@@ -533,16 +225,17 @@ impl CpuState {
         // Send Registers
         self.tx
             .send(ThreadToUi::RegisterState(Box::new(
-                self.cpu.get_register_state(),
+                self.computer.cpu.get_register_state(),
             )))
             .unwrap();
 
         let pc = self
+            .computer
             .cpu
             .get_register_state()
             .get(jib::cpu::Register::ProgramCounter)
             .unwrap_or(0);
-        let mem = self.cpu.memory_inspect_u32(pc).unwrap_or(0);
+        let mem = self.computer.cpu.memory_inspect_u32(pc).unwrap_or(0);
 
         self.tx
             .send(ThreadToUi::ProgramCounterValue(pc, mem))
@@ -555,21 +248,7 @@ impl CpuState {
         }
 
         // Check for serial output
-        let mut char_vec = Vec::new();
-        while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
-            let c = match jib::text::byte_to_character(w) {
-                Ok(v) => v,
-                Err(e) => {
-                    self.tx
-                        .send(ThreadToUi::LogMessage(format!("{e}")))
-                        .unwrap();
-                    '?'
-                }
-            };
-
-            char_vec.push(c);
-        }
-
+        let char_vec = self.computer.get_serial_output()?;
         if !char_vec.is_empty() {
             self.tx
                 .send(ThreadToUi::SerialOutput(
@@ -579,65 +258,6 @@ impl CpuState {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ComputerError {
-    ProcessorError(ProcessorError),
-    AssemblerError(AssemblerError),
-    AssemblerErrorLoc(AssemblerErrorLoc),
-    DiskError(FileSystemError),
-    TokenError(TokenError),
-    PreprocessorError(PreprocessorError),
-}
-
-impl Display for ComputerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PreprocessorError(e) => write!(f, "preprocessor => {e}"),
-            Self::AssemblerError(e) => write!(f, "assembler => {e}"),
-            Self::AssemblerErrorLoc(e) => write!(f, "assembler => {e}"),
-            Self::DiskError(e) => write!(f, "disk => {e}"),
-            Self::TokenError(e) => write!(f, "token => {e}"),
-            Self::ProcessorError(e) => write!(f, "processor => {e}"),
-        }
-    }
-}
-
-impl From<ProcessorError> for ComputerError {
-    fn from(value: ProcessorError) -> Self {
-        Self::ProcessorError(value)
-    }
-}
-
-impl From<AssemblerError> for ComputerError {
-    fn from(value: AssemblerError) -> Self {
-        Self::AssemblerError(value)
-    }
-}
-
-impl From<AssemblerErrorLoc> for ComputerError {
-    fn from(value: AssemblerErrorLoc) -> Self {
-        Self::AssemblerErrorLoc(value)
-    }
-}
-
-impl From<TokenError> for ComputerError {
-    fn from(value: TokenError) -> Self {
-        Self::TokenError(value)
-    }
-}
-
-impl From<PreprocessorError> for ComputerError {
-    fn from(value: PreprocessorError) -> Self {
-        Self::PreprocessorError(value)
-    }
-}
-
-impl From<FileSystemError> for ComputerError {
-    fn from(value: FileSystemError) -> Self {
-        Self::DiskError(value)
     }
 }
 
@@ -657,100 +277,10 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
             break;
         }
 
-        if state.running_requested {
+        if state.running {
             std::thread::sleep(std::time::Duration::from_millis(CpuState::THREAD_LOOP_MS));
         }
     }
 
     tx.send(ThreadToUi::ThreadExit).unwrap();
-}
-
-#[cfg(test)]
-mod test {
-    use crate::cpu_thread::CpuState;
-    use jib::cpu::Processor;
-
-    fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let asm = CpuState::compile_kernel_code(in_code, None).unwrap();
-
-        let (tx_thread, _rx_thread) = std::sync::mpsc::channel();
-        let (_tx_ui, rx_ui) = std::sync::mpsc::channel();
-
-        let mut cpu = CpuState::new(rx_ui, tx_thread).unwrap();
-        cpu.handle_msg(crate::messages::UiToThread::SetCode(asm));
-
-        let mut serial_output = Vec::new();
-        let mut iter_count = 0;
-
-        while cpu.cpu.get_current_op().unwrap() != Processor::OP_HALT {
-            match cpu.step_cpu(false) {
-                Err(crate::messages::ThreadToUi::LogMessage(msg)) => {
-                    panic!("unable to step CPU\n{msg}")
-                }
-                Err(err) => panic!("unable to step cpu - {err:?}"),
-                _ => (),
-            };
-            while let Some(c) = cpu.dev_serial_io.borrow_mut().pop_output() {
-                serial_output.push(c);
-            }
-            iter_count += 1;
-            assert!(iter_count < 40000);
-        }
-
-        println!("Step Count: {}", cpu.step_count);
-        println!("{}", str::from_utf8(&serial_output).unwrap());
-
-        assert_eq!(str::from_utf8(&serial_output).unwrap(), expected_out);
-    }
-
-    #[test]
-    fn test_malloc() {
-        const EXPECTED: &str = "A\n\
-                @16777216, 10\n\
-                @16777238, 12\n\
-                @16777262, 30\n\
-                @16777304, 45\n\
-                B\n\
-                @16777238, 12\n\
-                @16777262, 30\n\
-                @16777304, 45\n\
-                C\n\
-                @16777216, 5\n\
-                @16777238, 12\n\
-                @16777262, 30\n\
-                @16777304, 45\n\
-                D\n\
-                No Heap Allocations\n\
-                E\n\
-                @16777216, 33\n\
-                F\n\
-                No Heap Allocations\n\
-                Heap Test Pass\n";
-
-        run_cpu_serial_out_test(
-            include_str!("../../cbuoy/cbuoy/tests/test_kmalloc.cb"),
-            EXPECTED,
-        );
-    }
-
-    #[test]
-    fn test_struct_ptr() {
-        static EXPECTED: &str = "Hello, world!\n\
-            13\n\
-            720\n\
-            13\n\
-            13\n\
-            13\n\
-            13\n\
-            0\n\
-            1\n\
-            1234\n\
-            Hello, world!\n\
-            7\n\
-            7\n";
-        run_cpu_serial_out_test(
-            include_str!("../../cbuoy/cbuoy/tests/test_struct_ptr.cb"),
-            EXPECTED,
-        );
-    }
 }

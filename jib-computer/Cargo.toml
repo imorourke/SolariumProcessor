@@ -1,24 +1,14 @@
 [package]
-name = "visual-jib"
+name = "jib-computer"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-nothread = []
-
 [dependencies]
 jib = { path = "../jib", version = "*" }
-jib-computer = { path = "../jib-computer", version = "*" }
 jib-asm = { path = "../jib-asm", version = "*" }
 cbuoy = { path = "../cbuoy/cbuoy", version = "*" }
 cbfs-lib = { path = "../cbfs/cbfs-lib", version = "*", default-features = false }
-eframe = "0.34"
-image = "0.25"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4"
-web-sys = "0.3"
-log = "0.4"
+circ-buff = { path = "../circ-buff", version = "*" }
 
 [build-dependencies]
-chrono = "0.4.43"
+chrono = { workspace = true }

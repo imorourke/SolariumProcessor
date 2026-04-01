@@ -6,8 +6,9 @@ members = [
     "cbfs/cbfs/compat",
     "cbfs/cbfs-lib",
     "cbfs/cbfs-util",
-    "jib-asm",
     "jib",
+    "jib-asm",
+    "jib-computer",
     "visual-jib",
     "circ-buff",
 ]

@@ -268,7 +268,7 @@ impl VisualJib {
 }
 
 impl eframe::App for VisualJib {
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         if self.tx_ui.send(UiToThread::Exit).is_ok() {
             self.cpu_thread.take().map(|x| x.join());
@@ -277,7 +277,7 @@ impl eframe::App for VisualJib {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.read_cpu_responses();
 
         // Remove old windows
@@ -311,7 +311,7 @@ impl eframe::App for VisualJib {
             }
         }
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show_inside(ui, |ui| {
             MenuBar::new().ui(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 ui.menu_button("File", |ui| {
@@ -553,7 +553,7 @@ impl eframe::App for VisualJib {
                         .show(ui)
                         .response;
 
-                    if serial_txt.lost_focus() && ctx.input(|x| x.key_pressed(RETURN_KEY)) {
+                    if serial_txt.lost_focus() && ui.input(|x| x.key_pressed(RETURN_KEY)) {
                         self.tx_ui
                             .send(UiToThread::SerialInput(self.text_serial_input.take()))
                             .unwrap();
@@ -578,17 +578,17 @@ impl eframe::App for VisualJib {
                 });
 
                 for w in self.code_windows.iter_mut() {
-                    w.draw(ctx)
+                    w.draw(ui)
                 }
 
                 for m in self.memory_windows.iter_mut() {
-                    m.draw(ctx);
+                    m.draw(ui);
                 }
             });
         });
 
         if let Some(int) = self.update_interval() {
-            ctx.request_repaint_after(int);
+            ui.request_repaint_after(int);
         }
     }
 }
