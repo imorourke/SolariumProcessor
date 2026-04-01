@@ -24,43 +24,46 @@ fn main() void {
 
     def out_entry: k_fs_directory_entry_t;
     if (k_fs_get_dir_entry_by_name(disk, cwd, BOOT_KERNEL_NAME, &out_entry) == 0) {
+        k_io_print("found boot entry\n");
         if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
             def entry_hdr: k_fs_entry_header_t;
             if (k_fs_read_entry_header(disk, out_entry.base_block, &entry_hdr) == 0) {
+                k_io_print("found entry header\n");
                 const DATA_SIZE: u32 = 128;
                 def run_data: [DATA_SIZE]u8;
-                def current_size: u32 = 0;
                 def loc: *u8 = LOAD_LOC;
                 def print_i: u32 = 0;
+                def state: k_fs_io_state_t;
 
-                while (current_size < entry_hdr.payload_size) {
+                k_io_print("initing state...\n");
+                if (k_fs_read_state_init(disk, out_entry.base_block, 0, 0, &state) >= 0) {
+                    k_io_print("state inited\n");
                     def read_size: u32 = DATA_SIZE;
+                    while (k_fs_read_state_next_section(&state, &run_data, &read_size) > 0) {
+                        def i: i32 = 0;
+                        while (i < read_size) {
+                            *(loc : *u32) = *((&run_data[i]) : *u32);
+                            loc = loc + 4;
+                            i = i + 4;
+                        }
 
-                    if (k_fs_read_entry_data(disk, out_entry.base_block, &run_data, &read_size, current_size) != 0) {
-                        break;
+                        print_i = (print_i + 1) % 8;
+                        if (print_i == 0) {
+                            k_io_print_uint(state.read_size);
+                            k_io_print(" / ");
+                            k_io_print_int(entry_hdr.payload_size);
+                            k_io_print("\n");
+                        }
+
+                        read_size = DATA_SIZE;
                     }
 
-                    def i: i32 = 0;
-                    while (i < read_size) {
-                        *(loc : *u32) = *((&run_data[i]) : *u32);
-                        loc = loc + 4;
-                        i = i + 4;
+                    asm {
+                        "ldi 8:u16 0x2000";
+                        "jmp 8";
                     }
-
-                    current_size = current_size + read_size;
-
-                    print_i = (print_i + 1) % 8;
-                    if (print_i == 0) {
-                        k_io_print_uint(current_size);
-                        k_io_print(" / ");
-                        k_io_print_int(entry_hdr.payload_size);
-                        k_io_print("\n");
-                    }
-                }
-
-                asm {
-                    "ldi 8:u16 0x2000";
-                    "jmp 8";
+                } else {
+                    k_io_print("unable to initialize state for boot file\n");
                 }
             } else {
                 k_io_print("unable to load boot file\n");
