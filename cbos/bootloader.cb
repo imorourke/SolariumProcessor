@@ -47,7 +47,7 @@ fn main() void {
                             i = i + 4;
                         }
 
-                        print_i = (print_i + 1) % 8;
+                        print_i = (print_i + 1) % 24;
                         if (print_i == 0) {
                             k_io_print_uint(state.read_size);
                             k_io_print(" / ");

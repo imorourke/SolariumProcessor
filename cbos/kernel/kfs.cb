@@ -267,7 +267,7 @@ fn k_fs_read_state_init(dev: *k_fs_disk_t, entry: u16, offset: u32, size: u32, s
     return state->target_size;
 }
 
-fn k_fs_read_state_next_section(state: *k_fs_io_state_t, data: *u8, size: *u32) i32 {
+fn k_fs_read_state_next_section_until_ptr(state: *k_fs_io_state_t, data: *u8, size: *u32, until: *u8) i32 {
     if (state == 0) {
         return -1;
     }
@@ -306,6 +306,26 @@ fn k_fs_read_state_next_section(state: *k_fs_io_state_t, data: *u8, size: *u32) 
 
         k_fs_disk_move(dev->ctl, sector_base + state->sector_offset);
 
+        def k_found: u8 = 0;
+        if (until != 0) {
+            if (K_DBG_ENABLED) {
+                k_io_print("Searching for : ");
+                k_io_print_uint(*until);
+                k_io_print("\n");
+            }
+            def i: u32 = 0;
+            def x: u8 = *until;
+            while (i < copy_size) {
+                if (dev->ctl->data[i] == x) {
+                    copy_size = i + 1;
+                    k_found = 1;
+                    break;
+                } else {
+                    i = i + 1;
+                }
+            }
+        }
+
         k_memcpy(data + local_offset, &dev->ctl->data[0], copy_size);
         *size = *size + copy_size;
         state->read_size = state->read_size + copy_size;
@@ -321,9 +341,21 @@ fn k_fs_read_state_next_section(state: *k_fs_io_state_t, data: *u8, size: *u32) 
             }
             sector_base = sector_size * state->entry;
         }
+
+        if (k_found) {
+            break;
+        }
     }
 
     return data_size;
+}
+
+fn k_fs_read_state_next_section(state: *k_fs_io_state_t, data: *u8, size: *u32) i32 {
+    return k_fs_read_state_next_section_until_ptr(state, data, size, 0);
+}
+
+fn k_fs_read_state_next_section_until(state: *k_fs_io_state_t, data: *u8, size: *u32, until: u8) i32 {
+    return k_fs_read_state_next_section_until_ptr(state, data, size, &until);
 }
 
 fn k_fs_read_entry_data_until_ptr(dev: *k_fs_disk_t, entry: u16, data: *u8, size: *u32, offset: u32, until: *u8) i32 {

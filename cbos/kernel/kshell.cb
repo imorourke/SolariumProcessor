@@ -174,21 +174,14 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
         def out_entry: k_fs_directory_entry_t;
         if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
             if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
-                def entry_hdr: k_fs_entry_header_t;
-                if (k_fs_read_entry_header(state->disk, out_entry.base_block, &entry_hdr) == 0) {
+                def read_state: k_fs_io_state_t;
+                if (k_fs_read_state_init(state->disk, out_entry.base_block, 0, 0, &read_state) >= 0) {
                     // Add one to the data size for null character in the array
                     const DATA_SIZE: u32 = 128;
                     def run_data: [DATA_SIZE + 1]u8;
-                    def current_size: u32 = 0;
+                    def read_size: u32 = DATA_SIZE;
 
-                    while (current_size < entry_hdr.payload_size) {
-                        def read_size: u32 = DATA_SIZE;
-
-                        if (k_fs_read_entry_data(state->disk, out_entry.base_block, &run_data, &read_size, current_size) != 0) {
-                            k_io_print("READ ERROR\n");
-                            break;
-                        }
-
+                    while (k_fs_read_state_next_section(&read_state, &run_data, &read_size) > 0) {
                         // Add the null character to the end
                         run_data[read_size] = 0;
 
@@ -196,7 +189,7 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
                         while (SERIAL_DEV->output_size + read_size > 65535) {}
                         k_io_print(&run_data);
 
-                        current_size = current_size + read_size;
+                        read_size = DATA_SIZE;
                     }
                     k_io_print("\n");
                 }
@@ -415,21 +408,14 @@ fn k_shell_fn_run(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
         def out_entry: k_fs_directory_entry_t;
         if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
             if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
-                def entry_hdr: k_fs_entry_header_t;
-                if (k_fs_read_entry_header(state->disk, out_entry.base_block, &entry_hdr) == 0) {
+                def read_state: k_fs_io_state_t;
+                if (k_fs_read_state_init(state->disk, out_entry.base_block, 0, 0, &read_state) >= 0) {
                     // Add one to the data size for null character in the array
                     const DATA_SIZE: u32 = 128;
                     def run_data: [DATA_SIZE + 1]u8;
-                    def current_size: u32 = 0;
+                    def read_size: u32 = DATA_SIZE;
 
-                    while (current_size < entry_hdr.payload_size) {
-                        def read_size: u32 = DATA_SIZE;
-
-                        if (k_fs_read_entry_data_until(state->disk, out_entry.base_block, &run_data, &read_size, current_size, '\n') != 0) {
-                            k_io_print("READ ERROR\n");
-                            break;
-                        }
-
+                    while (k_fs_read_state_next_section_until(&read_state, &run_data, &read_size, '\n') > 0) {
                         // Add the null character to the end
                         run_data[read_size] = 0;
                         def input_data: *u8 = run_data;
@@ -439,7 +425,7 @@ fn k_shell_fn_run(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
                             k_io_print_stat("Arg Count", count);
                         }
                         __k_shell_run_cmd(state, &arg_buffer, count);
-                        current_size = current_size + read_size;
+                        read_size = DATA_SIZE;
                     }
                     k_io_print("\n");
                 }
