@@ -15,14 +15,16 @@ impl fmt::Display for CharacterError {
     }
 }
 
+const CHAR_NULL: u8 = b'\0';
+const CHAR_NEWLINE: u8 = b'\n';
+const CHAR_TAB: u8 = b'\t';
+
 /// Converts an input character into a memory-word supported by the SProc
 pub fn character_to_byte(c: char) -> Result<u8, CharacterError> {
-    const NULL: u8 = b'\0';
-    const NEWLINE: u8 = b'\n';
-
     let char_val: u8 = match c as u8 {
-        NULL => 0x00,
-        NEWLINE => 0x0A,
+        CHAR_NULL => CHAR_NULL,
+        CHAR_NEWLINE => CHAR_NEWLINE,
+        CHAR_TAB => CHAR_TAB,
         0x20..=0x7E => c as u8,
         _ => return Err(CharacterError::CharacterToByte(c)),
     };
@@ -33,8 +35,9 @@ pub fn character_to_byte(c: char) -> Result<u8, CharacterError> {
 /// Converts a memory word into a text character
 pub fn byte_to_character(b: u8) -> Result<char, CharacterError> {
     let char_val = match b {
-        0 => '\0',
-        0x0A => '\n',
+        CHAR_NULL => '\0',
+        CHAR_NEWLINE => '\n',
+        CHAR_TAB => '\t',
         0x20..=0x7E => b as char,
         _ => return Err(CharacterError::ByteToCharacter(b)),
     };
