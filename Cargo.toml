@@ -9,6 +9,7 @@ members = [
     "jib",
     "jib-asm",
     "jib-computer",
+    "jib-term",
     "visual-jib",
     "circ-buff",
 ]
