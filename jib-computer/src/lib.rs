@@ -356,6 +356,18 @@ impl JibComputer {
         Ok(char_vec)
     }
 
+    pub fn get_serial_output_unknown(&mut self) -> Vec<char> {
+        let mut char_vec = Vec::new();
+        while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
+            let c = match jib::text::byte_to_character(w) {
+                Ok(c) => c,
+                Err(_) => '?',
+            };
+            char_vec.push(c);
+        }
+        char_vec
+    }
+
     pub fn get_disk_data(&self) -> Result<Vec<u8>, ComputerError> {
         Ok(self.hard_drive.borrow().data.clone())
     }

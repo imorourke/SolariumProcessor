@@ -31,7 +31,7 @@ fn main() -> Result<(), ComputerError> {
             std::thread::sleep(Duration::from_millis(100));
         }
 
-        for c in computer.get_serial_output()? {
+        for c in computer.get_serial_output_unknown() {
             print!("{c}");
         }
     }
