@@ -22,16 +22,12 @@ fn main() -> Result<(), ComputerError> {
         if computer.get_running() {
             for _ in 0..10000 {
                 if !computer.step_cpu(None, true)? {
-                    computer.set_running_request(false);
                     break;
                 }
             }
             std::thread::sleep(Duration::from_millis(10));
         } else {
-            if computer.step_devices()? {
-                computer.step_cpu(None, false)?;
-                computer.set_running_request(true);
-            }
+            computer.step_devices()?;
             std::thread::sleep(Duration::from_millis(100));
         }
 
