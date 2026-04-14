@@ -133,17 +133,21 @@ impl JibComputer {
             self.inst_history.push((pc, inst));
         }
 
-        let debug_stop = if auto_break && let Ok(op) = self.cpu.get_current_op() {
-            op == Processor::OP_DEBUG_BREAK || op == Processor::OP_HALT
-        } else if let Some(brk) = breakpoint {
-            brk == pc
-        } else {
-            false
-        };
+        let (debug_stop, cancel_run_request) =
+            if auto_break && let Ok(op) = self.cpu.get_current_op() {
+                (
+                    op == Processor::OP_DEBUG_BREAK || op == Processor::OP_HALT,
+                    op == Processor::OP_DEBUG_BREAK,
+                )
+            } else if let Some(brk) = breakpoint {
+                (brk == pc, true)
+            } else {
+                (false, true)
+            };
 
         if debug_stop {
             self.running = false;
-            self.running_requested = false;
+            self.running_requested = self.running_requested && !cancel_run_request;
             return Ok(false);
         }
 

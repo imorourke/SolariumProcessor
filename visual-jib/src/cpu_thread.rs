@@ -159,7 +159,7 @@ impl CpuState {
         }
     }
 
-    pub fn process_messages(&mut self, blocking: bool) -> Result<(), ComputerError> {
+    pub fn process_messages(&mut self) -> Result<(), ComputerError> {
         const MSGS_PERLOOP: usize = 1000;
 
         if self.computer.get_running() {
@@ -177,16 +177,12 @@ impl CpuState {
                 }
             }
         } else {
-            let resp = if blocking && !self.computer.get_running() {
+            let resp = if cfg!(not(target_arch = "wasm32")) && !self.computer.get_running() {
                 match self.rx.recv() {
                     Ok(msg) => self.handle_msg(msg),
                     Err(RecvError) => panic!("receive error!"),
                 }
             } else {
-                if self.computer.get_running_requested() {
-                    self.computer.step_devices()?;
-                }
-
                 match self.rx.try_recv() {
                     Ok(msg) => self.handle_msg(msg),
                     Err(TryRecvError::Empty) => return Ok(()),
@@ -203,18 +199,17 @@ impl CpuState {
 
         if self.computer.get_running() {
             for _ in 0..self.step_repeat_count {
-                if let Err(msg) = self.computer.step_cpu(self.breakpoint, true) {
-                    self.computer.set_running_request(false);
-                    self.tx
-                        .send(ThreadToUi::LogMessage(msg.to_string()))
-                        .unwrap();
-                    break;
-                }
-
-                if !self.computer.get_running() {
-                    break;
+                match self.computer.step_cpu(self.breakpoint, true) {
+                    Ok(true) => (),
+                    Ok(false) => break,
+                    Err(err) => {
+                        self.computer.set_running_request(false);
+                        return Err(err);
+                    }
                 }
             }
+        } else if self.computer.get_running_requested() {
+            self.computer.step_devices()?;
         }
 
         // Send Registers
@@ -266,7 +261,7 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     };
 
     while state.run_thread {
-        if state.process_messages(true).is_err() {
+        if state.process_messages().is_err() {
             break;
         }
 

@@ -26,9 +26,11 @@ fn main() -> Result<(), ComputerError> {
                 }
             }
             std::thread::sleep(Duration::from_millis(10));
-        } else {
+        } else if computer.get_running_requested() {
             computer.step_devices()?;
             std::thread::sleep(Duration::from_millis(100));
+        } else {
+            computer.set_running_request(true);
         }
 
         for c in computer.get_serial_output_unknown() {

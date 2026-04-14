@@ -231,14 +231,14 @@ impl VisualJib {
         }
 
         #[cfg(target_arch = "wasm32")]
-        self.cpu_state.process_messages(false).unwrap();
+        self.cpu_state.process_messages().unwrap();
     }
 
     fn update_interval(&self) -> Option<Duration> {
         Some(Duration::from_millis(if self.cpu_run_requested {
             CpuState::THREAD_LOOP_MS
         } else {
-            5000
+            1000
         }))
     }
 
