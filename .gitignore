@@ -10,3 +10,4 @@ target/
 Cargo.lock
 /history.*
 .[Dd][Ss]_[Ss]tore
+dist

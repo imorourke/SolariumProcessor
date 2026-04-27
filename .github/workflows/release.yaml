@@ -1,0 +1,182 @@
+name: Compiled
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+          sudo apt-get install -y libfuse3-dev
+
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build the executable
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu -p visual-jib
+          cargo build --release --target x86_64-unknown-linux-gnu -p cbfs-util
+          cargo build --release --target x86_64-unknown-linux-gnu -p cbc
+          cargo build --release --target x86_64-unknown-linux-gnu -p jib-term
+
+      - name: Build FUSE Driver
+        run: |
+          cargo install --locked cbindgen
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -GNinja
+          ninja -C build
+          cp build/cbfs/cbfs/cbfs dist
+
+      - name: Package binary
+        run: tar -czvf solarium-linux-x86_64.tar.gz -C target/x86_64-unknown-linux-gnu/release visual-jib cbfs-util cbc jib-term
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: solarium-linux-x86_64.tar.gz
+          path: solarium-linux-x86_64.tar.gz
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build the executable
+        run: |
+          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin -p visual-jib
+          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin -p cbfs-util
+          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin -p cbc
+          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin -p jib-term
+
+      - name: Create a fat executable for all targets
+        run: |
+          mkdir dist
+          lipo -create -output dist/visual-jib target/x86_64-apple-darwin/release/visual-jib target/aarch64-apple-darwin/release/visual-jib
+          lipo -create -output dist/cbfs-util target/x86_64-apple-darwin/release/cbfs-util target/aarch64-apple-darwin/release/cbfs-util
+          lipo -create -output dist/cbc target/x86_64-apple-darwin/release/cbc target/aarch64-apple-darwin/release/cbc
+          lipo -create -output dist/jib-term target/x86_64-apple-darwin/release/jib-term target/aarch64-apple-darwin/release/jib-term
+
+      - name: Create a bundle
+        run: |
+          cargo install cargo-packager --locked
+          cargo packager --release --target aarch64-apple-darwin --packages visual-jib -f app
+          cp dist/visual-jib target/aarch64-apple-darwin/release/VisualJib.app/Contents/MacOS/visual-jib
+          cp -r target/aarch64-apple-darwin/release/VisualJib.app dist
+
+      - name: Package binary
+        run: |
+          tar -czvf solarium-macos.tar.gz -C dist cbfs-util cbc jib-term VisualJib.app
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: solarium-macos.tar.gz
+          path: solarium-macos.tar.gz
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build the executable
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc -p visual-jib
+          cargo build --release --target x86_64-pc-windows-msvc -p cbfs-util
+          cargo build --release --target x86_64-pc-windows-msvc -p cbc
+          cargo build --release --target x86_64-pc-windows-msvc -p jib-term
+
+      - name: Copy binaries
+        shell: pwsh
+        run: |
+          New-Item -Path . -Name dist -ItemType Directory
+          Copy-Item target/x86_64-pc-windows-msvc/release/visual-jib.exe dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/cbfs-util.exe dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/cbc.exe dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/jib-term.exe dist
+
+      - name: Update icon
+        shell: pwsh
+        run: |
+          magick -density 300 -define icon:auto-resize=256,128,96,64,48,32,16 -background none doc/images/logo.svg doc/images/logo.ico
+          Invoke-WebRequest -Uri "https://github.com/electron/rcedit/releases/download/v1.1.1/rcedit-x64.exe" -OutFile ".\rcedit-x64.exe"
+          .\rcedit-x64.exe dist/visual-jib.exe --set-icon doc/images/logo.ico
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/* -DestinationPath solarium-windows.zip -Force
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: solarium-windows.zip
+          path: solarium-windows.zip
+
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive texlive-font-utils
+
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build the documentation
+        working-directory: doc
+        run: pdflatex isa.tex
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v7
+        with:
+          name: isa.pdf
+          path: doc/isa.pdf
+
+      - name: Upload license
+        uses: actions/upload-artifact@v7
+        with:
+          name: LICENSE
+          path: LICENSE
+
+  release:
+    name: Publish release
+    needs: [macos, linux, windows, documentation]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release-artifacts/*

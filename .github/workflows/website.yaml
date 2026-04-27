@@ -1,0 +1,39 @@
+name: Website
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: cargo install --locked trunk
+
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build website
+        working-directory: visual-jib
+        run: trunk build --release
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: visual-jib/dist
+
+      - name: Deploy to pages
+        id: deployment
+        uses: actions/deploy-pages@v5
