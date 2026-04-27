@@ -23,7 +23,7 @@ log = "0.4"
 [build-dependencies]
 chrono = "0.4.43"
 
-[package.metadata.bundle]
-name = "VisualJib"
+[package.metadata.packager]
+product-name = "VisualJib"
 identifier = "io.github.imorourke.VisualJib"
-icon = ["../doc/images/logo.png"]
+icons = ["../doc/images/logo.png"]
