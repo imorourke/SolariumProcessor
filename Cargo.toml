@@ -1,17 +1,17 @@
 [workspace]
 
 members = [
-    "cbuoy/cbuoy",
     "cbuoy/cbc",
-    "cbfs/cbfs/compat",
+    "cbuoy/cblang",
+    "cbfs/cbfs-fuse/compat",
     "cbfs/cbfs-lib",
     "cbfs/cbfs-util",
-    "jib",
-    "jib-asm",
-    "jib-computer",
-    "jib-term",
+    "jib/jib-asm",
+    "jib/jib-cpu",
+    "jib/jib-computer",
+    "jib/jib-term",
     "visual-jib",
-    "circ-buff",
+    "utils/circ-buff",
 ]
 default-members = ["visual-jib"]
 resolver = "3"
@@ -19,6 +19,12 @@ resolver = "3"
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
+circ-buff = { path = "utils/circ-buff", version = "*" }
+jib-asm = { path = "jib/jib-asm", version = "*" }
+jib-computer = { path = "jib/jib-computer", version = "*" }
+jib-cpu = { path = "jib/jib-cpu", version = "*" }
+cblang = { path = "cbuoy/cblang", version = "*" }
+cbfs-lib = { path = "cbfs/cbfs-lib", version = "*" }
 
 [profile.release]
 lto = true

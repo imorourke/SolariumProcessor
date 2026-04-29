@@ -2,7 +2,7 @@ use std::{
     collections::HashSet, fmt, iter::Peekable, path::Path, rc::Rc, slice::Iter, sync::LazyLock,
 };
 
-use jib::cpu::DataType;
+use jib_cpu::cpu::DataType;
 use jib_asm::{AsmToken, AsmTokenLoc};
 use regex::Regex;
 

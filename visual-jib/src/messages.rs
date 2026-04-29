@@ -1,4 +1,4 @@
-use jib::cpu::RegisterManager;
+use jib_cpu::cpu::RegisterManager;
 use jib_asm::AssemblerOutput;
 
 #[derive(Debug, Clone)]

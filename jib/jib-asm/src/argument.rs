@@ -1,5 +1,5 @@
 use core::fmt;
-use jib::cpu::{DataType, Register, RegisterManager, UnknownDataTypeArg};
+use jib_cpu::cpu::{DataType, Register, RegisterManager, UnknownDataTypeArg};
 
 use crate::immediate::ImmediateError;
 

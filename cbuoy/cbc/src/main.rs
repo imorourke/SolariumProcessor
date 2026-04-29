@@ -1,6 +1,6 @@
 use std::{io::Write, path::PathBuf};
 
-use cbuoy::{CompilerError, PreprocessorLine, ProgramType, parse, read_and_preprocess};
+use cblang::{CompilerError, PreprocessorLine, ProgramType, parse, read_and_preprocess, CodeGenerationOptions};
 use clap::Parser;
 
 #[derive(Default, Debug, Parser)]
@@ -133,7 +133,7 @@ fn main() -> std::process::ExitCode {
 
     let cbstate = match parse(
         input_tokens.clone(),
-        cbuoy::CodeGenerationOptions {
+        CodeGenerationOptions {
             prog_type: if args.kernel_program {
                 ProgramType::Kernel {
                     stack_loc: args.kernel_stack_loc,

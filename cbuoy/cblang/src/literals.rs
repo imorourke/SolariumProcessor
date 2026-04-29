@@ -5,7 +5,7 @@ use std::{
     sync::LazyLock,
 };
 
-use jib::cpu::{DataType, OperationError, OperatorManager, convert_types};
+use jib_cpu::{cpu::{DataType, OperationError, OperatorManager, convert_types}, text::character_to_byte};
 use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc};
 use regex::{Regex, RegexBuilder};
 
@@ -374,7 +374,7 @@ impl TryFrom<Token> for Literal {
                     .into_err("somehow got an unexpected character count"));
             };
 
-            if let Ok(val) = jib::text::character_to_byte(jib_char) {
+            if let Ok(val) = character_to_byte(jib_char) {
                 Ok(LiteralValue::U8(val))
             } else {
                 Err(value

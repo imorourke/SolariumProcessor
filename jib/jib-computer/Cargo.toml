@@ -1,0 +1,14 @@
+[package]
+name = "jib-computer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+jib-cpu = { workspace = true }
+jib-asm = { workspace = true }
+cblang = { workspace = true }
+cbfs-lib = { path = "../../cbfs/cbfs-lib", version = "*", default-features = false }
+circ-buff = { workspace = true }
+
+[build-dependencies]
+chrono = { workspace = true }

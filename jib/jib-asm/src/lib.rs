@@ -15,7 +15,7 @@ pub use instructions::{
 
 pub use argument::{ArgumentError, ArgumentRegister, ArgumentType};
 
-use jib::cpu::{Opcode, Processor, ProcessorError};
+use jib_cpu::cpu::{Opcode, Processor, ProcessorError};
 
 use immediate::{
     ImmediateError, parse_imm_i8, parse_imm_i16, parse_imm_i32, parse_imm_u8, parse_imm_u16,
@@ -40,7 +40,7 @@ pub enum AssemblerError {
     Immediate(ImmediateError),
     BadLabel(String),
     DuplicateLabel(String),
-    Character(jib::text::CharacterError),
+    Character(jib_cpu::text::CharacterError),
     AddressTaken(u32),
     Parser(ParseError),
     Processor(ProcessorError),
@@ -85,8 +85,8 @@ impl From<InstructionError> for AssemblerError {
     }
 }
 
-impl From<jib::text::CharacterError> for AssemblerError {
-    fn from(value: jib::text::CharacterError) -> Self {
+impl From<jib_cpu::text::CharacterError> for AssemblerError {
+    fn from(value: jib_cpu::text::CharacterError) -> Self {
         Self::Character(value)
     }
 }
@@ -305,11 +305,11 @@ impl TryFrom<&str> for AsmToken {
                 match op {
                     "oper" => {
                         let addr = if let Some(r) = arg.strip_prefix('#') {
-                            Processor::interrupt_address(jib::cpu::Interrupt::Hardware(
+                            Processor::interrupt_address(jib_cpu::cpu::Interrupt::Hardware(
                                 parse_imm_u32(r)?,
                             ))?
                         } else if let Some(r) = arg.strip_prefix('@') {
-                            Processor::interrupt_address(jib::cpu::Interrupt::Software(
+                            Processor::interrupt_address(jib_cpu::cpu::Interrupt::Software(
                                 parse_imm_u32(r)?,
                             ))?
                         } else {
@@ -489,7 +489,7 @@ impl InstructionList {
         self.inst_map.get(s)
     }
 
-    pub fn get_display(&self, inst: [u8; jib::cpu::Instruction::NUM_BYTES]) -> Option<String> {
+    pub fn get_display(&self, inst: [u8; jib_cpu::cpu::Instruction::NUM_BYTES]) -> Option<String> {
         let op = Opcode::from(inst[0]);
         if let Some(f) = self.disp_map.get(&op) {
             f(inst)
@@ -498,7 +498,7 @@ impl InstructionList {
         }
     }
 
-    pub fn get_display_inst(&self, inst: jib::cpu::Instruction) -> Option<String> {
+    pub fn get_display_inst(&self, inst: jib_cpu::cpu::Instruction) -> Option<String> {
         self.get_display(inst.get_data())
     }
 }
@@ -588,7 +588,7 @@ impl TokenList {
                 }
                 AsmToken::LiteralText(s) => {
                     for c in s.chars() {
-                        let bv = match jib::text::character_to_byte(c) {
+                        let bv = match jib_cpu::text::character_to_byte(c) {
                             Ok(v) => v,
                             Err(e) => {
                                 return Err(AssemblerErrorLoc {

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use jib::cpu::{DataType, Register};
+use jib_cpu::cpu::{DataType, Register};
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, INST_SIZE, Instruction, OpAdd, OpJmpri, OpLd, OpLdi,
     OpLdn, OpPopr, OpPush, OpSav, OpSub, OpTz,

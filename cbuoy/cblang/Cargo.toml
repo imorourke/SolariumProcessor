@@ -1,9 +1,9 @@
 [package]
-name = "cbc"
+name = "cblang"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cblang = { workspace = true }
+regex = "1"
+jib-cpu = { workspace = true }
 jib-asm = { workspace = true }
-clap = { workspace = true }

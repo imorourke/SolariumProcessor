@@ -1,6 +1,7 @@
 use crate::messages::{ThreadToUi, UiToThread};
 use jib_asm::InstructionList;
 use jib_computer::{ComputerError, JibComputer};
+use jib_cpu::cpu::Register;
 use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError};
 
 pub struct CpuState {
@@ -219,7 +220,7 @@ impl CpuState {
             .unwrap();
 
         let pc = rs
-            .get(jib::cpu::Register::ProgramCounter)
+            .get(Register::ProgramCounter)
             .unwrap_or_default();
         let mem = self.computer.memory_inspect_u32(pc).unwrap_or_default();
 

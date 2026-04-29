@@ -3,8 +3,8 @@ use core::fmt;
 #[derive(Debug, Clone)]
 pub struct ImmediateError(pub String);
 
-impl From<jib::text::CharacterError> for ImmediateError {
-    fn from(value: jib::text::CharacterError) -> Self {
+impl From<jib_cpu::text::CharacterError> for ImmediateError {
+    fn from(value: jib_cpu::text::CharacterError) -> Self {
         Self(format!("{value}"))
     }
 }
@@ -25,14 +25,14 @@ macro_rules! gen_read_immediate {
             {
                 if let Some(rest) = c.strip_prefix('\\') {
                     if rest == "n" {
-                        Ok(jib::text::character_to_byte('\n')? as $t)
+                        Ok(jib_cpu::text::character_to_byte('\n')? as $t)
                     } else {
                         return Err(ImmediateError(format!("unknown escape character {c}")));
                     }
                 } else if c.len() == 1
                     && let Some(val) = c.chars().next()
                 {
-                    Ok(jib::text::character_to_byte(val)? as $t)
+                    Ok(jib_cpu::text::character_to_byte(val)? as $t)
                 } else {
                     return Err(ImmediateError(format!(
                         "unable to convert character '{c}' to value"

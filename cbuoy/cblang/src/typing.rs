@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 use std::{collections::HashMap, fmt::Display};
 
-use jib::cpu::DataType;
+use jib_cpu::cpu::DataType;
 
 use crate::compiler::{CompilingState, UserTypeOptions, UserTypeReference};
 use crate::expressions::parse_expression;

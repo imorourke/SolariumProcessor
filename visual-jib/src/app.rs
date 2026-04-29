@@ -1,10 +1,10 @@
 use crate::cpu_thread::CpuState;
 use crate::messages::{ThreadToUi, UiToThread};
-use cbuoy::{CodeGenerationOptions, CompilerError};
+use cblang::{CodeGenerationOptions, CompilerError};
 use eframe::egui::{
     self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit,
 };
-use jib::cpu::RegisterManager;
+use jib_cpu::cpu::RegisterManager;
 use jib_asm::{AssemblerOutput, InstructionList};
 use std::{path::PathBuf, sync::LazyLock, time::Duration};
 
@@ -345,22 +345,22 @@ impl eframe::App for VisualJib {
                         static CB_CODES: &[(&str, &str, &str)] = &[
                             (
                                 "Default",
-                                include_str!("../../cbuoy/cbuoy/examples/default.cb"),
+                                include_str!("../../cbuoy/cblang/examples/default.cb"),
                                 "default.cb",
                             ),
                             (
                                 "Threading",
-                                include_str!("../../cbuoy/cbuoy/examples/threading.cb"),
+                                include_str!("../../cbuoy/cblang/examples/threading.cb"),
                                 "threading.cb",
                             ),
                             (
                                 "kmalloc",
-                                include_str!("../../cbuoy/cbuoy/tests/test_kmalloc.cb"),
+                                include_str!("../../cbuoy/cblang/tests/test_kmalloc.cb"),
                                 "test/kmalloc.cb",
                             ),
                             (
                                 "Structures",
-                                include_str!("../../cbuoy/cbuoy/tests/test_struct_ptr.cb"),
+                                include_str!("../../cbuoy/cblang/tests/test_struct_ptr.cb"),
                                 "test/structures.cb",
                             ),
                         ];
@@ -376,7 +376,7 @@ impl eframe::App for VisualJib {
                         }
                     });
                     ui.menu_button("Components", |ui| {
-                        for (path, code) in cbuoy::DEFAULT_FILES.iter().cloned() {
+                        for (path, code) in cblang::DEFAULT_FILES.iter().cloned() {
                             let name = path.split('/').next_back().unwrap_or(path);
                             if ui.button(name).clicked() {
                                 self.open_code_window(
@@ -398,22 +398,22 @@ impl eframe::App for VisualJib {
                         static ASM_CODES: &[(&str, &str, &str)] = &[
                             (
                                 "Hello World",
-                                include_str!("../../jib-asm/examples/hello_world.jsm"),
+                                include_str!("../../jib/jib-asm/examples/hello_world.jsm"),
                                 "hello_world.jsm",
                             ),
                             (
                                 "Thread Test",
-                                include_str!("../../jib-asm/examples/thread_test.jsm"),
+                                include_str!("../../jib/jib-asm/examples/thread_test.jsm"),
                                 "thread_test.jsm",
                             ),
                             (
                                 "Serial Echo",
-                                include_str!("../../jib-asm/examples/serial_echo.jsm"),
+                                include_str!("../../jib/jib-asm/examples/serial_echo.jsm"),
                                 "serial_echo.jsm",
                             ),
                             (
                                 "Infinite Counter",
-                                include_str!("../../jib-asm/examples/infinite_counter.jsm"),
+                                include_str!("../../jib/jib-asm/examples/infinite_counter.jsm"),
                                 "infinite_counter.jsm",
                             ),
                         ];
@@ -671,7 +671,7 @@ impl CodeWindow {
     }
 
     fn compile_cbuoy_to_asm(&self) -> Option<AssemblerOutput> {
-        let preprocessed = match cbuoy::preprocess_code_as_file(
+        let preprocessed = match cblang::preprocess_code_as_file(
             &self.code,
             &if let Some(f) = &self.filename {
                 PathBuf::from(f)
@@ -707,7 +707,7 @@ impl CodeWindow {
 
         let options = CodeGenerationOptions::default();
 
-        match cbuoy::parse(tokens, options)
+        match cblang::parse(tokens, options)
             .map_err(|x| CompilerError::from(x))
             .and_then(|x| x.get_assembler())
         {

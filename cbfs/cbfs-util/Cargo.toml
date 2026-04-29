@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cbfs-lib = { version = "*", path = "../cbfs-lib" }
+cbfs-lib = { workspace = true }
 clap = { workspace = true }

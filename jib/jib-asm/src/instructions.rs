@@ -5,7 +5,7 @@ use crate::{
     argument::{ArgumentError, ArgumentRegister, ArgumentType},
     immediate::{ImmediateError, parse_imm_i16},
 };
-use jib::cpu::{Opcode, Processor};
+use jib_cpu::cpu::{Opcode, Processor};
 
 pub const INST_SIZE: usize = 4;
 

@@ -1,17 +1,17 @@
-use cbfs_lib::FileSystemError;
-use cbuoy::{CodeGenerationOptions, CompilerError, PreprocessorError, ProgramType, TokenError};
+use cbfs_lib::{EntryType, FileSystem, FileSystemError, VolumeHeader};
+use cblang::{CodeGenerationOptions, CompilerError, PreprocessorError, ProgramType, TokenError};
 use circ_buff::CircularBuffer;
 use core::{cell::RefCell, fmt::Display};
 #[cfg(not(target_arch = "wasm32"))]
-use jib::device::RtcTimerDevice;
-use jib::{
-    cpu::{Instruction, Processor, ProcessorError, RegisterManager},
+use jib_cpu::device::RtcTimerDevice;
+use jib_cpu::{
+    cpu::{Instruction, Processor, ProcessorError, RegisterManager, ResetType},
     device::{
         BlankDevice, BlockDevice, DEVICE_MEM_SIZE, InterruptClockDevice, ProcessorDevice,
         RtcClockDevice, SerialInputOutputDevice,
     },
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
-    text::CharacterError,
+    text::{CharacterError, byte_to_character, character_to_byte},
 };
 use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput};
 use std::{format, path::Path, rc::Rc, vec, vec::Vec};
@@ -60,47 +60,47 @@ impl JibComputer {
 
     fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_data = Self::compile_kernel_code(include_str!("../../cbos/os.cb"), None)?.bytes;
+        let kernel_data = Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?.bytes;
 
-        let mut fs = cbfs_lib::FileSystem::new("root", 256, 4096)?;
+        let mut fs = FileSystem::new("root", 256, 4096)?;
         fs.create_entry(
             fs.root_sector(),
             "hello.txt",
-            cbfs_lib::EntryType::File,
+            EntryType::File,
             b"Hello, world!",
         )?;
         fs.create_entry(
             fs.root_sector(),
             "test.run",
-            cbfs_lib::EntryType::File,
+            EntryType::File,
             b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
         )?;
         fs.create_entry(
             fs.root_sector(),
             "boot.bin",
-            cbfs_lib::EntryType::File,
+            EntryType::File,
             &kernel_data,
         )?;
         let root_dir = fs.create_entry(
             fs.root_sector(),
             "root",
-            cbfs_lib::EntryType::Directory,
+            EntryType::Directory,
             &[],
         )?;
         let build_date: &'static str = env!("BUILD_DATE");
         fs.create_entry(
             root_dir,
             "version",
-            cbfs_lib::EntryType::File,
+            EntryType::File,
             format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
         )?;
-        let src = fs.create_entry(root_dir, "src", cbfs_lib::EntryType::Directory, &[])?;
+        let src = fs.create_entry(root_dir, "src", EntryType::Directory, &[])?;
 
-        for (path, code) in cbuoy::DEFAULT_FILES.iter() {
+        for (path, code) in cblang::DEFAULT_FILES.iter() {
             if let Some(name) = path.split('/').next_back()
-                && name.len() < cbfs_lib::VolumeHeader::VOLUME_NAME_SIZE
+                && name.len() < VolumeHeader::VOLUME_NAME_SIZE
             {
-                fs.create_entry(src, name, cbfs_lib::EntryType::File, code.as_bytes())?;
+                fs.create_entry(src, name, EntryType::File, code.as_bytes())?;
             }
         }
 
@@ -166,7 +166,7 @@ impl JibComputer {
         start_offset: Option<u32>,
     ) -> Result<AssemblerOutput, ComputerError> {
         let preprocessed =
-            cbuoy::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
+            cblang::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
 
         let tokens = preprocessed.tokenize().unwrap();
 
@@ -179,11 +179,11 @@ impl JibComputer {
             ..Default::default()
         };
 
-        Ok(cbuoy::parse(tokens, options)?.get_assembler()?)
+        Ok(cblang::parse(tokens, options)?.get_assembler()?)
     }
 
     pub fn soft_reset(&mut self) -> Result<(), ComputerError> {
-        self.cpu.reset(jib::cpu::ResetType::Soft)?;
+        self.cpu.reset(ResetType::Soft)?;
         Ok(())
     }
 
@@ -260,11 +260,11 @@ impl JibComputer {
         self.cpu
             .memory_add_segment(Self::DEVICE_HD_START_ADDR, self.hard_drive.clone())?;
 
-        self.cpu.reset(jib::cpu::ResetType::Hard)?;
+        self.cpu.reset(ResetType::Hard)?;
 
         // Compile and setup bootloader
         for (i, x) in Self::compile_kernel_code(
-            include_str!("../../cbos/bootloader.cb"),
+            include_str!("../../../cbos/bootloader.cb"),
             Some(Self::BOOTLOADER_START),
         )?
         .bytes
@@ -340,7 +340,7 @@ impl JibComputer {
 
     pub fn set_serial_input(&mut self, s: &str) -> Result<bool, ComputerError> {
         for c in s.chars().chain(['\n']) {
-            let cv = jib::text::character_to_byte(c)?;
+            let cv = character_to_byte(c)?;
             if !self.dev_serial_io.borrow_mut().push_input(cv) {
                 return Ok(false);
             } else if self.running_requested && !self.running && self.cpu.step_devices()? {
@@ -353,7 +353,7 @@ impl JibComputer {
     pub fn get_serial_output(&mut self) -> Result<Vec<char>, ComputerError> {
         let mut char_vec = Vec::new();
         while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
-            let c = jib::text::byte_to_character(w)?;
+            let c = byte_to_character(w)?;
             char_vec.push(c);
         }
         Ok(char_vec)
@@ -362,7 +362,7 @@ impl JibComputer {
     pub fn get_serial_output_unknown(&mut self) -> Vec<char> {
         let mut char_vec = Vec::new();
         while let Some(w) = self.dev_serial_io.borrow_mut().pop_output() {
-            let c = match jib::text::byte_to_character(w) {
+            let c = match byte_to_character(w) {
                 Ok(c) => c,
                 Err(_) => '?',
             };
@@ -455,7 +455,7 @@ impl From<CharacterError> for ComputerError {
 #[cfg(test)]
 mod test {
     use super::JibComputer;
-    use jib::cpu::Processor;
+    use jib_cpu::cpu::Processor;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
         let asm = JibComputer::compile_kernel_code(in_code, None).unwrap();
@@ -506,7 +506,7 @@ mod test {
                 Heap Test Pass\n";
 
         run_cpu_serial_out_test(
-            include_str!("../../cbuoy/cbuoy/tests/test_kmalloc.cb"),
+            include_str!("../../../cbuoy/cblang/tests/test_kmalloc.cb"),
             EXPECTED,
         );
     }
@@ -527,7 +527,7 @@ mod test {
             7\n\
             7\n";
         run_cpu_serial_out_test(
-            include_str!("../../cbuoy/cbuoy/tests/test_struct_ptr.cb"),
+            include_str!("../../../cbuoy/cblang/tests/test_struct_ptr.cb"),
             EXPECTED,
         );
     }

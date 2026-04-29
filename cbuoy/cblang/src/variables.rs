@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
 };
 
-use jib::cpu::{DataType, Register};
+use jib_cpu::cpu::{DataType, Register};
 use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc, OpAdd, OpConv, OpCopy, OpLd, OpSav, OpSub};
 
 use crate::{

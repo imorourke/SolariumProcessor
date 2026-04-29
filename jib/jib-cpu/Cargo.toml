@@ -1,12 +1,12 @@
 [package]
-name = "jib"
+name = "jib-cpu"
 version = "0.1.0"
 edition = "2024"
 authors = ["Ian O'Rourke <cessna.ian@gmail.com>"]
 
 [dependencies]
 chrono = { workspace = true, optional = true }
-circ-buff = { version = "*", path = "../circ-buff" }
+circ-buff = { workspace = true }
 
 [features]
 default = ["rtcdev"]

@@ -1,8 +1,0 @@
-[package]
-name = "jib-term"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-jib = { version = "*", path = "../jib" }
-jib-computer = { version = "*", path = "../jib-computer" }

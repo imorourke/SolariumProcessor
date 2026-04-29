@@ -12,7 +12,6 @@
 #include <std/string.cb>
 
 fn os_main() void {
-    k_shell_global_init();
     k_io_print("Starting C/Buoy OS\n");
 
     def input_buffer: [K_SHELL_DEFAULT_INPUT_BUFFER_SIZE]u8;

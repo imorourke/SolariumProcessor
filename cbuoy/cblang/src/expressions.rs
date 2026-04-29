@@ -5,7 +5,7 @@ use std::{
     sync::LazyLock,
 };
 
-use jib::cpu::{DataType, Register, convert_types};
+use jib_cpu::cpu::{DataType, Register, convert_types};
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpBand, OpBnot, OpBool, OpBor, OpBshl,
     OpBshr, OpBxor, OpCall, OpConv, OpCopy, OpDiv, OpLd, OpLdi, OpLdn, OpMul, OpNeg, OpNot, OpPopr,

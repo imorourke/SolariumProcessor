@@ -7,9 +7,9 @@ edition = "2024"
  crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-cbfs-lib = { path = "../../cbfs-lib", version = "*" }
+cbfs-lib = { workspace = true }
 chrono = { version = "*" }
 
 [build-dependencies]
 cbindgen = "0.29"
-cbfs-lib = { path = "../../cbfs-lib", version = "*" }
+cbfs-lib = { workspace = true }

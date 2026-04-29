@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-jib = { path = "../jib", version = "*" }
+jib-cpu = { workspace = true }
 regex = "1"
 clap = { version = "4", features = ["derive"] }

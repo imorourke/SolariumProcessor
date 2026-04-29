@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use jib::cpu::{DataType, Register};
+use jib_cpu::cpu::{DataType, Register};
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpCall,
     OpCopy, OpHalt, OpLdn, OpLdno, OpRet, assemble_tokens,
@@ -370,7 +370,7 @@ pub struct CodeGenerationOptions {
 
 impl CodeGenerationOptions {
     pub fn load_label(&self, r: Register, s: String) -> [AsmToken; 2] {
-        [self.load_next_label_inst(r), AsmToken::LoadLoc(s)]
+        [self.load_next_label_inst(r), AsmToken::LoadLoc(s.into())]
     }
 
     pub fn load_next_label_inst(&self, r: Register) -> AsmToken {
@@ -579,7 +579,7 @@ impl CompilingState {
             ))));
             asm.extend(
                 self.options
-                    .load_label(RegisterDef::SPARE, f.get_entry_label().to_string())
+                    .load_label(RegisterDef::SPARE, f.get_entry_label().to_owned())
                     .into_iter()
                     .map(Self::blank_token_loc),
             );
@@ -842,6 +842,14 @@ impl CompilingState {
         self.update_user_types();
 
         Ok(())
+    }
+
+    pub fn get_function_declaration(&self, name: &str) -> Result<Option<&FunctionDeclaration>, TokenError> {
+        if let Some(GlobalType::FunctionDeclaration(d)) = self.get_global(name)? {
+            Ok(Some(d))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_global(&self, name: &str) -> Result<Option<&GlobalType>, TokenError> {

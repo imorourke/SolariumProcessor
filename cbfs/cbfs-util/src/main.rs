@@ -145,14 +145,21 @@ fn main() {
         CommandOptions::Info(opt) => {
             let (header, filesystem) = open_container(&opt.file).expect("unable to open file");
 
-            println!("Container:");
+            print!("Container: ");
+
+            let mut container_flags = Vec::new();
             if header.is_compressed() {
-                println!("  Compressed");
+                container_flags.push("Compressed");
             }
             if header.is_sparse() {
-                println!("  Sparse");
+                container_flags.push("Sparse");
             }
-            println!("Sector Info:",);
+            if container_flags.is_empty() {
+                container_flags.push("Raw");
+            }
+            println!("{}", container_flags.join(", "));
+
+            println!("Sector Info:");
 
             println!("  {} byte sectors", filesystem.sector_size(),);
             println!("  {} sectors", filesystem.sector_count(),);

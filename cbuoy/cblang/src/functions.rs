@@ -1,10 +1,10 @@
 use std::{fmt::Display, rc::Rc, sync::LazyLock};
 
-use jib::cpu::{DataType, Register};
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, Instruction, OpAdd, OpConv, OpCopy, OpJmp, OpRet,
     OpRetInt, OpSub, OpTz,
 };
+use jib_cpu::cpu::{DataType, Register};
 use regex::Regex;
 
 use crate::{
@@ -75,35 +75,50 @@ impl StandardFunctionDefinition {
         tokens.expect(func_type.keyword())?;
         let name_token = tokens.next()?;
         let ident = get_identifier(&name_token)?;
-
-        state.init_scope(name_token.clone())?;
-
         let dtype = Function::read_tokens(tokens, state, true)?;
 
+        let declaration = if let Some(other) =
+            state.get_function_declaration(name_token.get_value())?
+        {
+            if dtype == other.dtype {
+                other.clone()
+            } else {
+                return Err(name_token
+                    .into_err("mismatch in data types for declaration of a matching name"));
+            }
+        } else {
+            let base_label = format!(
+                "___{}_{}_{}",
+                func_type.keyword(),
+                state.get_next_id(),
+                ident
+            );
+
+            let declaration =
+                FunctionDeclaration::new(name_token.clone(), base_label, dtype.clone(), func_type);
+            state.add_function_declaration(declaration.clone())?;
+            declaration
+        };
+
+        if tokens.expect_peek(";") {
+            tokens.expect(";")?;
+            return Ok(());
+        }
+
+        state.init_scope(name_token)?;
         for p in dtype.parameters.iter() {
             state.get_scopes_mut()?.add_parameter(p.clone())?;
         }
 
         state.get_scopes_mut()?.add_scope();
+
         tokens.expect("{")?;
-
         let mut statements = Vec::new();
-
-        let base_label = format!(
-            "___{}_{}_{}",
-            func_type.keyword(),
-            state.get_next_id(),
-            ident
-        );
-
-        let declaration = FunctionDeclaration::new(name_token, base_label, dtype, func_type);
-
-        state.add_function_declaration(declaration.clone())?;
 
         while let Some(s) = parse_statement(
             tokens,
             state,
-            &declaration.end_label,
+            &declaration.create_end_label(),
             None,
             declaration.dtype.return_type.as_ref(),
         )? {
@@ -158,7 +173,9 @@ impl GlobalStatement for StandardFunctionDefinition {
         &self,
         options: &CodeGenerationOptions,
     ) -> Result<Vec<AsmTokenLoc>, TokenError> {
-        let mut init_asm = vec![AsmToken::CreateLabel(self.declaration.entry_label.clone())];
+        let mut init_asm = vec![AsmToken::CreateLabel(
+            self.declaration.get_entry_label().to_owned(),
+        )];
 
         if options.debug_locations {
             init_asm.push(AsmToken::LocationComment(format!(
@@ -232,7 +249,7 @@ impl GlobalStatement for StandardFunctionDefinition {
 
         let mut asm_end = Vec::new();
 
-        asm_end.push(AsmToken::CreateLabel(self.declaration.end_label.clone()));
+        asm_end.push(AsmToken::CreateLabel(self.declaration.create_end_label()));
         if total_stack_size > 0 {
             asm_end.extend(load_to_register(
                 RegisterDef::SPARE,
@@ -280,8 +297,8 @@ impl Display for StandardFunctionDefinition {
 #[derive(Debug, Clone)]
 pub struct FunctionDeclaration {
     name: Token,
-    entry_label: String,
-    end_label: String,
+    label_base: Rc<str>,
+    label_entry: Rc<str>,
     dtype: Function,
     func_type: StandardFunctionType,
 }
@@ -293,17 +310,22 @@ impl FunctionDeclaration {
         dtype: Function,
         func_type: StandardFunctionType,
     ) -> Self {
+        let label_base: Rc<str> = label_base.into();
         Self {
             name,
-            entry_label: format!("{label_base}_start"),
-            end_label: format!("{label_base}_end"),
+            label_base: label_base.clone(),
+            label_entry: format!("{label_base}_start").into(),
             dtype,
             func_type,
         }
     }
 
-    fn get_entry_label(&self) -> &str {
-        &self.entry_label
+    pub fn get_entry_label(&self) -> &str {
+        &self.label_entry
+    }
+
+    fn create_end_label(&self) -> String {
+        format!("{}_end", self.label_base)
     }
 
     pub fn get_token(&self) -> &Token {
@@ -314,7 +336,7 @@ impl FunctionDeclaration {
         Rc::new(FunctionLabelExpr {
             name: self.name.clone(),
             dtype: self.dtype.clone(),
-            entry_label: self.entry_label.clone(),
+            entry_label: self.label_entry.clone(),
         })
     }
 }
@@ -490,7 +512,7 @@ impl Display for AsmCodeBlock {
 #[derive(Debug)]
 pub struct AsmFunctionDefinition {
     name: Token,
-    entry_label: String,
+    entry_label: Rc<str>,
     dtype: Function,
     asm_text: AsmCodeBlock,
 }
@@ -519,7 +541,7 @@ impl AsmFunctionDefinition {
         let asm_text = AsmCodeBlock::parse(tokens, state)?;
         let func = Rc::new(AsmFunctionDefinition {
             name: name_token,
-            entry_label,
+            entry_label: entry_label.into(),
             dtype: func_type,
             asm_text,
         });
@@ -617,7 +639,7 @@ impl Display for AsmFunctionDefinition {
 struct FunctionLabelExpr {
     name: Token,
     dtype: Function,
-    entry_label: String,
+    entry_label: Rc<str>,
 }
 
 impl Expression for FunctionLabelExpr {
@@ -636,7 +658,7 @@ impl Expression for FunctionLabelExpr {
         _required_stack: &mut TemporaryStackTracker,
     ) -> Result<ExpressionData, TokenError> {
         Ok(ExpressionData::new(self.name.to_asm_iter(
-            options.load_label(reg.reg, self.entry_label.clone()),
+            options.load_label(reg.reg, self.entry_label.to_string()),
         )))
     }
 
@@ -729,7 +751,7 @@ impl Statement for IfStatement {
 
         asm.extend(
             self.token
-                .to_asm_iter(options.load_label(def.spare, false_label.clone())),
+                .to_asm_iter(options.load_label(def.spare, false_label)),
         );
         asm.extend(self.token.to_asm_iter([
             AsmToken::OperationLiteral(Box::new(OpTz::new(def.reg.into()))),
