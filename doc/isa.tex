@@ -541,20 +541,20 @@ The following list some simple example programs that can be run on the Jib.
 
 The program listed in Listing \ref{listing:example-counter} provides a basic counter. A target value is placed in register four, and the value in register three is incremented from 0 to the target value in register four by adding one to the register each loop. Once the target value has been reached and register three is equal to register four, the program halts by entering an infinite loop.
 
-\lstinputlisting[caption={Limited counter program}, label={listing:example-counter}]{../jib-asm/examples/counter.jsm}
+\lstinputlisting[caption={Limited counter program}, label={listing:example-counter}]{../jib/jib-asm/examples/counter.jsm}
 
 \pagebreak
 \subsection{Infinite Counter}
 
 Listing \ref{listing:example-infinite-counter} makes use of some additional functionality, including the use of the register reference names, to test register reset functionality. It also modifies the program counter outside of the standard jump command.
 
-\lstinputlisting[caption={Infinite counter program with register reference names}, label={listing:example-infinite-counter}]{../jib-asm/examples/infinite_counter.jsm}
+\lstinputlisting[caption={Infinite counter program with register reference names}, label={listing:example-infinite-counter}]{../jib/jib-asm/examples/infinite_counter.jsm}
 
 \subsection{Hello World}
 
 Listing  \ref{listing:hello-world} provides a program that will infinitely write "hello, world" to the serial device, expected to be memory-mapped into the Jib at \texttt{0xFFFFA000}. This makes use of the \texttt{.loadtext} command, which loads the text, and an additional null-terminator at the end, directly into memory. It also makes use of a print-string function call to handle printing string values to the serial output devices.
 
-\lstinputlisting[caption={Infinite "hello, world!" program}, label={listing:hello-world}]{../jib-asm/examples/hello_world.jsm}
+\lstinputlisting[caption={Infinite "hello, world!" program}, label={listing:hello-world}]{../jib/jib-asm/examples/hello_world.jsm}
 
 \pagebreak
 
@@ -562,7 +562,7 @@ Listing  \ref{listing:hello-world} provides a program that will infinitely write
 
 Listing \ref{listing:serial-echo} provides a serial echo program, which echos any text provided by the default serial input device back out via the serial echo device. This serial device is expected to be provided at the starting location \texttt{0xFFFFA000}.
 
-\lstinputlisting[caption={Serial echo program reads in text characters and immediately outputs via the output device}, label={listing:serial-echo}]{../jib-asm/examples/serial_echo.jsm}
+\lstinputlisting[caption={Serial echo program reads in text characters and immediately outputs via the output device}, label={listing:serial-echo}]{../jib/jib-asm/examples/serial_echo.jsm}
 
 \pagebreak
 
@@ -636,7 +636,7 @@ A simple preprocessor allows for mixing multiple files into one source unit. Thi
 
 This provides an example program in Listing \ref{listing:example-cbuoy} below, which provides an example of printing text to a serial device, both using a string literal, but also converting numeric values into their text equivalents.
 
-\lstinputlisting[label={listing:example-cbuoy},caption={Example C/Buoy program for printing out a string to a serial output device}]{../cbuoy/cbuoy/examples/printing.cb}
+\lstinputlisting[label={listing:example-cbuoy},caption={Example C/Buoy program for printing out a string to a serial output device}]{../cbuoy/cblang/examples/printing.cb}
 
 C/Buoy allows working with structs, primitives, functions, and more. This allows for an easier programming experience, at the cost of occasionally some additional generated machine code, resulting in slightly larger execution times, than could necessarily be done by hand in Jib assembly.
 
