@@ -9,7 +9,7 @@ mod typing;
 mod utilities;
 mod variables;
 
-pub use compiler::{CodeGenerationOptions, ProgramType};
+pub use compiler::{CodeGenerationOptions, CompilerError, ProgramType};
 pub use parser::{parse, parse_str};
 pub use preprocessor::{
     DEFAULT_FILES, PreprocessorError, PreprocessorLine, preprocess_code_as_file,
@@ -21,7 +21,7 @@ pub use tokenizer::{TokenError, tokenize, tokenize_file, tokenize_str};
 mod test {
     use std::path::Path;
 
-    use jib_asm::{assemble_lines, assemble_tokens};
+    use jib_asm::assemble_lines;
 
     use crate::{CodeGenerationOptions, parse, tokenize_file};
 
@@ -41,7 +41,7 @@ mod test {
             let input_file = Path::join(&Path::new(env!("CARGO_MANIFEST_DIR")), &Path::new(s));
             let tokens = tokenize_file(&input_file).unwrap();
             let cb_out = parse(tokens, CodeGenerationOptions::default()).unwrap();
-            let asm_out_main = assemble_tokens(cb_out.get_assembler().unwrap()).unwrap();
+            let asm_out_main = cb_out.get_assembler().unwrap();
             let asm_out_duplicate =
                 assemble_lines(asm_out_main.assembly_lines.iter().map(|x| x.as_ref())).unwrap();
 

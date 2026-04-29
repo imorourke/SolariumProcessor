@@ -1,5 +1,5 @@
 use cbfs_lib::FileSystemError;
-use cbuoy::{CodeGenerationOptions, PreprocessorError, ProgramType, TokenError};
+use cbuoy::{CodeGenerationOptions, CompilerError, PreprocessorError, ProgramType, TokenError};
 use circ_buff::CircularBuffer;
 use core::{cell::RefCell, fmt::Display};
 #[cfg(not(target_arch = "wasm32"))]
@@ -179,8 +179,7 @@ impl JibComputer {
             ..Default::default()
         };
 
-        let tokens = cbuoy::parse(tokens, options).and_then(|x| x.get_assembler())?;
-        Ok(jib_asm::assemble_tokens(tokens)?)
+        Ok(cbuoy::parse(tokens, options)?.get_assembler()?)
     }
 
     pub fn soft_reset(&mut self) -> Result<(), ComputerError> {
@@ -398,6 +397,15 @@ impl Display for ComputerError {
             Self::TokenError(e) => write!(f, "token => {e}"),
             Self::ProcessorError(e) => write!(f, "processor => {e}"),
             Self::CharacterError(e) => write!(f, "character => {e}"),
+        }
+    }
+}
+
+impl From<CompilerError> for ComputerError {
+    fn from(value: CompilerError) -> Self {
+        match value {
+            CompilerError::AssemblerError(v) => Self::AssemblerErrorLoc(v),
+            CompilerError::TokenError(v) => Self::TokenError(v),
         }
     }
 }

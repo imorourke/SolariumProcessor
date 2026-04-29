@@ -28,6 +28,7 @@ pub trait FunctionDefinition: Display + GlobalStatement {
     fn get_token(&self) -> &Token;
     fn as_expr(&self) -> Rc<dyn Expression>;
     fn get_entry_label(&self) -> &str;
+    fn get_func_def(&self) -> &Function;
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
@@ -131,6 +132,10 @@ impl FunctionDefinition for StandardFunctionDefinition {
 
     fn as_expr(&self) -> Rc<dyn Expression> {
         self.declaration.as_expr()
+    }
+
+    fn get_func_def(&self) -> &Function {
+        &self.declaration.dtype
     }
 }
 
@@ -539,6 +544,10 @@ impl FunctionDefinition for AsmFunctionDefinition {
             dtype: self.dtype.clone(),
             entry_label: self.entry_label.clone(),
         })
+    }
+
+    fn get_func_def(&self) -> &Function {
+        &self.dtype
     }
 }
 

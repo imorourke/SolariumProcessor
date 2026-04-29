@@ -1,6 +1,6 @@
 use crate::cpu_thread::CpuState;
 use crate::messages::{ThreadToUi, UiToThread};
-use cbuoy::CodeGenerationOptions;
+use cbuoy::{CodeGenerationOptions, CompilerError};
 use eframe::egui::{
     self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit,
 };
@@ -707,17 +707,12 @@ impl CodeWindow {
 
         let options = CodeGenerationOptions::default();
 
-        match cbuoy::parse(tokens, options).and_then(|x| x.get_assembler()) {
-            Ok(tokens) => match jib_asm::assemble_tokens(tokens) {
-                Ok(asm) => Some(asm),
-                Err(err) => {
-                    self.tx_thread
-                        .send(ThreadToUi::LogMessage(format!("{}: {err}", Self::CB_NAME)))
-                        .unwrap();
-                    None
-                }
-            },
-            Err(err) => {
+        match cbuoy::parse(tokens, options)
+            .map_err(|x| CompilerError::from(x))
+            .and_then(|x| x.get_assembler())
+        {
+            Ok(asm) => Some(asm),
+            Err(CompilerError::TokenError(err)) => {
                 self.tx_thread
                     .send(ThreadToUi::LogMessage(format!("{}: {err}", Self::CB_NAME)))
                     .unwrap();
@@ -745,6 +740,12 @@ impl CodeWindow {
                     }
                 }
 
+                None
+            }
+            Err(err) => {
+                self.tx_thread
+                    .send(ThreadToUi::LogMessage(format!("{err}")))
+                    .unwrap();
                 None
             }
         }

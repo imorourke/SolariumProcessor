@@ -7,7 +7,8 @@ use std::{
 
 use jib::cpu::{DataType, Register};
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, LocationInfo, OpCall, OpCopy, OpHalt, OpLdn, OpLdno, OpRet,
+    ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpCall,
+    OpCopy, OpHalt, OpLdn, OpLdno, OpRet, assemble_tokens,
 };
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
     functions::{FunctionDeclaration, FunctionDefinition},
     literals::{Literal, StringLiteral},
     tokenizer::{Token, TokenIter, get_identifier, is_identifier, tokenize_str},
-    typing::{FunctionParameter, StructDefinition, Type},
+    typing::{Function, FunctionParameter, StructDefinition, Type},
     utilities::load_to_register,
     variables::{GlobalVariable, GlobalVariableStatement, LocalVariable, VariableDefinition},
 };
@@ -405,6 +406,33 @@ impl AccessState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum CompilerError {
+    AssemblerError(AssemblerErrorLoc),
+    TokenError(TokenError),
+}
+
+impl Display for CompilerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AssemblerError(e) => write!(f, "Assembler: {e}"),
+            Self::TokenError(e) => write!(f, "Token: {e}"),
+        }
+    }
+}
+
+impl From<AssemblerErrorLoc> for CompilerError {
+    fn from(value: AssemblerErrorLoc) -> Self {
+        Self::AssemblerError(value)
+    }
+}
+
+impl From<TokenError> for CompilerError {
+    fn from(value: TokenError) -> Self {
+        Self::TokenError(value)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct CompilingState {
     statements: Vec<(Rc<str>, Rc<dyn GlobalStatement>)>,
@@ -473,7 +501,11 @@ impl CompilingState {
         }
     }
 
-    pub fn get_assembler(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
+    pub fn get_assembler(&self) -> Result<AssemblerOutput, CompilerError> {
+        Ok(assemble_tokens(self.get_assembler_tokens()?)?)
+    }
+
+    pub fn get_assembler_tokens(&self) -> Result<Vec<AsmTokenLoc>, TokenError> {
         fn add_name(asm: &mut Vec<AsmTokenLoc>, name: &str) {
             asm.extend_from_slice(&[
                 CompilingState::blank_token_loc(AsmToken::Comment(name.into())),
@@ -963,5 +995,24 @@ impl CompilingState {
         }
 
         statements
+    }
+
+    pub fn get_function_declarations(&self) -> Result<Vec<(u32, String, Function)>, CompilerError> {
+        let mut funcs = Vec::new();
+        let asm = self.get_assembler()?;
+
+        for (name, (_, global)) in self.global_scope.iter() {
+            match global {
+                GlobalType::Function(func) => {
+                    if let Some(loc) = asm.labels.get(func.get_entry_label()).cloned() {
+                        let def = func.get_func_def();
+                        funcs.push((loc, name.clone(), def.clone()));
+                    }
+                }
+                _ => continue,
+            };
+        }
+
+        Ok(funcs)
     }
 }

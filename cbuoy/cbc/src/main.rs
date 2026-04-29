@@ -1,8 +1,7 @@
 use std::{io::Write, path::PathBuf};
 
-use cbuoy::{PreprocessorLine, ProgramType, TokenError, parse, read_and_preprocess};
+use cbuoy::{CompilerError, PreprocessorLine, ProgramType, parse, read_and_preprocess};
 use clap::Parser;
-use jib_asm::assemble_tokens;
 
 #[derive(Default, Debug, Parser)]
 #[command(version, about)]
@@ -149,7 +148,7 @@ fn main() -> std::process::ExitCode {
     ) {
         Ok(asm) => asm,
         Err(e) => {
-            print_error(preprocessed.get_lines(), &e);
+            print_error(preprocessed.get_lines(), &e.into());
             return 1.into();
         }
     };
@@ -166,16 +165,8 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let asm_out = match assemble_tokens(asm) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{e}");
-            return 2.into();
-        }
-    };
-
     if args.print_assembly {
-        for l in &asm_out.assembly_lines {
+        for l in &asm.assembly_lines {
             println!("{l}");
         }
     }
@@ -183,11 +174,11 @@ fn main() -> std::process::ExitCode {
     if let Some(out) = args.output_assembly {
         match std::fs::File::create(out) {
             Ok(mut f) => {
-                for l in &asm_out.assembly_lines {
+                for l in &asm.assembly_lines {
                     writeln!(f, "{l}").unwrap();
                 }
                 if args.include_locations {
-                    for l in &asm_out.assembly_debug {
+                    for l in &asm.assembly_debug {
                         writeln!(f, "{l}").unwrap();
                     }
                 }
@@ -201,7 +192,7 @@ fn main() -> std::process::ExitCode {
 
     if let Some(out) = args.output_binary {
         match std::fs::File::create(out) {
-            Ok(mut f) => f.write_all(&asm_out.bytes).unwrap(),
+            Ok(mut f) => f.write_all(&asm.bytes).unwrap(),
             Err(e) => {
                 eprintln!("{e}");
                 return 4.into();
@@ -212,24 +203,31 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn print_error(txt: &[PreprocessorLine], err: &TokenError) {
-    eprintln!("Error: {}", err.msg);
+fn print_error(txt: &[PreprocessorLine], err: &CompilerError) {
+    eprintln!("Error: {}", err);
 
-    if let Some(t) = &err.token {
-        for l in txt.iter() {
-            if l.loc.line == t.get_loc().line && Some(&l.loc.file) == t.get_loc().file.as_ref() {
-                let line = &l.text;
-                eprintln!("{} >> {line}", l.loc);
-                eprint!("{}    ", l.loc);
-                for _ in 0..t.get_loc().column {
-                    eprint!(" ");
+    match err {
+        CompilerError::TokenError(err) => {
+            if let Some(t) = &err.token {
+                for l in txt.iter() {
+                    if l.loc.line == t.get_loc().line
+                        && Some(&l.loc.file) == t.get_loc().file.as_ref()
+                    {
+                        let line = &l.text;
+                        eprintln!("{} >> {line}", l.loc);
+                        eprint!("{}    ", l.loc);
+                        for _ in 0..t.get_loc().column {
+                            eprint!(" ");
+                        }
+                        for _ in 0..t.get_value().len() {
+                            eprint!("^");
+                        }
+                        eprintln!();
+                        break;
+                    }
                 }
-                for _ in 0..t.get_value().len() {
-                    eprint!("^");
-                }
-                eprintln!();
-                break;
             }
         }
+        _ => (),
     }
 }
