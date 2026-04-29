@@ -11,7 +11,7 @@ jib-cpu = { workspace = true }
 jib-computer = { workspace = true }
 jib-asm = { workspace = true }
 cblang = { workspace = true }
-cbfs-lib = { workspace = true }
+cbfs-lib = { path = "../cbfs/cbfs-lib", version = "*", default-features = false }
 eframe = "0.34"
 image = "0.25"
 

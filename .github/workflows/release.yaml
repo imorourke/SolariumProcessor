@@ -38,10 +38,18 @@ jobs:
           cargo install --locked cbindgen
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -GNinja
           ninja -C build
-          cp build/cbfs/cbfs-fuse/cbfs dist
+
+      - name: Copy executables
+        run: |
+          mkdir dist
+          cp target/x86_64-unknown-linux-gnu/release/visual-jib dist/visual-jib
+          cp target/x86_64-unknown-linux-gnu/release/cbfs-util dist/cbfs-util
+          cp target/x86_64-unknown-linux-gnu/release/cbc dist/cbc
+          cp target/x86_64-unknown-linux-gnu/release/jib-term dist/jib-term
+          cp build/cbfs/cbfs-fuse/cbfs dist/cbfs
 
       - name: Package binary
-        run: tar -czvf solarium-linux-x86_64.tar.gz -C target/x86_64-unknown-linux-gnu/release visual-jib cbc jib-term cbfs cbfs-util
+        run: tar -czvf solarium-linux-x86_64.tar.gz -C dist *
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
