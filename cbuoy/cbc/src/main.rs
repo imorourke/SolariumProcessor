@@ -1,6 +1,8 @@
 use std::{io::Write, path::PathBuf};
 
-use cblang::{CompilerError, PreprocessorLine, ProgramType, parse, read_and_preprocess, CodeGenerationOptions};
+use cblang::{
+    CodeGenerationOptions, CompilerError, CompilingState, PreprocessorLine, ProgramType, parse, read_and_preprocess
+};
 use clap::Parser;
 
 #[derive(Default, Debug, Parser)]
@@ -84,6 +86,12 @@ struct CompilerArguments {
         long = "define",
         help = "Adds compiler definitions to define from the start of compiling"
     )]
+    print_defs: bool,
+    #[arg(
+        long = "print-interface",
+        help = "Prints a header interface for linking to the model"
+    )]
+    print_interface: bool,
     definitions: Vec<String>,
 }
 
@@ -155,6 +163,35 @@ fn main() -> std::process::ExitCode {
 
     if args.print_ast {
         println!("{}", cbstate.get_statements().join("\n"));
+    }
+
+    if args.print_interface {
+        match cbstate.get_function_declarations() {
+            Ok(mut x) => {
+                x.sort_by(|a, b| a.1.cmp(&b.1));
+                for (loc, name, def) in x {
+                    if name == CompilingState::MAIN_FUNC_NAME || name.starts_with("_") {
+                        continue;
+                    }
+
+                    println!(
+                        "global {name}: fn({}) {} = {loc};",
+                        def.parameters
+                            .iter()
+                            .map(|x| x.dtype.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        def.return_type
+                            .map(|x| x.to_string())
+                            .unwrap_or("void".into())
+                    );
+                }
+            }
+            Err(e) => {
+                print_error(preprocessed.get_lines(), &e);
+                return 3.into();
+            }
+        }
     }
 
     let asm = match cbstate.get_assembler() {
