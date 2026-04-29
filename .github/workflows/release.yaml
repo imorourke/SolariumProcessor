@@ -49,7 +49,7 @@ jobs:
           cp build/cbfs/cbfs-fuse/cbfs dist/cbfs
 
       - name: Package binary
-        run: tar -czvf solarium-linux-x86_64.tar.gz -C dist *
+        run: tar -czvf solarium-linux-x86_64.tar.gz -C dist visual-jib cbfs cbfs-util cbc jib-term
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
