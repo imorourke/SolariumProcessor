@@ -708,7 +708,7 @@ impl CodeWindow {
         let options = CodeGenerationOptions::default();
 
         match cblang::parse(tokens, options)
-            .map_err(|x| CompilerError::from(x))
+            .map_err(CompilerError::from)
             .and_then(|x| x.get_assembler())
         {
             Ok(asm) => Some(asm),

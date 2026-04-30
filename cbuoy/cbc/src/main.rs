@@ -203,10 +203,10 @@ fn main() -> std::process::ExitCode {
                         Type::Const(x) => contains_type(known_types, x.as_ref()),
                         Type::Function(f) => {
                             let mut matches_types = true;
-                            if let Some(x) = &f.return_type {
-                                if !contains_type(known_types, &x) {
-                                    matches_types = false;
-                                }
+                            if let Some(x) = &f.return_type
+                                && !contains_type(known_types, x)
+                            {
+                                matches_types = false;
                             }
 
                             for p in f.parameters.iter() {
@@ -241,13 +241,8 @@ fn main() -> std::process::ExitCode {
 
                         writeln!(interface_file, "struct {} {{", s.name).unwrap();
 
-                        let mut fields = s
-                            .def
-                            .get_fields()
-                            .iter()
-                            .map(|(n, x)| (n, x))
-                            .collect::<Vec<_>>();
-                        fields.sort_by(|(_, a), (_, b)| a.offset.cmp(&b.offset));
+                        let mut fields = s.def.get_fields().iter().collect::<Vec<_>>();
+                        fields.sort_by_key(|(_, x)| x.offset);
 
                         for (name, field) in fields {
                             writeln!(interface_file, "    {}: {};", name, field.dtype).unwrap();
@@ -269,7 +264,7 @@ fn main() -> std::process::ExitCode {
                             "global {}: {} = {};",
                             c.name,
                             c.value.get_value().get_dtype(),
-                            c.value.to_string()
+                            c.value
                         )
                         .unwrap();
                     }
@@ -355,28 +350,23 @@ fn main() -> std::process::ExitCode {
 fn print_error(txt: &[PreprocessorLine], err: &CompilerError) {
     eprintln!("Error: {}", err);
 
-    match err {
-        CompilerError::TokenError(err) => {
-            if let Some(t) = &err.token {
-                for l in txt.iter() {
-                    if l.loc.line == t.get_loc().line
-                        && Some(&l.loc.file) == t.get_loc().file.as_ref()
-                    {
-                        let line = &l.text;
-                        eprintln!("{} >> {line}", l.loc);
-                        eprint!("{}    ", l.loc);
-                        for _ in 0..t.get_loc().column {
-                            eprint!(" ");
-                        }
-                        for _ in 0..t.get_value().len() {
-                            eprint!("^");
-                        }
-                        eprintln!();
-                        break;
-                    }
+    if let CompilerError::TokenError(err) = err
+        && let Some(t) = &err.token
+    {
+        for l in txt.iter() {
+            if l.loc.line == t.get_loc().line && Some(&l.loc.file) == t.get_loc().file.as_ref() {
+                let line = &l.text;
+                eprintln!("{} >> {line}", l.loc);
+                eprint!("{}    ", l.loc);
+                for _ in 0..t.get_loc().column {
+                    eprint!(" ");
                 }
+                for _ in 0..t.get_value().len() {
+                    eprint!("^");
+                }
+                eprintln!();
+                break;
             }
         }
-        _ => (),
     }
 }

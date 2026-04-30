@@ -370,7 +370,7 @@ pub struct CodeGenerationOptions {
 
 impl CodeGenerationOptions {
     pub fn load_label(&self, r: Register, s: String) -> [AsmToken; 2] {
-        [self.load_next_label_inst(r), AsmToken::LoadLoc(s.into())]
+        [self.load_next_label_inst(r), AsmToken::LoadLoc(s)]
     }
 
     pub fn load_next_label_inst(&self, r: Register) -> AsmToken {
@@ -540,7 +540,7 @@ impl CompilingState {
                     .iter()
                     .map(|(k, v)| (v.offset, k, v.dtype.clone()))
                     .collect::<Vec<_>>();
-                struct_vals.sort_by(|a, b| a.0.cmp(&b.0));
+                struct_vals.sort_by_key(|x| x.0);
 
                 for (offset, name, dtype) in struct_vals {
                     asm.push(tok.to_asm(AsmToken::LocationComment(format!(

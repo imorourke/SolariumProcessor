@@ -120,11 +120,10 @@ fn main() {
                 }
                 for n in fs.directory_listing(node)? {
                     match n.get_entry_type() {
-                        EntryType::File => {
-                            if opt.files {
-                                println!("{path_so_far}/{}", n.get_name())
-                            }
+                        EntryType::File if opt.files => {
+                            println!("{path_so_far}/{}", n.get_name())
                         }
+
                         EntryType::Directory => {
                             folder_entry_vals(
                                 &format!("{path_so_far}/{}", n.get_name()),

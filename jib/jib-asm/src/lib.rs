@@ -669,7 +669,7 @@ impl TokenList {
                 .iter()
                 .map(|(k, v)| (*v, k))
                 .collect::<Vec<_>>();
-            locs.sort_by(|a, b| a.0.cmp(&b.0));
+            locs.sort_by_key(|x| x.0);
             for (v, k) in locs {
                 label_text.push(format!(";  {v:#06x} => {}", k.replace("\n", "\\n")));
             }

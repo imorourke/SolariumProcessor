@@ -696,7 +696,7 @@ impl Statement for StatementGroup {
             if options.debug_locations {
                 asm.push(self.token.to_asm(AsmToken::LocationComment(format!("{s}"))));
             }
-            asm.extend(s.get_exec_code(options, &mut local_stack)?.into_iter());
+            asm.extend(s.get_exec_code(options, &mut local_stack)?);
             required_stack.merge(local_stack);
         }
         Ok(asm)

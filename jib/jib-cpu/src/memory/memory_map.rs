@@ -169,7 +169,7 @@ impl MemoryMap {
         }
 
         self.segments.push(new_seg);
-        self.segments.sort_by(|a, b| a.base.cmp(&b.base));
+        self.segments.sort_by_key(|x| x.base);
         self.last_segment.borrow_mut().invalidate();
 
         Ok(())
