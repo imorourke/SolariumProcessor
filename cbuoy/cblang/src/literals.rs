@@ -5,8 +5,11 @@ use std::{
     sync::LazyLock,
 };
 
-use jib_cpu::{cpu::{DataType, OperationError, OperatorManager, convert_types}, text::character_to_byte};
 use jib_asm::{ArgumentType, AsmToken, AsmTokenLoc};
+use jib_cpu::{
+    cpu::{DataType, OperationError, OperatorManager, convert_types},
+    text::character_to_byte,
+};
 use regex::{Regex, RegexBuilder};
 
 use crate::{

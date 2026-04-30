@@ -2,6 +2,7 @@ use cbfs_lib::{EntryType, FileSystem, FileSystemError, VolumeHeader};
 use cblang::{CodeGenerationOptions, CompilerError, PreprocessorError, ProgramType, TokenError};
 use circ_buff::CircularBuffer;
 use core::{cell::RefCell, fmt::Display};
+use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput};
 #[cfg(not(target_arch = "wasm32"))]
 use jib_cpu::device::RtcTimerDevice;
 use jib_cpu::{
@@ -13,7 +14,6 @@ use jib_cpu::{
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
     text::{CharacterError, byte_to_character, character_to_byte},
 };
-use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput};
 use std::{format, path::Path, rc::Rc, vec, vec::Vec};
 
 pub struct JibComputer {
@@ -60,7 +60,8 @@ impl JibComputer {
 
     fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_data = Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?.bytes;
+        let kernel_data =
+            Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?.bytes;
 
         let mut fs = FileSystem::new("root", 256, 4096)?;
         fs.create_entry(
@@ -75,18 +76,8 @@ impl JibComputer {
             EntryType::File,
             b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
         )?;
-        fs.create_entry(
-            fs.root_sector(),
-            "boot.bin",
-            EntryType::File,
-            &kernel_data,
-        )?;
-        let root_dir = fs.create_entry(
-            fs.root_sector(),
-            "root",
-            EntryType::Directory,
-            &[],
-        )?;
+        fs.create_entry(fs.root_sector(), "boot.bin", EntryType::File, &kernel_data)?;
+        let root_dir = fs.create_entry(fs.root_sector(), "root", EntryType::Directory, &[])?;
         let build_date: &'static str = env!("BUILD_DATE");
         fs.create_entry(
             root_dir,

@@ -4,8 +4,8 @@ use cblang::{CodeGenerationOptions, CompilerError};
 use eframe::egui::{
     self, CentralPanel, Context, Grid, Id, MenuBar, ScrollArea, Slider, TextBuffer, TextEdit,
 };
-use jib_cpu::cpu::RegisterManager;
 use jib_asm::{AssemblerOutput, InstructionList};
+use jib_cpu::cpu::RegisterManager;
 use std::{path::PathBuf, sync::LazyLock, time::Duration};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

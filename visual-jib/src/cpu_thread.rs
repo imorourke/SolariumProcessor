@@ -219,9 +219,7 @@ impl CpuState {
             .send(ThreadToUi::RegisterState(Box::new(rs)))
             .unwrap();
 
-        let pc = rs
-            .get(Register::ProgramCounter)
-            .unwrap_or_default();
+        let pc = rs.get(Register::ProgramCounter).unwrap_or_default();
         let mem = self.computer.memory_inspect_u32(pc).unwrap_or_default();
 
         self.tx

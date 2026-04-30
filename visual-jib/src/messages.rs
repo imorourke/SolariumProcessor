@@ -1,5 +1,5 @@
-use jib_cpu::cpu::RegisterManager;
 use jib_asm::AssemblerOutput;
+use jib_cpu::cpu::RegisterManager;
 
 #[derive(Debug, Clone)]
 pub enum UiToThread {

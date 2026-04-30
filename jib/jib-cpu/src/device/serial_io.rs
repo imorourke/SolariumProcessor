@@ -1,10 +1,10 @@
-use core::cell::RefCell;
-use circ_buff::CircularBufferDyn;
 use super::{DEVICE_ID_SIZE, DEVICE_MEM_SIZE, ProcessorDevice};
 use crate::{
     device::{DeviceAction, DeviceType},
     memory::{MemorySegment, MemorySegmentError},
 };
+use circ_buff::CircularBufferDyn;
+use core::cell::RefCell;
 
 /// Provides a memory serial I/O memory-mapped device
 pub struct SerialInputOutputDevice {

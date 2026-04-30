@@ -1,7 +1,8 @@
 use std::{io::Write, path::PathBuf};
 
 use cblang::{
-    CodeGenerationOptions, CompilerError, CompilingState, PreprocessorLine, ProgramType, parse, read_and_preprocess
+    CodeGenerationOptions, CompilerError, CompilingState, PreprocessorLine, ProgramType, parse,
+    read_and_preprocess,
 };
 use clap::Parser;
 

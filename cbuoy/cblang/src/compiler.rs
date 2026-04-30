@@ -5,11 +5,11 @@ use std::{
     rc::Rc,
 };
 
-use jib_cpu::cpu::{DataType, Register};
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpCall,
     OpCopy, OpHalt, OpLdn, OpLdno, OpRet, assemble_tokens,
 };
+use jib_cpu::cpu::{DataType, Register};
 
 use crate::{
     TokenError,
@@ -844,7 +844,10 @@ impl CompilingState {
         Ok(())
     }
 
-    pub fn get_function_declaration(&self, name: &str) -> Result<Option<&FunctionDeclaration>, TokenError> {
+    pub fn get_function_declaration(
+        &self,
+        name: &str,
+    ) -> Result<Option<&FunctionDeclaration>, TokenError> {
         if let Some(GlobalType::FunctionDeclaration(d)) = self.get_global(name)? {
             Ok(Some(d))
         } else {

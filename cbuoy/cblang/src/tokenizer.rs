@@ -2,8 +2,8 @@ use std::{
     collections::HashSet, fmt, iter::Peekable, path::Path, rc::Rc, slice::Iter, sync::LazyLock,
 };
 
-use jib_cpu::cpu::DataType;
 use jib_asm::{AsmToken, AsmTokenLoc};
+use jib_cpu::cpu::DataType;
 use regex::Regex;
 
 use crate::{

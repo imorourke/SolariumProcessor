@@ -31,7 +31,11 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         VisualJib::name(),
         native_options,
-        Box::new(|_| Ok(Box::<VisualJib>::default())),
+        Box::new(|_ctx| {
+            #[cfg(target_os = "linux")]
+            _ctx.egui_ctx.set_theme(eframe::egui::Theme::Light);
+            Ok(Box::<VisualJib>::default())
+        }),
     )
 }
 
