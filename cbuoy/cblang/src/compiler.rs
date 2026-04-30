@@ -1008,8 +1008,8 @@ impl CompilingState {
         statements
     }
 
-    pub fn get_function_declarations(&self) -> Result<Vec<(u32, String, Function)>, CompilerError> {
-        let mut funcs = Vec::new();
+    pub fn get_exported_interface(&self) -> Result<InterfaceDefinition, CompilerError> {
+        let mut interface = InterfaceDefinition::default();
         let asm = self.get_assembler()?;
 
         for (name, (_, global)) in self.global_scope.iter() {
@@ -1017,13 +1017,61 @@ impl CompilingState {
                 GlobalType::Function(func) => {
                     if let Some(loc) = asm.labels.get(func.get_entry_label()).cloned() {
                         let def = func.get_func_def();
-                        funcs.push((loc, name.clone(), def.clone()));
+                        interface.functions.push(InterfaceFunction {
+                            loc,
+                            name: name.clone(),
+                            def: def.clone(),
+                        });
                     }
+                }
+                GlobalType::Constant(lit) => {
+                    interface.consts.push(InterfaceConstant {
+                        name: name.clone(),
+                        value: lit.as_ref().clone(),
+                    });
                 }
                 _ => continue,
             };
         }
 
-        Ok(funcs)
+        for (name, opt) in self.user_types.borrow().types.iter() {
+            match opt {
+                UserTypeOptions::ConcreteType(Type::Struct(s)) => {
+                    interface.structs.push(InterfaceStruct {
+                        name: name.clone(),
+                        def: s.as_ref().clone(),
+                    });
+                }
+                _ => continue,
+            }
+        }
+
+        Ok(interface)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceFunction {
+    pub loc: u32,
+    pub name: String,
+    pub def: Function,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceConstant {
+    pub name: String,
+    pub value: Literal,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceStruct {
+    pub name: String,
+    pub def: StructDefinition,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct InterfaceDefinition {
+    pub functions: Vec<InterfaceFunction>,
+    pub consts: Vec<InterfaceConstant>,
+    pub structs: Vec<InterfaceStruct>,
 }

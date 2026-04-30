@@ -133,7 +133,7 @@ impl Display for Type {
                     .as_ref()
                     .map_or("void".to_string(), |r| r.to_string())
             ),
-            Self::Opaque(r) => write!(f, "&{}", r.name.get_value()),
+            Self::Opaque(r) => write!(f, "{}", r.name.get_value()),
         }
     }
 }

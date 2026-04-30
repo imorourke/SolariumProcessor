@@ -1,7 +1,7 @@
-use std::{io::Write, path::PathBuf};
+use std::{collections::HashSet, io::Write, path::PathBuf};
 
 use cblang::{
-    CodeGenerationOptions, CompilerError, CompilingState, PreprocessorLine, ProgramType, parse,
+    CodeGenerationOptions, CompilerError, PreprocessorLine, ProgramType, Type, parse,
     read_and_preprocess,
 };
 use clap::Parser;
@@ -87,25 +87,39 @@ struct CompilerArguments {
         long = "define",
         help = "Adds compiler definitions to define from the start of compiling"
     )]
-    print_defs: bool,
-    #[arg(
-        long = "print-interface",
-        help = "Prints a header interface for linking to the model"
-    )]
-    print_interface: bool,
     definitions: Vec<String>,
+    #[arg(
+        short = 'H',
+        long = "interface-prefix",
+        help = "Prefixes to include in the generation for a "
+    )]
+    interface_prefixes: Vec<String>,
+    #[arg(
+        short = 'W',
+        long = "write-interface",
+        help = "Writes an interface file for the provided symbols"
+    )]
+    write_interface_file: Option<PathBuf>,
+}
+
+impl CompilerArguments {
+    fn symbol_matches(&self, s: &str) -> bool {
+        self.interface_prefixes.is_empty()
+            || self.interface_prefixes.iter().any(|x| s.starts_with(x))
+    }
 }
 
 fn main() -> std::process::ExitCode {
     let args = CompilerArguments::parse();
 
-    let preprocessed = match read_and_preprocess(&args.input_file, args.definitions.into_iter()) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("{e}");
-            return 1.into();
-        }
-    };
+    let preprocessed =
+        match read_and_preprocess(&args.input_file, args.definitions.clone().into_iter()) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
+                return 1.into();
+            }
+        };
 
     if args.print_preproc {
         for l in preprocessed.get_lines() {
@@ -166,26 +180,123 @@ fn main() -> std::process::ExitCode {
         println!("{}", cbstate.get_statements().join("\n"));
     }
 
-    if args.print_interface {
-        match cbstate.get_function_declarations() {
-            Ok(mut x) => {
-                x.sort_by(|a, b| a.1.cmp(&b.1));
-                for (loc, name, def) in x {
-                    if name == CompilingState::MAIN_FUNC_NAME || name.starts_with("_") {
-                        continue;
-                    }
+    if let Some(interface_path) = &args.write_interface_file {
+        let mut interface_file = match std::fs::File::create(interface_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Unable to open interface file - {e}");
+                return 1.into();
+            }
+        };
 
-                    println!(
-                        "global {name}: fn({}) {} = {loc};",
-                        def.parameters
+        match cbstate.get_exported_interface() {
+            Ok(mut x) => {
+                // Add structures in an order that allows the structures to be instantiated
+                let mut any_added = true;
+                let mut structs_added: HashSet<String> = HashSet::new();
+
+                fn contains_type(known_types: &HashSet<String>, current: &Type) -> bool {
+                    match current {
+                        Type::Pointer(x) => contains_type(known_types, x.as_ref()),
+                        Type::Struct(x) => known_types.contains(x.get_name()),
+                        Type::Array(_, x) => contains_type(known_types, x.as_ref()),
+                        Type::Const(x) => contains_type(known_types, x.as_ref()),
+                        Type::Function(f) => {
+                            let mut matches_types = true;
+                            if let Some(x) = &f.return_type {
+                                if !contains_type(known_types, &x) {
+                                    matches_types = false;
+                                }
+                            }
+
+                            for p in f.parameters.iter() {
+                                if !contains_type(known_types, &p.dtype) {
+                                    matches_types = false;
+                                    break;
+                                }
+                            }
+
+                            matches_types
+                        }
+                        Type::Opaque(x) => contains_type(known_types, &x.get_type(true).unwrap()),
+                        Type::Primitive(_) => true,
+                    }
+                }
+
+                while any_added {
+                    any_added = false;
+                    'struct_loop: for s in x.structs.iter() {
+                        if structs_added.contains(&s.name) {
+                            continue;
+                        }
+
+                        let mut tmp_added = structs_added.clone();
+                        tmp_added.insert(s.name.clone());
+
+                        for t in s.def.get_fields().values() {
+                            if !contains_type(&tmp_added, &t.dtype) {
+                                continue 'struct_loop;
+                            }
+                        }
+
+                        writeln!(interface_file, "struct {} {{", s.name).unwrap();
+
+                        let mut fields = s
+                            .def
+                            .get_fields()
                             .iter()
-                            .map(|x| x.dtype.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        def.return_type
-                            .map(|x| x.to_string())
-                            .unwrap_or("void".into())
-                    );
+                            .map(|(n, x)| (n, x))
+                            .collect::<Vec<_>>();
+                        fields.sort_by(|(_, a), (_, b)| a.offset.cmp(&b.offset));
+
+                        for (name, field) in fields {
+                            writeln!(interface_file, "    {}: {};", name, field.dtype).unwrap();
+                        }
+
+                        writeln!(interface_file, "}}").unwrap();
+
+                        structs_added.insert(s.name.clone());
+                        any_added = true;
+                    }
+                }
+
+                // Add any matching constants
+                x.consts.sort_by(|a, b| a.name.cmp(&b.name));
+                for c in x.consts {
+                    if args.symbol_matches(&c.name) {
+                        writeln!(
+                            interface_file,
+                            "global {}: {} = {};",
+                            c.name,
+                            c.value.get_value().get_dtype(),
+                            c.value.to_string()
+                        )
+                        .unwrap();
+                    }
+                }
+
+                // Add the output functions
+                x.functions.sort_by(|a, b| a.name.cmp(&b.name));
+                for f in x.functions {
+                    if args.symbol_matches(&f.name) {
+                        writeln!(
+                            interface_file,
+                            "global {}: fn({}) {} = {}u32;",
+                            f.name,
+                            f.def
+                                .parameters
+                                .iter()
+                                .map(|x| x.dtype.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            f.def
+                                .return_type
+                                .map(|x| x.to_string())
+                                .unwrap_or("void".into()),
+                            f.loc,
+                        )
+                        .unwrap();
+                    }
                 }
             }
             Err(e) => {

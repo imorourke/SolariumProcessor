@@ -16,6 +16,7 @@ pub use preprocessor::{
     preprocess_code_std, read_and_preprocess,
 };
 pub use tokenizer::{TokenError, tokenize, tokenize_file, tokenize_str};
+pub use typing::Type;
 
 #[cfg(test)]
 mod test {
