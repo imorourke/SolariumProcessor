@@ -178,7 +178,7 @@ impl VisualJib {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn name() -> &'static str {
-        "V/Jib"
+        "VisualJib"
     }
 
     fn read_cpu_responses(&mut self) {

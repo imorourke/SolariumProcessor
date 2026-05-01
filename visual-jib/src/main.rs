@@ -16,6 +16,11 @@ fn main() -> eframe::Result<()> {
     img.write_to(&mut Cursor::new(&mut icon_bytes), image::ImageFormat::Png)
         .unwrap();
 
+    let app_name = cfg_select! {
+        target_os = "linux" => "visual-jib",
+        _ => "VisualJib",
+    };
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size((1024.0, 600.0))
@@ -24,7 +29,7 @@ fn main() -> eframe::Result<()> {
                 width: img.width(),
                 height: img.height(),
             })
-            .with_app_id("visual-jib"),
+            .with_app_id(app_name),
         ..eframe::NativeOptions::default()
     };
 
