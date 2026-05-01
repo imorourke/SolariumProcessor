@@ -29,6 +29,7 @@ fn main() -> eframe::Result<()> {
                 width: img.width(),
                 height: img.height(),
             })
+            .with_title("VisualJib")
             .with_app_id(app_name),
         ..eframe::NativeOptions::default()
     };
