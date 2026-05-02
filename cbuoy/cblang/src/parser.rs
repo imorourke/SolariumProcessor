@@ -9,11 +9,11 @@ use crate::{
     variables::VariableDefinition,
 };
 
-pub fn parse_str(s: &str, options: CodeGenerationOptions) -> Result<CompilingState, TokenError> {
-    parse(tokenize_str(s)?, options)
+pub fn compile_str(s: &str, options: CodeGenerationOptions) -> Result<CompilingState, TokenError> {
+    compile(tokenize_str(s)?, options)
 }
 
-pub fn parse(
+pub fn compile(
     tokens: Vec<Token>,
     options: CodeGenerationOptions,
 ) -> Result<CompilingState, TokenError> {

@@ -170,7 +170,7 @@ impl JibComputer {
             ..Default::default()
         };
 
-        Ok(cblang::parse(tokens, options)?.get_assembler()?)
+        Ok(cblang::compile(tokens, options)?.get_assembler()?)
     }
 
     pub fn soft_reset(&mut self) -> Result<(), ComputerError> {

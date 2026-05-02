@@ -1,28 +1,36 @@
-use std::{collections::HashSet, io::Write, path::PathBuf};
+/// cbc is the command-line interface for the C/Buoy compiler. This provides a way to
+/// interactively compile arbitary programs and use in various formats
+use std::{io::Write, path::PathBuf};
 
 use cblang::{
-    CodeGenerationOptions, CompilerError, PreprocessorLine, ProgramType, Type, parse,
+    CodeGenerationOptions, CompilerError, PreprocessorLine, ProgramType, Type, compile,
     read_and_preprocess,
 };
 use clap::Parser;
 
+/// Compiler arguments used to control how the compiler functions
 #[derive(Default, Debug, Parser)]
 #[command(version, about)]
 struct CompilerArguments {
+    /// Provides the primary input file to compile
     #[arg()]
     input_file: PathBuf,
+    /// Provides the name of the generated binary file
     #[arg(
         short = 'o',
         long = "output",
         help = "Creates a binary file with the generated machine code"
     )]
     output_binary: Option<PathBuf>,
+    /// If true, will use as a kernel program instead of an application, using the global
+    /// kernel offset
     #[arg(
         short = 'k',
         long = "kernel",
         help = "Enables program generation in kernel mode with the provided start location"
     )]
     kernel_program: bool,
+    /// The starting location to use for a kernel program
     #[arg(
         short = 'K',
         long = "kernel-start-loc",
@@ -30,6 +38,7 @@ struct CompilerArguments {
         help="Initial program location when generating in kernel mode"
     )]
     kernel_start_offset: u32,
+    /// The stack location for a kernel program
     #[arg(
         short = 'S',
         long = "kernel-stack-loc",
@@ -37,6 +46,7 @@ struct CompilerArguments {
         help = "Initial stack location when generating in kernel mode",
     )]
     kernel_stack_loc: u32,
+    /// Determines whether unused functions should be trimmed from the binary
     #[arg(
         short = 't',
         long = "trim",
@@ -44,6 +54,7 @@ struct CompilerArguments {
         help = "Trims unused functions and variables from the generated code"
     )]
     trim_unused: bool,
+    /// Provides the overlal AST to the console
     #[arg(
         short = 'a',
         long = "output-ast",
@@ -51,6 +62,7 @@ struct CompilerArguments {
         help = "Prints the AST to the console"
     )]
     print_ast: bool,
+    /// Adds additional debugging information to the generated assembly code
     #[arg(
         short = 'l',
         long = "locs",
@@ -58,42 +70,35 @@ struct CompilerArguments {
         help = "Includes location/debugging information in output assembly code"
     )]
     include_locations: bool,
+    /// Provides a text file with the raw assembly code generated, pre-assembly
     #[arg(
         short = 'j',
         long = "jib",
         help = "Creates a text file with the generated assembly code"
     )]
     output_assembly: Option<PathBuf>,
-    #[arg(
-        long = "print-asm",
-        default_value_t = false,
-        help = "Prints the generated assembly to the console"
-    )]
-    print_assembly: bool,
+    /// Provides a text file with the generated/preprocessed source code
     #[arg(
         short = 'c',
         long = "output-cbp",
         help = "Creates a text file containing the preprocessed source code"
     )]
     output_preproc: Option<PathBuf>,
-    #[arg(
-        long = "print-cbp",
-        default_value_t = false,
-        help = "Prints the preprocessed output to the console"
-    )]
-    print_preproc: bool,
+    /// Provdes any additional compiler definitions to use when compiling
     #[arg(
         short = 'D',
         long = "define",
         help = "Adds compiler definitions to define from the start of compiling"
     )]
     definitions: Vec<String>,
+    /// Defines any interface prefixes to use
     #[arg(
         short = 'H',
         long = "interface-prefix",
-        help = "Prefixes to include in the generation for a "
+        help = "Prefixes to include in the generation for an interface/map file"
     )]
     interface_prefixes: Vec<String>,
+    /// Provides an output interface/map file to use for constants, structures, and functions
     #[arg(
         short = 'W',
         long = "write-interface",
@@ -103,30 +108,44 @@ struct CompilerArguments {
 }
 
 impl CompilerArguments {
+    /// Returns true if the provdied symbol name matches the provided list
     fn symbol_matches(&self, s: &str) -> bool {
         self.interface_prefixes.is_empty()
             || self.interface_prefixes.iter().any(|x| s.starts_with(x))
     }
+
+    /// Provides the current code generation options
+    fn compiler_options(&self) -> CodeGenerationOptions {
+        CodeGenerationOptions {
+            prog_type: if self.kernel_program {
+                ProgramType::Kernel {
+                    stack_loc: self.kernel_stack_loc,
+                    start_offset: self.kernel_start_offset,
+                }
+            } else {
+                ProgramType::Application
+            },
+            debug_locations: self.include_locations,
+            trim_code: self.trim_unused,
+        }
+    }
 }
 
+/// Main entry function
 fn main() -> std::process::ExitCode {
     let args = CompilerArguments::parse();
 
+    // Construct the preprocessed argument list
     let preprocessed =
         match read_and_preprocess(&args.input_file, args.definitions.clone().into_iter()) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e}");
-                return 1.into();
+                return std::process::ExitCode::FAILURE;
             }
         };
 
-    if args.print_preproc {
-        for l in preprocessed.get_lines() {
-            println!("{}", l.text);
-        }
-    }
-
+    // Write the preprocessed data if provided
     if let Some(file) = &args.output_preproc {
         match std::fs::File::create(file) {
             Ok(mut f) => {
@@ -139,106 +158,55 @@ fn main() -> std::process::ExitCode {
                     "unable to open output file {} - {e}",
                     file.to_str().unwrap_or("?")
                 );
-                return 1.into();
+                return std::process::ExitCode::FAILURE;
             }
         }
     }
 
+    // Tokenize the input preprocessed data
     let input_tokens = {
         match preprocessed.tokenize() {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("{e}");
-                return 1.into();
+                return std::process::ExitCode::FAILURE;
             }
         }
     };
 
-    let cbstate = match parse(
-        input_tokens.clone(),
-        CodeGenerationOptions {
-            prog_type: if args.kernel_program {
-                ProgramType::Kernel {
-                    stack_loc: args.kernel_stack_loc,
-                    start_offset: args.kernel_start_offset,
-                }
-            } else {
-                ProgramType::Application
-            },
-            debug_locations: args.include_locations,
-            trim_code: args.trim_unused,
-        },
-    ) {
+    // Compile the program
+    let cbstate = match compile(input_tokens.clone(), args.compiler_options()) {
         Ok(asm) => asm,
         Err(e) => {
             print_error(preprocessed.get_lines(), &e.into());
-            return 1.into();
+            return std::process::ExitCode::FAILURE;
         }
     };
 
+    // Prints the AST if requested
     if args.print_ast {
         println!("{}", cbstate.get_statements().join("\n"));
     }
 
+    // Define the interface file if requested
     if let Some(interface_path) = &args.write_interface_file {
         let mut interface_file = match std::fs::File::create(interface_path) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("Unable to open interface file - {e}");
-                return 1.into();
+                return std::process::ExitCode::FAILURE;
             }
         };
 
         match cbstate.get_exported_interface() {
             Ok(mut x) => {
-                // Add structures in an order that allows the structures to be instantiated
-                let mut any_added = true;
-                let mut structs_added: HashSet<String> = HashSet::new();
+                // Filter only matching entries
+                x = x.filter(|x| args.symbol_matches(x));
 
-                fn contains_type(known_types: &HashSet<String>, current: &Type) -> bool {
-                    match current {
-                        Type::Pointer(x) => contains_type(known_types, x.as_ref()),
-                        Type::Struct(x) => known_types.contains(x.get_name()),
-                        Type::Array(_, x) => contains_type(known_types, x.as_ref()),
-                        Type::Const(x) => contains_type(known_types, x.as_ref()),
-                        Type::Function(f) => {
-                            let mut matches_types = true;
-                            if let Some(x) = &f.return_type
-                                && !contains_type(known_types, x)
-                            {
-                                matches_types = false;
-                            }
-
-                            for p in f.parameters.iter() {
-                                if !contains_type(known_types, &p.dtype) {
-                                    matches_types = false;
-                                    break;
-                                }
-                            }
-
-                            matches_types
-                        }
-                        Type::Opaque(x) => contains_type(known_types, &x.get_type(true).unwrap()),
-                        Type::Primitive(_) => true,
-                    }
-                }
-
-                while any_added {
-                    any_added = false;
-                    'struct_loop: for s in x.structs.iter() {
-                        if structs_added.contains(&s.name) {
-                            continue;
-                        }
-
-                        let mut tmp_added = structs_added.clone();
-                        tmp_added.insert(s.name.clone());
-
-                        for t in s.def.get_fields().values() {
-                            if !contains_type(&tmp_added, &t.dtype) {
-                                continue 'struct_loop;
-                            }
-                        }
-
+                // Add matching structures
+                if !x.structs.is_empty() {
+                    writeln!(interface_file, "// Structures").unwrap();
+                    for s in x.structs {
                         writeln!(interface_file, "struct {} {{", s.name).unwrap();
 
                         let mut fields = s.def.get_fields().iter().collect::<Vec<_>>();
@@ -249,16 +217,14 @@ fn main() -> std::process::ExitCode {
                         }
 
                         writeln!(interface_file, "}}").unwrap();
-
-                        structs_added.insert(s.name.clone());
-                        any_added = true;
                     }
                 }
 
                 // Add any matching constants
-                x.consts.sort_by(|a, b| a.name.cmp(&b.name));
-                for c in x.consts {
-                    if args.symbol_matches(&c.name) {
+                if !x.consts.is_empty() {
+                    writeln!(interface_file, "// Constants").unwrap();
+                    x.consts.sort_by(|a, b| a.name.cmp(&b.name));
+                    for c in x.consts {
                         writeln!(
                             interface_file,
                             "global {}: {} = {};",
@@ -270,10 +236,27 @@ fn main() -> std::process::ExitCode {
                     }
                 }
 
+                // Add any matching global variables
+                if !x.variables.is_empty() {
+                    writeln!(interface_file, "// Variables").unwrap();
+                    x.variables.sort_by(|a, b| a.name.cmp(&b.name));
+                    for v in x.variables {
+                        writeln!(
+                            interface_file,
+                            "global {}: {} = {}u32;",
+                            v.name,
+                            Type::Pointer(Box::new(v.def)),
+                            v.loc
+                        )
+                        .unwrap();
+                    }
+                }
+
                 // Add the output functions
-                x.functions.sort_by(|a, b| a.name.cmp(&b.name));
-                for f in x.functions {
-                    if args.symbol_matches(&f.name) {
+                if !x.functions.is_empty() {
+                    writeln!(interface_file, "// Functions").unwrap();
+                    x.functions.sort_by(|a, b| a.name.cmp(&b.name));
+                    for f in x.functions {
                         writeln!(
                             interface_file,
                             "global {}: fn({}) {} = {}u32;",
@@ -296,25 +279,21 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 print_error(preprocessed.get_lines(), &e);
-                return 3.into();
+                return std::process::ExitCode::FAILURE;
             }
         }
     }
 
+    // Assemble the compiled program
     let asm = match cbstate.get_assembler() {
         Ok(v) => v,
         Err(e) => {
             print_error(preprocessed.get_lines(), &e);
-            return 1.into();
+            return std::process::ExitCode::FAILURE;
         }
     };
 
-    if args.print_assembly {
-        for l in &asm.assembly_lines {
-            println!("{l}");
-        }
-    }
-
+    // Output the assembly if requested
     if let Some(out) = args.output_assembly {
         match std::fs::File::create(out) {
             Ok(mut f) => {
@@ -329,17 +308,18 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("{e}");
-                return 3.into();
+                return std::process::ExitCode::FAILURE;
             }
         }
     }
 
+    // Output the binary if requested
     if let Some(out) = args.output_binary {
         match std::fs::File::create(out) {
             Ok(mut f) => f.write_all(&asm.bytes).unwrap(),
             Err(e) => {
                 eprintln!("{e}");
-                return 4.into();
+                return std::process::ExitCode::FAILURE;
             }
         }
     }
@@ -347,6 +327,7 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
+/// Helper funciton to print an error with teh associated context
 fn print_error(txt: &[PreprocessorLine], err: &CompilerError) {
     eprintln!("Error: {}", err);
 

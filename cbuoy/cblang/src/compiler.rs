@@ -727,6 +727,7 @@ impl CompilingState {
         ret
     }
 
+    /// Provides a user type
     pub fn get_user_type(&self, name: &Token) -> Result<UserTypeReference, TokenError> {
         Ok(UserTypeReference {
             name: name.clone(),
@@ -734,6 +735,7 @@ impl CompilingState {
         })
     }
 
+    /// Adds a new global variable
     pub fn add_global_var(&mut self, def: VariableDefinition) -> Result<(), TokenError> {
         let var = Rc::new(GlobalVariable::new(
             def.token,
@@ -744,6 +746,7 @@ impl CompilingState {
         self.add_to_global_scope(GlobalType::Variable(var), None)
     }
 
+    /// Adds a type alias for a new type
     pub fn add_type_alias(&mut self, token: Token, alias_type: Type) -> Result<(), TokenError> {
         self.add_to_global_scope(
             GlobalType::UserType(token, UserTypeOptions::ConcreteType(alias_type)),
@@ -753,6 +756,9 @@ impl CompilingState {
         Ok(())
     }
 
+    /// Gets a string literal from the given token. If the literal already exists, re-use the exisitng
+    /// entry. Otherwise, create a new literal. This allows entries to share and reduce the overall
+    /// usage burden
     pub fn get_string_literal(&self, token: &Token) -> Result<Rc<dyn Expression>, TokenError> {
         match self
             .string_literals
@@ -768,10 +774,12 @@ impl CompilingState {
         }
     }
 
+    /// Adds a constant variable to the global scope
     pub fn add_const_var(&mut self, def: VariableDefinition) -> Result<(), TokenError> {
         self.add_to_global_scope(GlobalType::Constant(Rc::new(def.into_literal()?)), None)
     }
 
+    /// Adds a function declaration to the global scope
     pub fn add_function_declaration(
         &mut self,
         func: FunctionDeclaration,
@@ -779,6 +787,7 @@ impl CompilingState {
         self.add_to_global_scope(GlobalType::FunctionDeclaration(func), None)
     }
 
+    /// Adds a function to the global scope
     pub fn add_function(&mut self, func: Rc<dyn FunctionDefinition>) -> Result<(), TokenError> {
         let access_vals = if let Entry::Occupied(e) = self
             .global_scope
@@ -799,10 +808,13 @@ impl CompilingState {
         self.add_to_global_scope(GlobalType::Function(func), access_vals)
     }
 
+    /// Updates the internal user type database for internal consistency
     fn update_user_types(&mut self) {
+        // Take the current user types data and clear
         let mut tv = self.user_types.borrow_mut();
         tv.types.clear();
 
+        // Iterate through the global scope and add new user types as necessary
         for (n, v) in self.global_scope.iter() {
             if let (_, GlobalType::UserType(_, t)) = v {
                 tv.types.insert(n.clone(), t.clone());
@@ -810,20 +822,26 @@ impl CompilingState {
         }
     }
 
+    /// Adds an entry to the global scope if requested
     fn add_to_global_scope(
         &mut self,
         t: GlobalType,
         previous_val: Option<Rc<RefCell<AccessState>>>,
     ) -> Result<(), TokenError> {
+        // Obtain the token and ensure that the name is not used
         let name = get_identifier(t.get_token())?;
 
+        // Check if the name already exists based on the given access state
         let used_val =
             previous_val.unwrap_or_else(|| Rc::new(RefCell::new(AccessState::new(name))));
 
         assert_eq!(name, used_val.borrow().own.as_ref());
 
+        // Get a new Rc for the name
         let name_rc = used_val.borrow().own.clone();
 
+        // Get the resulting statement from the type, add the type to the
+        // global scope, and add the resulting statement to the statement list
         let statement = t.get_statement();
         match self.global_scope.entry(name.to_string()) {
             Entry::Vacant(e) => e.insert((used_val, t)),
@@ -839,11 +857,13 @@ impl CompilingState {
             self.statements.push((name_rc, s));
         }
 
+        // Update user types for any potential new structures
         self.update_user_types();
 
         Ok(())
     }
 
+    /// Gets a function declaration with the given name
     pub fn get_function_declaration(
         &self,
         name: &str,
@@ -855,6 +875,7 @@ impl CompilingState {
         }
     }
 
+    /// Gets a generic global for the given name
     fn get_global(&self, name: &str) -> Result<Option<&GlobalType>, TokenError> {
         if let Some((_, value)) = self.global_scope.get(name) {
             if let Some(current) = self.scope_manager.as_ref() {
@@ -873,6 +894,7 @@ impl CompilingState {
         }
     }
 
+    /// Provides the variable expression associtated with the given token
     pub fn get_variable(&self, name: &Token) -> Result<Rc<dyn Expression>, TokenError> {
         let ident = get_identifier(name)?.to_string();
 
@@ -900,6 +922,7 @@ impl CompilingState {
         }
     }
 
+    /// Provides the global location label for the given name
     pub fn get_global_location_label(&self, name: &str) -> Option<&str> {
         match self.get_global(name).ok().flatten() {
             Some(GlobalType::Variable(v)) => Some(v.access_label()),
@@ -908,6 +931,7 @@ impl CompilingState {
         }
     }
 
+    /// Provides the global constant value for the given name
     pub fn get_global_constant(&self, name: &str) -> Option<Rc<Literal>> {
         match self.get_global(name).ok().flatten() {
             Some(GlobalType::Constant(v)) => Some(v.clone()),
@@ -915,6 +939,7 @@ impl CompilingState {
         }
     }
 
+    /// Provides the current local variable offset for the given name
     pub fn get_local_variable_offset(&self, name: &str) -> Option<usize> {
         self.scope_manager.as_ref().and_then(|sm| {
             sm.get_variable_name(name).and_then(|x| match x {
@@ -924,6 +949,7 @@ impl CompilingState {
         })
     }
 
+    /// Provides a structure definition with the given name
     pub fn get_struct_definition(&self, name: &str) -> Option<Rc<StructDefinition>> {
         for (t, s) in &self.struct_defs {
             if t.get_value() == name {
@@ -934,8 +960,12 @@ impl CompilingState {
         None
     }
 
+    /// Provides the type of the given identifier, if it has a valid type
     pub fn get_identifier_type(&self, name: &str) -> Option<Type> {
+        // Check that the name is an identifier
         if is_identifier(name) {
+            // Return the type if it is a given value in the scope
+            // Otherwise, check for the identifier in the global scope
             if let Some(lv_type) = self.scope_manager.as_ref().and_then(|sm| {
                 sm.get_variable_name(name).and_then(|x| match x {
                     ScopeVariables::Local(x) => x.get_type().ok(),
@@ -958,6 +988,7 @@ impl CompilingState {
             }
         }
 
+        // Read the type if needed from the name, in case the value is a type definition itself
         if let Ok(iter) = tokenize_str(name) {
             let mut tokens = TokenIter::from(&iter);
             Type::read_type(&mut tokens, self).ok()
@@ -966,8 +997,12 @@ impl CompilingState {
         }
     }
 
+    /// Provides statements used in the overall program definition, attempting to reconstruct
+    /// the AST representation of the program
     pub fn get_statements(&self) -> Vec<String> {
         let mut statements = Vec::default();
+
+        // Add any constant statements
         for (n, i) in self.global_scope.iter() {
             if let (used, GlobalType::Constant(c)) = i
                 && self.is_used(&used.borrow().own)
@@ -976,6 +1011,7 @@ impl CompilingState {
             }
         }
 
+        // Add user type statements
         for (_, i) in self.global_scope.iter() {
             if let (used, GlobalType::UserType(_, ut)) = i
                 && self.is_used(&used.borrow().own)
@@ -989,6 +1025,7 @@ impl CompilingState {
             }
         }
 
+        // Add global variable statements
         for (_, i) in self.global_scope.iter() {
             if let (used, GlobalType::Variable(v)) = i
                 && self.is_used(&used.borrow().own)
@@ -997,6 +1034,7 @@ impl CompilingState {
             }
         }
 
+        // Add function statements
         for (_, i) in self.global_scope.iter() {
             if let (used, GlobalType::Function(f)) = i
                 && self.is_used(&used.borrow().own)
@@ -1008,12 +1046,16 @@ impl CompilingState {
         statements
     }
 
+    /// Provides the resulting interface for locations within the compiled program
     pub fn get_exported_interface(&self) -> Result<InterfaceDefinition, CompilerError> {
+        // Construct the interface and assemble the program
         let mut interface = InterfaceDefinition::default();
         let asm = self.get_assembler()?;
 
+        // Iterate over each item in the global scope
         for (name, (_, global)) in self.global_scope.iter() {
             match global {
+                // Extract function labels from the assembled program
                 GlobalType::Function(func) => {
                     if let Some(loc) = asm.labels.get(func.get_entry_label()).cloned() {
                         let def = func.get_func_def();
@@ -1024,54 +1066,116 @@ impl CompilingState {
                         });
                     }
                 }
+                // Add constants to the assembled program
                 GlobalType::Constant(lit) => {
                     interface.consts.push(InterfaceConstant {
                         name: name.clone(),
                         value: lit.as_ref().clone(),
                     });
                 }
+                // Add variables from the assembled program
+                GlobalType::Variable(var) => {
+                    if let Some(loc) = asm.labels.get(var.access_label()).cloned() {
+                        interface.variables.push(InterfaceVariable {
+                            name: name.clone(),
+                            def: var.get_type()?.clone(),
+                            loc,
+                        })
+                    }
+                }
                 _ => continue,
             };
         }
 
-        for (name, opt) in self.user_types.borrow().types.iter() {
-            match opt {
-                UserTypeOptions::ConcreteType(Type::Struct(s)) => {
-                    interface.structs.push(InterfaceStruct {
-                        name: name.clone(),
-                        def: s.as_ref().clone(),
-                    });
-                }
-                _ => continue,
-            }
+        // Add structures to the interface in the order that they are defined
+        for (token, def) in self.struct_defs.iter() {
+            interface.structs.push(InterfaceStruct {
+                name: token.get_value().to_string(),
+                def: def.as_ref().clone(),
+            });
         }
 
         Ok(interface)
     }
 }
 
+/// Interface function definition
 #[derive(Debug, Clone)]
 pub struct InterfaceFunction {
-    pub loc: u32,
+    /// The name of the function
     pub name: String,
+    /// The location for the function
+    pub loc: u32,
+    /// The definition for the funtion
     pub def: Function,
 }
 
+/// Interface constant definition
 #[derive(Debug, Clone)]
 pub struct InterfaceConstant {
+    /// The name of the constant
     pub name: String,
+    /// The type and value for the constant
     pub value: Literal,
 }
 
+/// Interface structure definition
 #[derive(Debug, Clone)]
 pub struct InterfaceStruct {
+    /// The name of the structure type
     pub name: String,
+    /// The actual definition for the structure interface
     pub def: StructDefinition,
 }
 
+/// Interface variable definition
+#[derive(Debug, Clone)]
+pub struct InterfaceVariable {
+    /// The name of the variable
+    pub name: String,
+    /// The variable type (actual, no pointers added)
+    pub def: Type,
+    /// The location of the variable
+    pub loc: u32,
+}
+
+/// Structure to define overall interface information
 #[derive(Default, Debug, Clone)]
 pub struct InterfaceDefinition {
+    /// List of functions to provide as an interface
     pub functions: Vec<InterfaceFunction>,
+    /// List of constants and values to provide as an interface
     pub consts: Vec<InterfaceConstant>,
+    /// List of structures to provide as an interface
     pub structs: Vec<InterfaceStruct>,
+    /// List of global variables to provide as an interface
+    pub variables: Vec<InterfaceVariable>,
+}
+
+impl InterfaceDefinition {
+    /// Filters only the matching functions into a new instance
+    pub fn filter<T: Fn(&str) -> bool>(self, filter_func: T) -> Self {
+        Self {
+            functions: self
+                .functions
+                .into_iter()
+                .filter(|x| filter_func(&x.name))
+                .collect(),
+            consts: self
+                .consts
+                .into_iter()
+                .filter(|x| filter_func(&x.name))
+                .collect(),
+            structs: self
+                .structs
+                .into_iter()
+                .filter(|x| filter_func(&x.name))
+                .collect(),
+            variables: self
+                .variables
+                .into_iter()
+                .filter(|x| filter_func(&x.name))
+                .collect(),
+        }
+    }
 }
