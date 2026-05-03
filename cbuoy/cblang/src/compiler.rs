@@ -7,8 +7,8 @@ use std::{
 };
 
 use jib_asm::{
-    ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpCall,
-    OpCopy, OpHalt, OpLd, OpLdn, OpLdno, OpRet, assemble_tokens,
+    ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpBrk,
+    OpCall, OpCopy, OpHalt, OpLd, OpLdn, OpLdno, OpRet, assemble_tokens,
 };
 use jib_cpu::cpu::{DataType, Register};
 
@@ -566,6 +566,10 @@ impl CompilingState {
                     .into_iter()
                     .map(Self::blank_token_loc),
             );
+        } else {
+            asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
+                OpCopy::new(Register::LoadOffset.into(), Register::ProgramCounter.into()),
+            ))))
         }
 
         for (u, s) in self.statements.iter() {
