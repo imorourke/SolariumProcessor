@@ -8,7 +8,7 @@ use std::{
 
 use jib_asm::{
     ArgumentType, AsmToken, AsmTokenLoc, AssemblerErrorLoc, AssemblerOutput, LocationInfo, OpCall,
-    OpCopy, OpHalt, OpLdn, OpLdno, OpRet, assemble_tokens,
+    OpCopy, OpHalt, OpLd, OpLdn, OpLdno, OpRet, assemble_tokens,
 };
 use jib_cpu::cpu::{DataType, Register};
 
@@ -576,7 +576,10 @@ impl CompilingState {
 
         if let Some(GlobalType::Function(f)) = self.get_global(Self::MAIN_FUNC_NAME)? {
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
-                OpCopy::new(Register::ArgumentBase.into(), Register::StackPointer.into()),
+                OpLd::new(
+                    ArgumentType::new(Register::ArgumentBase, DataType::U32),
+                    Register::StackPointer.into(),
+                ),
             ))));
             asm.extend(
                 self.options

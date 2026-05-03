@@ -254,12 +254,16 @@ fn k_shell_fn_exec(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
                         read_size = DATA_SIZE;
                     }
 
+                    // Create the application stack
+                    def app_stack: *u8 = k_malloc(1024);
+
                     // Define the calling function and enter the location
-                    def app_func: fn() i32 = init_loc;
-                    app_func();
+                    def app_func: fn(*u8) i32 = init_loc;
+                    app_func(app_stack);
 
                     // Free the application memory
                     k_free(app_loc);
+                    k_free(app_stack);
                 }
 
                 return 0;
