@@ -865,45 +865,54 @@ impl Processor {
                     Self::OP_LOAD => self.registers.get(inst.arg1_register())?,
                     Self::OP_LOAD_REL => self.registers.get(inst.arg1_register())? + pc,
                     Self::OP_LOAD_IMM_REL => (pc as i32 + inst.imm_signed()) as u32,
-                    Self::OP_LOAD_NEXT => {
+                    Self::OP_LOAD_NEXT | Self::OP_LOAD_NEXT_OFFSET => {
                         inst_jump = Some(2);
                         pc + 4
-                    }
-                    Self::OP_LOAD_NEXT_OFFSET => {
-                        inst_jump = Some(2);
-                        pc + 4 + self.registers.get(Register::LoadOffset)?
                     }
                     _ => return Err(ProcessorError::UnknownInstruction(inst)),
                 };
                 let reg_target = inst.arg0_register();
 
-                if dt.integral() {
-                    if dt.signed() {
-                        match dt.byte_size() {
-                            1 => self
-                                .registers
-                                .set(reg_target, (self.memory.get(addr)? as i8 as i32) as u32)?,
-                            2 => self.registers.set(
-                                reg_target,
-                                (self.memory.get_u16(addr)? as i16 as i32) as u32,
-                            )?,
-                            4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
-                            _ => return Err(ProcessorError::UnknownInstruction(inst)),
-                        }
+                if opcode == Self::OP_LOAD_NEXT_OFFSET {
+                    if !dt.integral() || dt.signed() || dt.byte_size() != 4 {
+                        return Err(ProcessorError::UnsupportedDataType(inst, dt));
                     } else {
-                        match dt.byte_size() {
-                            1 => self
-                                .registers
-                                .set(reg_target, self.memory.get(addr)? as u32)?,
-                            2 => self
-                                .registers
-                                .set(reg_target, self.memory.get_u16(addr)? as u32)?,
-                            4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
-                            _ => return Err(ProcessorError::UnknownInstruction(inst)),
-                        }
+                        self.registers.set(
+                            reg_target,
+                            self.memory.get_u32(addr)?
+                                + self.registers.get(Register::LoadOffset)?,
+                        )?;
                     }
                 } else {
-                    return Err(ProcessorError::UnsupportedDataType(inst, dt));
+                    if dt.integral() {
+                        if dt.signed() {
+                            match dt.byte_size() {
+                                1 => self.registers.set(
+                                    reg_target,
+                                    (self.memory.get(addr)? as i8 as i32) as u32,
+                                )?,
+                                2 => self.registers.set(
+                                    reg_target,
+                                    (self.memory.get_u16(addr)? as i16 as i32) as u32,
+                                )?,
+                                4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
+                                _ => return Err(ProcessorError::UnknownInstruction(inst)),
+                            }
+                        } else {
+                            match dt.byte_size() {
+                                1 => self
+                                    .registers
+                                    .set(reg_target, self.memory.get(addr)? as u32)?,
+                                2 => self
+                                    .registers
+                                    .set(reg_target, self.memory.get_u16(addr)? as u32)?,
+                                4 => self.registers.set(reg_target, self.memory.get_u32(addr)?)?,
+                                _ => return Err(ProcessorError::UnknownInstruction(inst)),
+                            }
+                        }
+                    } else {
+                        return Err(ProcessorError::UnsupportedDataType(inst, dt));
+                    }
                 }
             }
             Self::OP_SAVE | Self::OP_SAVE_REL => {

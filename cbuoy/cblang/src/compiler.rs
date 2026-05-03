@@ -569,7 +569,7 @@ impl CompilingState {
         } else {
             asm.push(Self::blank_token_loc(AsmToken::OperationLiteral(Box::new(
                 OpCopy::new(Register::LoadOffset.into(), Register::ProgramCounter.into()),
-            ))))
+            ))));
         }
 
         for (u, s) in self.statements.iter() {
