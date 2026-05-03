@@ -235,7 +235,7 @@ impl CpuState {
         }
 
         // Check for serial output
-        let char_vec = self.computer.get_serial_output()?;
+        let char_vec = self.computer.get_serial_output_unknown();
         if !char_vec.is_empty() {
             self.tx
                 .send(ThreadToUi::SerialOutput(
