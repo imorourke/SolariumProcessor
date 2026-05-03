@@ -249,7 +249,7 @@ impl PreprocessorState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FilesystemError {
     FileNotFound(PathBuf),
     UnableToLoadFile(PathBuf, String),
@@ -433,11 +433,19 @@ pub fn preprocess_code_as_file<I: Iterator<Item = String>>(
     file_path: &Path,
     defs: I,
 ) -> Result<PreprocessorOutput, PreprocessorError> {
-    let mut state = PreprocessorState::new(Box::new(VirtualFilesystem::new(text, file_path)));
+    preprocess_code_with_fs(file_path, VirtualFilesystem::new(text, file_path), defs)
+}
+
+pub fn preprocess_code_with_fs<I: Iterator<Item = String>>(
+    file: &Path,
+    fs: VirtualFilesystem,
+    defs: I,
+) -> Result<PreprocessorOutput, PreprocessorError> {
+    let mut state = PreprocessorState::new(Box::new(fs));
     for d in defs.into_iter() {
         state.definitions.insert(d);
     }
-    state.read_file(file_path)
+    state.read_file(file)
 }
 
 pub fn read_and_preprocess<I: Iterator<Item = String>>(

@@ -3,7 +3,7 @@
 use std::{io::Write, path::PathBuf};
 
 use cblang::{
-    CodeGenerationOptions, CompilerError, PreprocessorLine, ProgramType, Type, compile,
+    CodeGenerationOptions, CompilerError, PreprocessorLine, ProgramType, compile,
     read_and_preprocess,
 };
 use clap::Parser;
@@ -203,79 +203,8 @@ fn main() -> std::process::ExitCode {
                 // Filter only matching entries
                 x = x.filter(|x| args.symbol_matches(x));
 
-                // Add matching structures
-                if !x.structs.is_empty() {
-                    writeln!(interface_file, "// Structures").unwrap();
-                    for s in x.structs {
-                        writeln!(interface_file, "struct {} {{", s.name).unwrap();
-
-                        let mut fields = s.def.get_fields().iter().collect::<Vec<_>>();
-                        fields.sort_by_key(|(_, x)| x.offset);
-
-                        for (name, field) in fields {
-                            writeln!(interface_file, "    {}: {};", name, field.dtype).unwrap();
-                        }
-
-                        writeln!(interface_file, "}}").unwrap();
-                    }
-                }
-
-                // Add any matching constants
-                if !x.consts.is_empty() {
-                    writeln!(interface_file, "// Constants").unwrap();
-                    x.consts.sort_by(|a, b| a.name.cmp(&b.name));
-                    for c in x.consts {
-                        writeln!(
-                            interface_file,
-                            "global {}: {} = {};",
-                            c.name,
-                            c.value.get_value().get_dtype(),
-                            c.value
-                        )
-                        .unwrap();
-                    }
-                }
-
-                // Add any matching global variables
-                if !x.variables.is_empty() {
-                    writeln!(interface_file, "// Variables").unwrap();
-                    x.variables.sort_by(|a, b| a.name.cmp(&b.name));
-                    for v in x.variables {
-                        writeln!(
-                            interface_file,
-                            "global {}: {} = {}u32;",
-                            v.name,
-                            Type::Pointer(Box::new(v.def)),
-                            v.loc
-                        )
-                        .unwrap();
-                    }
-                }
-
-                // Add the output functions
-                if !x.functions.is_empty() {
-                    writeln!(interface_file, "// Functions").unwrap();
-                    x.functions.sort_by(|a, b| a.name.cmp(&b.name));
-                    for f in x.functions {
-                        writeln!(
-                            interface_file,
-                            "global {}: fn({}) {} = {}u32;",
-                            f.name,
-                            f.def
-                                .parameters
-                                .iter()
-                                .map(|x| x.dtype.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            f.def
-                                .return_type
-                                .map(|x| x.to_string())
-                                .unwrap_or("void".into()),
-                            f.loc,
-                        )
-                        .unwrap();
-                    }
-                }
+                // Write to the output file
+                x.write_interface(&mut interface_file).unwrap();
             }
             Err(e) => {
                 print_error(preprocessed.get_lines(), &e);

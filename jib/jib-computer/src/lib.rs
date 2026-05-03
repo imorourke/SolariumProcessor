@@ -1,5 +1,8 @@
 use cbfs_lib::{EntryType, FileSystem, FileSystemError, VolumeHeader};
-use cblang::{CodeGenerationOptions, CompilerError, PreprocessorError, ProgramType, TokenError};
+use cblang::{
+    CodeGenerationOptions, CompilerError, CompilingState, PreprocessorError, ProgramType,
+    TokenError, VirtualFilesystem,
+};
 use circ_buff::CircularBuffer;
 use core::{cell::RefCell, fmt::Display};
 use jib_asm::{AssemblerError, AssemblerErrorLoc, AssemblerOutput};
@@ -60,8 +63,29 @@ impl JibComputer {
 
     fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_data =
-            Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?.bytes;
+        let kernel_compiled = Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?;
+        let kernel_data = kernel_compiled.get_assembler()?.bytes;
+
+        // Obtain the default interface value
+        let mut interface_data = Vec::new();
+        {
+            const KNOWN_PREFIXES: &[&str] = &["k_", "K_", "std_", "irq_", "mem_"];
+
+            let mut writer = std::io::BufWriter::new(&mut interface_data);
+            kernel_compiled
+                .get_exported_interface()?
+                .filter(|name| KNOWN_PREFIXES.iter().any(|prefix| name.starts_with(prefix)))
+                .write_interface(&mut writer)?;
+        }
+
+        let interface_str = match String::from_utf8(interface_data) {
+            Ok(x) => x,
+            Err(_) => return Err(ComputerError::Utf8Error),
+        };
+
+        // Compile an example program
+        let app_data =
+            Self::compile_app_code(include_str!("../../../cbos/app.cb"), &interface_str)?;
 
         let mut fs = FileSystem::new("root", 256, 4096)?;
         fs.create_entry(
@@ -69,6 +93,12 @@ impl JibComputer {
             "hello.txt",
             EntryType::File,
             b"Hello, world!",
+        )?;
+        fs.create_entry(
+            fs.root_sector(),
+            "app.exe",
+            EntryType::File,
+            &app_data.get_assembler()?.bytes,
         )?;
         fs.create_entry(
             fs.root_sector(),
@@ -152,14 +182,36 @@ impl JibComputer {
         Ok(true)
     }
 
+    pub fn compile_app_code(
+        code: &str,
+        os_interface: &str,
+    ) -> Result<CompilingState, ComputerError> {
+        let mut fs = VirtualFilesystem::default();
+        fs.add_file(Path::new("main.cb"), code)?;
+        fs.add_file(Path::new("cbos_defs.cb"), os_interface)?;
+
+        let preprocessed =
+            cblang::preprocess_code_with_fs(Path::new("main.cb"), fs, [].into_iter())?;
+
+        let tokens = preprocessed.tokenize()?;
+
+        let options = CodeGenerationOptions {
+            prog_type: ProgramType::Application,
+            trim_code: true,
+            ..Default::default()
+        };
+
+        Ok(cblang::compile(tokens, options)?)
+    }
+
     pub fn compile_kernel_code(
         code: &str,
         start_offset: Option<u32>,
-    ) -> Result<AssemblerOutput, ComputerError> {
+    ) -> Result<CompilingState, ComputerError> {
         let preprocessed =
             cblang::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
 
-        let tokens = preprocessed.tokenize().unwrap();
+        let tokens = preprocessed.tokenize()?;
 
         let options = CodeGenerationOptions {
             prog_type: ProgramType::Kernel {
@@ -170,7 +222,7 @@ impl JibComputer {
             ..Default::default()
         };
 
-        Ok(cblang::compile(tokens, options)?.get_assembler()?)
+        Ok(cblang::compile(tokens, options)?)
     }
 
     pub fn soft_reset(&mut self) -> Result<(), ComputerError> {
@@ -258,6 +310,7 @@ impl JibComputer {
             include_str!("../../../cbos/bootloader.cb"),
             Some(Self::BOOTLOADER_START),
         )?
+        .get_assembler()?
         .bytes
         .iter()
         .enumerate()
@@ -372,6 +425,9 @@ pub enum ComputerError {
     TokenError(TokenError),
     PreprocessorError(PreprocessorError),
     CharacterError(CharacterError),
+    FilesystemError(cblang::FilesystemError),
+    Utf8Error,
+    IoError,
 }
 
 impl Display for ComputerError {
@@ -384,6 +440,9 @@ impl Display for ComputerError {
             Self::TokenError(e) => write!(f, "token => {e}"),
             Self::ProcessorError(e) => write!(f, "processor => {e}"),
             Self::CharacterError(e) => write!(f, "character => {e}"),
+            Self::FilesystemError(e) => write!(f, "filesystem => {e}"),
+            Self::Utf8Error => write!(f, "utf8 error"),
+            Self::IoError => write!(f, "io error"),
         }
     }
 }
@@ -439,13 +498,28 @@ impl From<CharacterError> for ComputerError {
     }
 }
 
+impl From<cblang::FilesystemError> for ComputerError {
+    fn from(value: cblang::FilesystemError) -> Self {
+        Self::FilesystemError(value)
+    }
+}
+
+impl From<std::io::Error> for ComputerError {
+    fn from(_: std::io::Error) -> Self {
+        Self::IoError
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::JibComputer;
     use jib_cpu::cpu::Processor;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let asm = JibComputer::compile_kernel_code(in_code, None).unwrap();
+        let asm = JibComputer::compile_kernel_code(in_code, None)
+            .unwrap()
+            .get_assembler()
+            .unwrap();
 
         let mut cpu = JibComputer::new().unwrap();
         cpu.set_code(asm).unwrap();

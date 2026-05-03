@@ -260,8 +260,10 @@ pub fn cpu_thread(rx: Receiver<UiToThread>, tx: Sender<ThreadToUi>) {
     };
 
     while state.run_thread {
-        if state.process_messages().is_err() {
-            break;
+        if let Err(e) = state.process_messages() {
+            tx.send(ThreadToUi::LogMessage(format!("Error: {e}")))
+                .unwrap();
+            state.computer.set_running_request(false);
         }
 
         if state.computer.get_running() {

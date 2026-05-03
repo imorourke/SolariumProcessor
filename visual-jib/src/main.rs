@@ -16,9 +16,10 @@ fn main() -> eframe::Result<()> {
     img.write_to(&mut Cursor::new(&mut icon_bytes), image::ImageFormat::Png)
         .unwrap();
 
-    let app_name = cfg_select! {
-        target_os = "linux" => "visual-jib",
-        _ => "VisualJib",
+    let app_name = if cfg!(target_os = "linux") {
+        "visual-jib"
+    } else {
+        "VisualJib"
     };
 
     let native_options = eframe::NativeOptions {

@@ -216,6 +216,75 @@ fn k_shell_fn_cat(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     }
 }
 
+fn k_shell_fn_exec(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
+    if ((state : u32 == 0) || (state->disk : u32 == 0) || (state->cwd == 0)) {
+        return -1;
+    }
+
+    if (argc == 2) {
+        def out_entry: k_fs_directory_entry_t;
+        if (k_fs_get_dir_entry_by_name(state->disk, state->cwd, argv[1], &out_entry) == 0) {
+            if (out_entry.entry_type == K_FS_ENTRY_TYPE_FILE) {
+                def read_state: k_fs_io_state_t;
+                if (k_fs_read_state_init(state->disk, out_entry.base_block, 0, 0, &read_state) >= 0) {
+                    const DATA_SIZE: u32 = 128;
+                    def run_data: [DATA_SIZE]u8;
+                    def read_size: u32 = DATA_SIZE;
+
+                    // Add 3 for alignment
+                    def app_loc: *u8 = k_malloc(read_state.target_size + 3);
+                    if (app_loc == 0) {
+                        k_io_print("unable to allocate application memory\n");
+                        return -4;
+                    }
+
+                    // Ensure that the location is aligned
+                    def copy_loc: *u8 = app_loc;
+                    while ((copy_loc : u32) % 4 != 0) {
+                        copy_loc = copy_loc + 1;
+                    }
+                    def init_loc: *u8 = copy_loc;
+
+                    // Copy code into location
+                    while (k_fs_read_state_next_section(&read_state, &run_data, &read_size) > 0) {
+                        // Copy memory in
+                        k_memcpy(copy_loc, &run_data[0], read_size);
+                        copy_loc = copy_loc + read_size;
+
+                        read_size = DATA_SIZE;
+                    }
+
+                    // Define the calling function and enter the location
+                    def app_func: fn() i32 = init_loc;
+                    app_func();
+
+                    // Free the application memory
+                    k_free(app_loc);
+                }
+
+                return 0;
+            } else {
+                k_io_print("entry '");
+                k_io_print(argv[1]);
+                k_io_print("' is not a file entry\n");
+                return -2;
+            }
+        } else {
+            k_io_print("unable to find entry with name '");
+            k_io_print(argv[1]);
+            k_io_print("'\n");
+            return -3;
+        }
+    } else {
+        k_io_print("unexpected number of entries for ");
+        k_io_print(argv[0]);
+        k_io_print("\n");
+        k_io_print_uint(argc);
+        k_io_print("\n");
+        return -1;
+    }
+}
+
 fn k_shell_fn_pwd(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     if (state == 0) {
         return -1;
@@ -503,6 +572,8 @@ fn k_shell_run_cmd(state: *k_shell_state_t, argv: **u8, argc: i32) i32 {
             sh_fn = k_shell_fn_dbg;
         } else if (strcmp(cmd, "run") == 0) {
             sh_fn = k_shell_fn_run;
+        } else if (strcmp(cmd, "exec") == 0) {
+            sh_fn = k_shell_fn_exec;
         }
 
         if (sh_fn != 0) {

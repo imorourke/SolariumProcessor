@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fmt::{Debug, Display},
+    io::Write,
     rc::Rc,
 };
 
@@ -1087,6 +1088,11 @@ impl CompilingState {
             };
         }
 
+        // Sort the resulting constants for consistent ordering (TODO - Add like the structures for definition ordering?)
+        interface.consts.sort_by(|a, b| a.name.cmp(&b.name));
+        interface.functions.sort_by(|a, b| a.name.cmp(&b.name));
+        interface.variables.sort_by(|a, b| a.name.cmp(&b.name));
+
         // Add structures to the interface in the order that they are defined
         for (token, def) in self.struct_defs.iter() {
             interface.structs.push(InterfaceStruct {
@@ -1094,6 +1100,8 @@ impl CompilingState {
                 def: def.as_ref().clone(),
             });
         }
+
+        // Sort the results
 
         Ok(interface)
     }
@@ -1177,5 +1185,79 @@ impl InterfaceDefinition {
                 .filter(|x| filter_func(&x.name))
                 .collect(),
         }
+    }
+
+    /// Provides the resulting interface text for
+    pub fn write_interface<T: Write>(&self, f: &mut T) -> Result<(), std::io::Error> {
+        // Add matching structures
+        if !self.structs.is_empty() {
+            writeln!(f, "// Structures")?;
+            for i in &self.structs {
+                writeln!(f, "struct {} {{", i.name)?;
+
+                let mut fields = i.def.get_fields().iter().collect::<Vec<_>>();
+                fields.sort_by_key(|(_, x)| x.offset);
+
+                for (name, field) in fields {
+                    writeln!(f, "    {}: {};", name, field.dtype)?;
+                }
+
+                writeln!(f, "}}")?;
+            }
+        }
+
+        // Add any matching constants
+        if !self.consts.is_empty() {
+            writeln!(f, "// Constants")?;
+            for c in &self.consts {
+                writeln!(
+                    f,
+                    "global {}: {} = {};",
+                    c.name,
+                    c.value.get_value().get_dtype(),
+                    c.value
+                )?;
+            }
+        }
+
+        // Add any matching global variables
+        if !self.variables.is_empty() {
+            writeln!(f, "// Variables")?;
+            for i in &self.variables {
+                writeln!(
+                    f,
+                    "global {}: {} = {}u32;",
+                    i.name,
+                    Type::Pointer(Box::new(i.def.clone())),
+                    i.loc
+                )?;
+            }
+        }
+
+        // Add the output functions
+        if !self.functions.is_empty() {
+            writeln!(f, "// Functions").unwrap();
+            for i in &self.functions {
+                writeln!(
+                    f,
+                    "global {}: fn({}) {} = {}u32;",
+                    i.name,
+                    i.def
+                        .parameters
+                        .iter()
+                        .map(|x| x.dtype.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    i.def
+                        .return_type
+                        .as_ref()
+                        .map(|x| x.to_string())
+                        .unwrap_or("void".into()),
+                    i.loc,
+                )?;
+            }
+        }
+
+        Ok(())
     }
 }

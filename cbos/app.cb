@@ -1,0 +1,6 @@
+#include cbos_defs.cb
+
+fn main() i32 {
+    k_io_print("Hello, world!\n");
+    return 0;
+}
