@@ -65,6 +65,7 @@ fn k_shell_fn_help(state: *k_shell_state_t, argv: **u8, argc: u32) i32 {
     k_io_print("  pwd           -> prints the current directory\n");
     k_io_print("  ls            -> lists entries in the current directory\n");
     k_io_print("  cat [file]    -> pipes the contents of the file into serial output\n");
+    k_io_print("  exec [file]   -> executes the application binary provided by the file\n");
     k_io_print("  run [file]    -> runs each line of the provided file as if it were\n");
     k_io_print("                   typed into the console as a script\n");
     k_io_print("  cd [file]     -> changes directory to the provided folder\n");
