@@ -107,7 +107,7 @@ impl CompilerArguments {
             prog_type: if self.kernel_program {
                 ProgramType::Kernel {
                     stack_loc_init: Some(self.kernel_stack_loc),
-                    start_offset: self.kernel_start_offset,
+                    base_location: self.kernel_start_offset,
                 }
             } else {
                 ProgramType::Application

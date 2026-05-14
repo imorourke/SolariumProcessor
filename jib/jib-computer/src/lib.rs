@@ -63,7 +63,8 @@ impl JibComputer {
 
     fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         // Compile OS into a file
-        let kernel_compiled = Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None)?;
+        let kernel_compiled =
+            Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None, false)?;
         let kernel_data = kernel_compiled.get_assembler()?.bytes;
 
         // Obtain the default interface value
@@ -207,6 +208,7 @@ impl JibComputer {
     pub fn compile_kernel_code(
         code: &str,
         start_offset: Option<u32>,
+        trim_code: bool,
     ) -> Result<CompilingState, ComputerError> {
         let preprocessed =
             cblang::preprocess_code_as_file(code, Path::new("input.cb"), [].into_iter())?;
@@ -216,9 +218,9 @@ impl JibComputer {
         let options = CodeGenerationOptions {
             prog_type: ProgramType::Kernel {
                 stack_loc_init: Some(ProgramType::DEFAULT_STACK_LOC),
-                start_offset: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
+                base_location: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
             },
-            trim_code: true,
+            trim_code,
             ..Default::default()
         };
 
@@ -309,6 +311,7 @@ impl JibComputer {
         for (i, x) in Self::compile_kernel_code(
             include_str!("../../../cbos/bootloader.cb"),
             Some(Self::BOOTLOADER_START),
+            true,
         )?
         .get_assembler()?
         .bytes
@@ -516,7 +519,7 @@ mod test {
     use jib_cpu::cpu::Processor;
 
     fn run_cpu_serial_out_test(in_code: &str, expected_out: &str) {
-        let asm = JibComputer::compile_kernel_code(in_code, None)
+        let asm = JibComputer::compile_kernel_code(in_code, None, true)
             .unwrap()
             .get_assembler()
             .unwrap();

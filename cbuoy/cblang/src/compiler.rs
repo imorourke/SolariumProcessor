@@ -345,9 +345,12 @@ impl PartialEq for UserTypeReference {
 #[derive(Debug, Clone)]
 pub enum ProgramType {
     Application,
+    Library {
+        base_location: u32,
+    },
     Kernel {
+        base_location: u32,
         stack_loc_init: Option<u32>,
-        start_offset: u32,
     },
 }
 
@@ -360,7 +363,7 @@ impl Default for ProgramType {
     fn default() -> Self {
         Self::Kernel {
             stack_loc_init: Some(Self::DEFAULT_STACK_LOC),
-            start_offset: Self::DEFAULT_START_OFFSET,
+            base_location: Self::DEFAULT_START_OFFSET,
         }
     }
 }
@@ -519,14 +522,14 @@ impl CompilingState {
 
         let init_label = "program_init".to_string();
 
-        let mut asm = if let ProgramType::Kernel {
-            stack_loc_init: _,
-            start_offset,
-        } = &self.options.prog_type
-        {
-            vec![Self::blank_token_loc(AsmToken::ChangeAddress(
-                *start_offset,
-            ))]
+        let base_loc = match &self.options.prog_type {
+            ProgramType::Kernel { base_location, .. } => *base_location,
+            ProgramType::Library { base_location } => *base_location,
+            _ => 0,
+        };
+
+        let mut asm = if base_loc != 0 {
+            vec![Self::blank_token_loc(AsmToken::ChangeAddress(base_loc))]
         } else {
             Vec::new()
         };
@@ -601,7 +604,10 @@ impl CompilingState {
             ))));
         }
 
-        if matches!(self.options.prog_type, ProgramType::Application) {
+        if matches!(
+            self.options.prog_type,
+            ProgramType::Application | ProgramType::Library { .. }
+        ) {
             asm.extend(
                 [
                     AsmToken::Comment("Program End".into()),
