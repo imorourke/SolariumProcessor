@@ -649,6 +649,8 @@ Compiling can take place in one of two modes. The first is in a kernel mode, in 
 
 Programs compiled in kernel mode should be loaded into memory at the specific location, as items are referred to by specific memory addresses and not by a relative address. This allows for the best performance at runtime and is helpful for the initial stack location of the lowest-level of software. It also makes it easy to provide a "base" program, which will use a distinct and defined stack, and is useful for the lowest-level of software running on the processor.
 
+When compiling in kernel mode, functions, types, constants, and globals may be exported as a sort of header file that can be used in application-mode applications. Any supported type that does not start with an underscore will be exported and made available for use in the generated header file. This allows for sharing of common library functions between different applications more easily.
+
 \subsubsection{Application Mode}
 
 Programs compiled in application mode require additional information while loading, as they are position-independent. A program compiled in application mode must have the program base address provided in the \texttt{Load Offset} register (Section \ref{sec:registers}), as address references are made relative to that location. This allows a kernel to load multiple applications in different positions at runtime, allowing for more complicated program interactions, such as simultaneous application running/threading, by the base operating system, transparent to the running application.
