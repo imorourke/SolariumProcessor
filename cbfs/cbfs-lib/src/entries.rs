@@ -10,37 +10,6 @@ use crate::{FileSystemError, datetime::DateTime, names::array_to_string, string_
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
-pub struct DirectoryEntry {
-    pub base_block: U16,
-    pub attributes: u8,
-    pub entry_type: u8,
-    pub name: [u8; Self::DIRECTORY_NAME_SIZE],
-}
-
-impl DirectoryEntry {
-    pub const DIRECTORY_NAME_SIZE: usize = 60;
-
-    pub fn get_entry_type(&self) -> EntryType {
-        EntryType::from(self.entry_type)
-    }
-
-    pub fn get_name(&self) -> String {
-        array_to_string(&self.name)
-    }
-
-    pub fn get_name_raw(&self) -> [u8; Self::DIRECTORY_NAME_SIZE] {
-        self.name
-    }
-
-    pub fn set_name(&mut self, s: &str) -> Result<(), FileSystemError> {
-        self.name = string_to_array(s)?;
-        Ok(())
-    }
-}
-
-#[repr(C)]
-#[repr(packed)]
-#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct EntryHeader {
     pub entry_type: u8,
     pub reserved: u8,
@@ -107,5 +76,36 @@ impl From<u8> for EntryType {
 impl From<EntryType> for u8 {
     fn from(value: EntryType) -> Self {
         value as u8
+    }
+}
+
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct DirectoryEntry {
+    pub base_block: U16,
+    pub attributes: u8,
+    pub entry_type: u8,
+    pub name: [u8; Self::DIRECTORY_NAME_SIZE],
+}
+
+impl DirectoryEntry {
+    pub const DIRECTORY_NAME_SIZE: usize = 60;
+
+    pub fn get_entry_type(&self) -> EntryType {
+        EntryType::from(self.entry_type)
+    }
+
+    pub fn get_name(&self) -> String {
+        array_to_string(&self.name)
+    }
+
+    pub fn get_name_raw(&self) -> [u8; Self::DIRECTORY_NAME_SIZE] {
+        self.name
+    }
+
+    pub fn set_name(&mut self, s: &str) -> Result<(), FileSystemError> {
+        self.name = string_to_array(s)?;
+        Ok(())
     }
 }
