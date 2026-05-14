@@ -46,4 +46,33 @@ fn strcmp(s1: *u8, s2: *u8) i32 {
     return ((*s1) : i32) - ((*s2) : i32);
 }
 
+fn str2unum(s: *u8) u32 {
+    if (s == 0) {
+        return 0;
+    }
+
+    def n: u32 = 0;
+    while (*s != 0) {
+        def c: u8 = *s;
+        if (c >= '0' && c <= '9') {
+            n = n * 10 + (c - '0');
+        } else {
+            return 0;
+        }
+
+        s = s + 1;
+    }
+}
+
+fn str2num(s: *u8) i32 {
+    if (s == 0) {
+        return 0;
+    } else if (*s == '-') {
+        return -str2unum(&s[1]);
+    } else {
+        return str2unum(s);
+    }
+}
+
+
 #endif // STD_STRING
