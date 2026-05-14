@@ -42,7 +42,7 @@ global stack_a: [1024]u8;
 global stack_b: [1024]u8;
 global stack_c: [1024]u8;
 
-fn main() void {
+fn _main() void {
     k_device_init(0);
     k_io_init();
 

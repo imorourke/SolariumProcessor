@@ -83,7 +83,7 @@ fn factorial(a: u32) u32 {
     }
 }
 
-fn main() void {
+fn _main() void {
     k_io_print(TEST_STR);
     k_io_print("\n");
     k_io_print_uint(strlenasm(TEST_STR));

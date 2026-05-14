@@ -34,7 +34,7 @@ fn print_uint(v: u32) void {
     }
 }
 
-fn main() void {
+fn _main() void {
     print_uint(1234);
     print("\n");
     print(TEST_STR);

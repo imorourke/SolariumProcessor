@@ -2,7 +2,7 @@ global input_array: [8]u8;
 global output_test: u8 = 0;
 global output_ptr: *u8;
 
-fn main() void {
+fn _main() void {
     input_array[0] = 3;
     input_array[1] = 85;
     input_array[2] = 143;

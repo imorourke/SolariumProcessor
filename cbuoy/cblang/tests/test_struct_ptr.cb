@@ -84,7 +84,7 @@ fn factorial(a: u32) u32 {
     }
 }
 
-fn main() void {
+fn _main() void {
     k_device_init(0);
     k_io_init();
 

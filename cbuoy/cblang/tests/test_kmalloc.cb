@@ -4,7 +4,7 @@
 #include <kernel/kmalloc_dbg.cb>
 #include <kernel/kserialio.cb>
 
-fn main() void {
+fn _main() void {
     k_device_init(0);
     k_io_init();
 
