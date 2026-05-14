@@ -106,7 +106,7 @@ impl CompilerArguments {
         CodeGenerationOptions {
             prog_type: if self.kernel_program {
                 ProgramType::Kernel {
-                    stack_loc: self.kernel_stack_loc,
+                    stack_loc_init: Some(self.kernel_stack_loc),
                     start_offset: self.kernel_start_offset,
                 }
             } else {

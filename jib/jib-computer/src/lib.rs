@@ -215,7 +215,7 @@ impl JibComputer {
 
         let options = CodeGenerationOptions {
             prog_type: ProgramType::Kernel {
-                stack_loc: ProgramType::DEFAULT_STACK_LOC,
+                stack_loc_init: Some(ProgramType::DEFAULT_STACK_LOC),
                 start_offset: start_offset.unwrap_or(ProgramType::DEFAULT_START_OFFSET),
             },
             trim_code: true,

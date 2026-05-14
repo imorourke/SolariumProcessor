@@ -345,7 +345,10 @@ impl PartialEq for UserTypeReference {
 #[derive(Debug, Clone)]
 pub enum ProgramType {
     Application,
-    Kernel { stack_loc: u32, start_offset: u32 },
+    Kernel {
+        stack_loc_init: Option<u32>,
+        start_offset: u32,
+    },
 }
 
 impl ProgramType {
@@ -356,7 +359,7 @@ impl ProgramType {
 impl Default for ProgramType {
     fn default() -> Self {
         Self::Kernel {
-            stack_loc: Self::DEFAULT_STACK_LOC,
+            stack_loc_init: Some(Self::DEFAULT_STACK_LOC),
             start_offset: Self::DEFAULT_START_OFFSET,
         }
     }
@@ -517,7 +520,7 @@ impl CompilingState {
         let init_label = "program_init".to_string();
 
         let mut asm = if let ProgramType::Kernel {
-            stack_loc: _,
+            stack_loc_init: _,
             start_offset,
         } = &self.options.prog_type
         {
@@ -560,7 +563,9 @@ impl CompilingState {
             init_label.clone(),
         )));
 
-        if let ProgramType::Kernel { stack_loc, .. } = &self.options.prog_type {
+        if let ProgramType::Kernel { stack_loc_init, .. } = &self.options.prog_type
+            && let Some(stack_loc) = stack_loc_init
+        {
             asm.extend(
                 load_to_register(Register::StackPointer, *stack_loc)
                     .into_iter()
