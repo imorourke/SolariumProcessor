@@ -91,13 +91,6 @@ struct CompilerArguments {
         help = "Adds compiler definitions to define from the start of compiling"
     )]
     definitions: Vec<String>,
-    /// Defines any interface prefixes to use
-    #[arg(
-        short = 'H',
-        long = "interface-prefix",
-        help = "Prefixes to include in the generation for an interface/map file"
-    )]
-    interface_prefixes: Vec<String>,
     /// Provides an output interface/map file to use for constants, structures, and functions
     #[arg(
         short = 'W',
@@ -108,12 +101,6 @@ struct CompilerArguments {
 }
 
 impl CompilerArguments {
-    /// Returns true if the provdied symbol name matches the provided list
-    fn symbol_matches(&self, s: &str) -> bool {
-        self.interface_prefixes.is_empty()
-            || self.interface_prefixes.iter().any(|x| s.starts_with(x))
-    }
-
     /// Provides the current code generation options
     fn compiler_options(&self) -> CodeGenerationOptions {
         CodeGenerationOptions {
@@ -199,10 +186,7 @@ fn main() -> std::process::ExitCode {
         };
 
         match cbstate.get_exported_interface() {
-            Ok(mut x) => {
-                // Filter only matching entries
-                x = x.filter(|x| args.symbol_matches(x));
-
+            Ok(x) => {
                 // Write to the output file
                 x.write_interface(&mut interface_file).unwrap();
             }

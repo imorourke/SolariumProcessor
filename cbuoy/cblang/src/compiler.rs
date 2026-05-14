@@ -1109,8 +1109,7 @@ impl CompilingState {
         }
 
         // Sort the results
-
-        Ok(interface)
+        Ok(interface.filter(|x| !x.starts_with('_')))
     }
 }
 
