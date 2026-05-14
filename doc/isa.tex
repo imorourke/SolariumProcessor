@@ -37,6 +37,7 @@
 The Jib processor is a general-purpose Instruction Set Architecture (ISA). Each processor instruction is designed to take up exactly one word of memory. For Jib, each word takes up 32 bits; however, memory is addressable at the byte level. In cases where signed arithmetic is performed, signed integers are encoded using the two's-complement format. Jib also supports 32-bit floating point numeric algebra.
 
 \subsection{Registers}
+\label{sec:registers}
 
 There are 32 total registers present on the Jib. These are defined generally as follows in Table \ref{table:register-setup}. Note that, as Jib is a 32-bit architecture, this means that each register is 32 bits wide. While there are specifications between general-purpose and system-level registers, any register is addressable and usable via standard instructions equally.
 
@@ -640,6 +641,18 @@ This provides an example program in Listing \ref{listing:example-cbuoy} below, w
 
 C/Buoy allows working with structs, primitives, functions, and more. This allows for an easier programming experience, at the cost of occasionally some additional generated machine code, resulting in slightly larger execution times, than could necessarily be done by hand in Jib assembly.
 
+\subsection{Compiler Mode}
+
+Compiling can take place in one of two modes. The first is in a kernel mode, in which a specific stack location and program starting location is provided. The second is application mode, which compiles applications in a position-independent location.
+
+\subsubsection{Kernel Mode}
+
+Programs compiled in kernel mode should be loaded into memory at the specific location, as items are referred to by specific memory addresses and not by a relative address. This allows for the best performance at runtime and is helpful for the initial stack location of the lowest-level of software. It also makes it easy to provide a "base" program, which will use a distinct and defined stack, and is useful for the lowest-level of software running on the processor.
+
+\subsubsection{Application Mode}
+
+Programs compiled in application mode require additional information while loading, as they are position-independent. A program compiled in application mode must have the program base address provided in the \texttt{Load Offset} register (Section \ref{sec:registers}), as address references are made relative to that location. This allows a kernel to load multiple applications in different positions at runtime, allowing for more complicated program interactions, such as simultaneous application running/threading, by the base operating system, transparent to the running application.
+
 \subsection{Assembly Integration}
 
 To allow for additional optimization, Jib assembly code can also be mixed in with functions to increase the speed of certain functions. As the compiler is currently not an optimizing compiler, this provides the opportunity to convert commonly-used smaller functions into compact assembly code to increase the speed of execution. Identifiers from the overall C/Buoy program can be mixed into the assembly code by using replacement characters, as denoted in Table \ref{table:cbuoy-assembly-mixin}.
@@ -678,6 +691,151 @@ Through direct modification of the stack, we can create a set of utilities to sw
 \section{Filesystem}
 
 The CBFS filesystem provides basic I/O capabilities for the Jib computer. It is based on a file allocation table and provides 16-bit integer identification for file sectors. A fuse driver exists for usage of the filesystem on POSIX systems.
+
+\subsection{Volume Header}
+
+The basic filesystem consists of the following for a CBFS volume, provided in Table \ref{table:cbfs-volume-header}.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{l|cc|l}
+        \hline
+        Sector & Sector Byte Offset & Type & Parameter \\
+        \hline
+        0 & 0 & \texttt{u16} & CBFS Version (Currently only \texttt{1}) \\
+        0 & 2 & \texttt{u16} & Sector Bytes Size \\
+        0 & 4 & \texttt{u16} & Number of Sectors \\
+        0 & 6 & \texttt{u16} & Root sector ID \\
+        0 & 8 & \texttt{u32} & Volume Flags \\
+        0 & 12 & \texttt{u8\charmap{[}32\charmap{]}} & Volume Name \\
+        1 to $\lceil 2N / S \rceil$ & 0 & \texttt{u16\charmap{[}N\charmap{]}} & Sector Table \\
+        \hline
+    \end{tabular}
+    \caption{Format for the volume header, where \texttt{S} is the sector byte size, and \texttt{N} is the number of bytes in each sector.}
+    \label{table:cbfs-volume-header}
+\end{table}
+
+The total volume size, in bytes, is given by the product of the Sector Byte Size, $S$, by the Number of Sectors, $N$. The first sector is always taken up by volume header. The next set of sectors is taken up by the sector status. This will take up $\lceil 2 \cdot N / S \rceil$ sectors. This allows the first root sector ID, allowed for data, to be $1 + \lceil 2 \cdot N / S \rceil$. All sectors from the root to $N$ are valid entries for user data. The global base address in bytes for any sector $I$ can be obtained by $I \cdot S$.
+
+Sector IDs within the sector table may be identified in the following ways. The first is with \texttt{0x0000}, which is a null node. A node with a value of null is unused, while any other value signifies that there is data within the node. If a node is used, the ID value points to the node containing the sector with the next set of data. If there is no next set of data the node is marked with the special node ID \texttt{0xFFFF}, signifying that there is no subsequent node and the current ID represents the final sector of data. This may look like the following in a simplified node table, provided in Table \ref{table:node-table-example}.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{c|c|l}
+        \hline
+        Node ID & Sector Status & Description \\
+        \hline
+        \texttt{0} & \texttt{0x0000} & Unused Node \\
+        \texttt{1} & \texttt{0x0003} & Node \texttt{2} Sector 2 \\
+        \texttt{2} & \texttt{0x0001} & Node \texttt{2} Sector 1 (First) \\
+        \texttt{3} & \texttt{0x0005} & Node \texttt{2} Sector 3 \\
+        \texttt{4} & \texttt{0xFFFF} & Node \texttt{4} First and Final Sector \\
+        \texttt{5} & \texttt{0xFFFF} & Node \texttt{2} Sector 4 (Final) \\
+        \hline
+    \end{tabular}
+    \caption{Example node table for six nodes, with two root nodes provided as nodes \texttt{2} and \texttt{4}}
+    \label{table:node-table-example}
+\end{table}
+
+\subsection{Filesystem Entries}
+
+A filesystem entry may either be a file or a directory entry. The base entry for any directory or file consists of an entry header. This is defined in Table \ref{table:cbfs-entry-header}. Entries are always identified by the root sector ID, as this is the sector that contains the entry information.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc|l}
+        \hline
+        Byte Offset & Type & Description \\
+        \hline
+        0 & \texttt{EntryType} & Entry Type \\
+        2 & \texttt{u16} & Parent Directory Entry ID \\
+        4 & \texttt{DateTime} & Modification Time \\
+        8 & \texttt{u32} & Payload Size \\
+        \hline
+    \end{tabular}
+    \caption{Entry header information provides the basics for the entry type, parent directory, and other helpful metadata for referencing entry parameters.}
+    \label{table:cbfs-entry-header}
+\end{table}
+
+After the entry header, data is provided for each of the entry types. For a file entry, this data is just the file contents. For a directory, this is a list of directory entry information. One entry is present for each file or directory contained within the entry. The directory entry information is provided in Table \ref{table:cbfs-directory-entry}. Notice that the entry type is provided in both the entry header and the directory information. This small amount of data duplication is designed for each file enumeration; however, ensure that these two parameters remain consistent for a given filesystem entry.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc|l}
+        \hline
+        Byte Offset & Type & Description \\
+        \hline
+        0 & \texttt{u16} & Base Block / Data Entry ID \\
+        2 & \texttt{u8} & Attributes \\
+        3 & \texttt{EntryType} & Entry Type \\
+        8 & \texttt{u8\charmap{[}60\charmap{]}} & File Name \\
+        \hline
+    \end{tabular}
+    \caption{Directory entries provide metadata for the file entry and allow quick enumeration for filesystem contents.}
+    \label{table:cbfs-directory-entry}
+\end{table}
+
+The payload size for a directory entry should always be a multiple of the directory entry size, \texttt{64}, as there should be one and only one directory entry per contained entry in the filesystem. If an entry is in the filesystem but not in a directory entry, it is orphaned and the filesystem is in an inconsistent state. Likewise, if any Entry ID is referenced by two or more directory entries, the filesystem is in an inconsistent state.
+
+Note that the root entry, as specified in the volume header, must always be a directory for the filesystem to be valid.
+
+\subsection{Additional Types}
+
+\subsubsection{EntryType}
+
+The \texttt{EntryType} is an enumeration of size \texttt{u8}, where a value of \texttt{1} represents a directory entry, while a value of \texttt{2} is a file entry. Any other value is not valid.
+
+\subsubsection{Date}
+
+The \texttt{Date} type represents a calendar date entry.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc|l}
+        \hline
+        Byte Offset & Type & Description \\
+        \hline
+        0 & \texttt{i16} & Year \\
+        2 & \texttt{u8} & Month \\
+        3 & \texttt{u8} & Day \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsubsection{Time}
+
+The \texttt{Time} type represents a calendar time entry.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc|l}
+        \hline
+        Byte Offset & Type & Description \\
+        \hline
+        0 & \texttt{u8} & Hour \\
+        1 & \texttt{u8} & Minute \\
+        2 & \texttt{u8} & Second \\
+        3 & \texttt{u8} & Hundredths of a Second \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsubsection{DateTime}
+
+The \texttt{DateTime} type combines both a date and a time together into a single type to provide a precise time instance.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{cc|l}
+        \hline
+        Byte Offset & Type & Description \\
+        \hline
+        0 & \texttt{Date} & Date \\
+        4 & \texttt{Time} & Time \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\pagebreak
 
 \section{Tools}
 
