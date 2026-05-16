@@ -27,6 +27,9 @@ jobs:
       - name: Checkout the repository
         uses: actions/checkout@v5
 
+      - name: Test
+        run: cargo test --workspace
+
       - name: Build the executable
         run: |
           cargo build --release --target x86_64-unknown-linux-gnu -p visual-jib
@@ -68,6 +71,9 @@ jobs:
 
       - name: Checkout the repository
         uses: actions/checkout@v5
+
+      - name: Test
+        run: cargo test --workspace
 
       - name: Build the executable
         run: |
@@ -111,6 +117,9 @@ jobs:
 
       - name: Checkout the repository
         uses: actions/checkout@v5
+
+      - name: Test
+        run: cargo test --workspace
 
       - name: Build the executable
         run: |
