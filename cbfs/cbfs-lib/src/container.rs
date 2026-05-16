@@ -191,6 +191,26 @@ pub fn save_container(
     write_container(header, filesystem, &mut f)
 }
 
+#[repr(C)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, KnownLayout, Immutable, FromBytes, IntoBytes,
+)]
+pub struct CbContainerFlags(U16);
+
+impl CbContainerFlags {
+    /// Provides the flag for a sparse file
+    const FLAG_SPARSE: u16 = 1 << 0;
+
+    /// Provides the flag for a compressed file
+    const FLAG_COMPRESSED: u16 = 1 << 1;
+}
+
+impl Default for CbContainerFlags {
+    fn default() -> Self {
+        CbContainerOptions::default().into()
+    }
+}
+
 /// Provides options for handling the contianer saving/loading options
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CbContainerOptions {
@@ -198,6 +218,28 @@ pub struct CbContainerOptions {
     pub sparse: bool,
     /// Determines if the container will be saved in a compressed mode. This requires the `gzip` feature.
     pub compressed: bool,
+}
+
+impl From<CbContainerOptions> for CbContainerFlags {
+    fn from(value: CbContainerOptions) -> Self {
+        let flag_sparse = if value.sparse { Self::FLAG_SPARSE } else { 0 };
+        let flag_compressed = if value.compressed {
+            Self::FLAG_COMPRESSED
+        } else {
+            0
+        };
+        Self((flag_sparse | flag_compressed).into())
+    }
+}
+
+impl From<CbContainerFlags> for CbContainerOptions {
+    fn from(value: CbContainerFlags) -> Self {
+        let flags = value.0.get();
+        Self {
+            sparse: (flags & CbContainerFlags::FLAG_SPARSE) != 0,
+            compressed: (flags & CbContainerFlags::FLAG_COMPRESSED) != 0,
+        }
+    }
 }
 
 /// Provides the header structure for the filesystem container
@@ -210,7 +252,7 @@ pub struct ContainerHeader {
     /// Provides the version number for the filesystem container
     version: U16,
     /// Defines flags for how to read and process the encoded filesystem
-    flags: U16,
+    flags: CbContainerFlags,
 }
 
 impl ContainerHeader {
@@ -218,35 +260,24 @@ impl ContainerHeader {
     const MAGIC_NUMBER: u32 = 0xA80E83BC;
     /// Defines the current version of the container
     const VERSION: u16 = 1;
-    /// Provides the flag for a sparse file
-    const FLAG_SPARSE: u16 = 1 << 0;
-    /// Provides the flag for a compressed file
-    const FLAG_COMPRESSED: u16 = 1 << 1;
 
     /// Creates a new filesystem header with the provided container options
     pub fn new(options: CbContainerOptions) -> Self {
-        let mut v = Self {
+        Self {
             magic_number: U32::new(Self::MAGIC_NUMBER),
             version: U16::new(Self::VERSION),
-            flags: U16::new(0),
-        };
-        v.set_flag(Self::FLAG_SPARSE, options.sparse);
-        v.set_flag(Self::FLAG_COMPRESSED, options.compressed);
-        v
+            flags: options.into(),
+        }
     }
 
     /// Contains the options for the filesystem header from the flags
     pub fn get_options(&self) -> CbContainerOptions {
-        CbContainerOptions {
-            sparse: self.get_flag(Self::FLAG_SPARSE),
-            compressed: self.get_flag(Self::FLAG_COMPRESSED),
-        }
+        self.flags.into()
     }
 
     /// Sets the options for the current container
     pub fn set_options(&mut self, options: CbContainerOptions) {
-        self.set_flag(Self::FLAG_SPARSE, options.sparse);
-        self.set_flag(Self::FLAG_COMPRESSED, options.compressed);
+        self.flags = options.into();
     }
 
     /// Checks the data integrity to make sure that the filesystem is valid and can be read/written
@@ -266,20 +297,6 @@ impl ContainerHeader {
             Ok(())
         }
     }
-
-    /// Provides the value of a given flag mask
-    const fn get_flag(&self, flag: u16) -> bool {
-        (self.flags.get() & flag) == flag
-    }
-
-    /// Sets a value for a given flag mask
-    fn set_flag(&mut self, flag: u16, value: bool) {
-        self.flags.set(if value {
-            self.flags.get() | flag
-        } else {
-            self.flags.get() & !flag
-        })
-    }
 }
 
 impl Default for ContainerHeader {
@@ -287,7 +304,7 @@ impl Default for ContainerHeader {
         Self {
             magic_number: U32::new(Self::MAGIC_NUMBER),
             version: U16::new(Self::VERSION),
-            flags: U16::new(0),
+            flags: CbContainerFlags::default(),
         }
     }
 }
