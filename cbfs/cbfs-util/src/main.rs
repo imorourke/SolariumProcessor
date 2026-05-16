@@ -82,14 +82,19 @@ fn main() {
             let name = opt.name.as_deref().unwrap_or("cbfs");
             let fs = FileSystem::new(name, opt.secsize, opt.seccount)
                 .expect("unable to create filesystem");
-            let header = ContainerHeader::new(CbContainerOptions::from_flags(opt.sparse, opt.gzip));
+            let header = ContainerHeader::new(CbContainerOptions {
+                sparse: opt.sparse,
+                compressed: opt.gzip,
+            });
             save_container(&header, &fs, &opt.file).expect("unable to write fs to a file");
         }
         CommandOptions::Modify(opt) => {
             let (mut header, mut filesystem) =
                 open_container(&opt.file).expect("unable to open file");
-            header.set_compressed(opt.gzip);
-            header.set_sparse(opt.sparse);
+            header.set_options(CbContainerOptions {
+                sparse: opt.sparse,
+                compressed: opt.gzip,
+            });
             if opt.zero {
                 filesystem
                     .zero_unused_sectors()
@@ -147,10 +152,11 @@ fn main() {
             print!("Container: ");
 
             let mut container_flags = Vec::new();
-            if header.is_compressed() {
+            let opts = header.get_options();
+            if opts.compressed {
                 container_flags.push("Compressed");
             }
-            if header.is_sparse() {
+            if opts.sparse {
                 container_flags.push("Sparse");
             }
             if container_flags.is_empty() {

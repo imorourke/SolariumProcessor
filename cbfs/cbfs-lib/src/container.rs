@@ -88,11 +88,11 @@ pub fn read_container<T: Read>(
         }
     }
 
-    let fs = if file_header.is_compressed() {
+    let fs = if file_header.get_options().compressed {
         #[cfg(feature = "gzip")]
         {
             let mut gf = flate2::read::GzDecoder::new(f);
-            read_inner(&mut gf, file_header.is_sparse())?
+            read_inner(&mut gf, file_header.get_options().sparse)?
         }
         #[cfg(not(feature = "gzip"))]
         {
@@ -101,7 +101,7 @@ pub fn read_container<T: Read>(
             ));
         }
     } else {
-        read_inner(f, file_header.is_sparse())?
+        read_inner(f, file_header.get_options().sparse)?
     };
 
     Ok((file_header, fs))
@@ -151,13 +151,13 @@ pub fn write_container<T: Write>(
         Ok(())
     }
 
-    if header.is_compressed() {
+    if header.get_options().compressed {
         #[cfg(feature = "gzip")]
         {
             write_inner(
                 flate2::write::GzEncoder::new(f, flate2::Compression::best()),
                 fs,
-                header.is_sparse(),
+                header.get_options().sparse,
             )
         }
         #[cfg(not(feature = "gzip"))]
@@ -167,7 +167,7 @@ pub fn write_container<T: Write>(
             ))
         }
     } else {
-        write_inner(f, fs, header.is_sparse())
+        write_inner(f, fs, header.get_options().sparse)
     }
 }
 
@@ -191,65 +191,65 @@ pub fn save_container(
     write_container(header, filesystem, &mut f)
 }
 
+/// Provides options for handling the contianer saving/loading options
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum CbContainerOptions {
-    #[default]
-    None,
-    Sparse,
-    Compressed,
-    SparseCompressed,
+pub struct CbContainerOptions {
+    /// Determines if the container saves the disk image in sparse mode
+    pub sparse: bool,
+    /// Determines if the container will be saved in a compressed mode. This requires the `gzip` feature.
+    pub compressed: bool,
 }
 
-impl CbContainerOptions {
-    pub fn from_flags(sparse: bool, compressed: bool) -> Self {
-        let flags = (sparse, compressed);
-        match flags {
-            (false, false) => CbContainerOptions::None,
-            (true, false) => CbContainerOptions::Sparse,
-            (false, true) => CbContainerOptions::Compressed,
-            (true, true) => CbContainerOptions::SparseCompressed,
-        }
-    }
-
-    pub fn is_sparse(&self) -> bool {
-        matches!(self, Self::Sparse | Self::SparseCompressed)
-    }
-
-    pub fn is_compressed(&self) -> bool {
-        matches!(self, Self::Compressed | Self::SparseCompressed)
-    }
-}
-
+/// Provides the header structure for the filesystem container
 #[repr(C)]
 #[repr(packed)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Eq, PartialEq)]
 pub struct ContainerHeader {
+    /// Defines a magic number to use as an indicator for the filesystem type
     magic_number: U32,
+    /// Provides the version number for the filesystem container
     version: U16,
+    /// Defines flags for how to read and process the encoded filesystem
     flags: U16,
 }
 
 impl ContainerHeader {
+    /// Provides the expected magic number to read as part of the filesystem
     const MAGIC_NUMBER: u32 = 0xA80E83BC;
+    /// Defines the current version of the container
     const VERSION: u16 = 1;
+    /// Provides the flag for a sparse file
     const FLAG_SPARSE: u16 = 1 << 0;
+    /// Provides the flag for a compressed file
     const FLAG_COMPRESSED: u16 = 1 << 1;
 
+    /// Creates a new filesystem header with the provided container options
     pub fn new(options: CbContainerOptions) -> Self {
         let mut v = Self {
             magic_number: U32::new(Self::MAGIC_NUMBER),
             version: U16::new(Self::VERSION),
             flags: U16::new(0),
         };
-        v.set_flag(options.is_sparse(), Self::FLAG_SPARSE);
-        v.set_flag(options.is_compressed(), Self::FLAG_COMPRESSED);
+        v.set_flag(Self::FLAG_SPARSE, options.sparse);
+        v.set_flag(Self::FLAG_COMPRESSED, options.compressed);
         v
     }
 
+    /// Contains the options for the filesystem header from the flags
     pub fn get_options(&self) -> CbContainerOptions {
-        CbContainerOptions::from_flags(self.is_sparse(), self.is_compressed())
+        CbContainerOptions {
+            sparse: self.get_flag(Self::FLAG_SPARSE),
+            compressed: self.get_flag(Self::FLAG_COMPRESSED),
+        }
     }
 
+    /// Sets the options for the current container
+    pub fn set_options(&mut self, options: CbContainerOptions) {
+        self.set_flag(Self::FLAG_SPARSE, options.sparse);
+        self.set_flag(Self::FLAG_COMPRESSED, options.compressed);
+    }
+
+    /// Checks the data integrity to make sure that the filesystem is valid and can be read/written
     pub fn check_data(&self) -> Result<(), FileSystemError> {
         if self.magic_number.get() != Self::MAGIC_NUMBER {
             Err(FileSystemError::UnknownError(format!(
@@ -267,32 +267,18 @@ impl ContainerHeader {
         }
     }
 
+    /// Provides the value of a given flag mask
     const fn get_flag(&self, flag: u16) -> bool {
         (self.flags.get() & flag) == flag
     }
 
-    fn set_flag(&mut self, is_set: bool, flag: u16) {
-        self.flags.set(if is_set {
+    /// Sets a value for a given flag mask
+    fn set_flag(&mut self, flag: u16, value: bool) {
+        self.flags.set(if value {
             self.flags.get() | flag
         } else {
             self.flags.get() & !flag
         })
-    }
-
-    pub fn is_sparse(&self) -> bool {
-        self.get_flag(Self::FLAG_SPARSE)
-    }
-
-    pub fn set_sparse(&mut self, val: bool) {
-        self.set_flag(val, Self::FLAG_SPARSE);
-    }
-
-    pub fn is_compressed(&self) -> bool {
-        self.get_flag(Self::FLAG_COMPRESSED)
-    }
-
-    pub fn set_compressed(&mut self, val: bool) {
-        self.set_flag(val, Self::FLAG_COMPRESSED);
     }
 }
 
@@ -358,19 +344,29 @@ mod test {
 
     #[test]
     fn container_options() {
-        const INPUT_VALUES: &[(CbContainerOptions, bool, bool)] = &[
-            (CbContainerOptions::None, false, false),
-            (CbContainerOptions::Sparse, true, false),
-            (CbContainerOptions::Compressed, false, true),
-            (CbContainerOptions::SparseCompressed, true, true),
+        assert_eq!(CbContainerOptions::default().sparse, false);
+        assert_eq!(CbContainerOptions::default().compressed, false);
+        const INPUT_VALUES: &[CbContainerOptions] = &[
+            CbContainerOptions {
+                sparse: false,
+                compressed: false,
+            },
+            CbContainerOptions {
+                sparse: true,
+                compressed: false,
+            },
+            CbContainerOptions {
+                sparse: false,
+                compressed: true,
+            },
+            CbContainerOptions {
+                sparse: true,
+                compressed: true,
+            },
         ];
 
-        for (opt, sparse, compressed) in INPUT_VALUES {
+        for opt in INPUT_VALUES {
             let hdr = ContainerHeader::new(*opt);
-            assert_eq!(opt.is_sparse(), *sparse);
-            assert_eq!(opt.is_compressed(), *compressed);
-            assert_eq!(hdr.is_sparse(), opt.is_sparse());
-            assert_eq!(hdr.is_compressed(), opt.is_compressed());
             assert_eq!(hdr.get_options(), *opt);
         }
     }
@@ -405,23 +401,35 @@ mod test {
 
     #[test]
     fn rw_raw() {
-        test_filesystem(CbContainerOptions::None);
+        test_filesystem(CbContainerOptions {
+            sparse: false,
+            compressed: false,
+        });
     }
 
     #[test]
     fn rw_sparse() {
-        test_filesystem(CbContainerOptions::Sparse);
+        test_filesystem(CbContainerOptions {
+            sparse: true,
+            compressed: false,
+        });
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn rw_compressed() {
-        test_filesystem(CbContainerOptions::Compressed);
+        test_filesystem(CbContainerOptions {
+            sparse: false,
+            compressed: true,
+        });
     }
 
     #[cfg(feature = "gzip")]
     #[test]
     fn raw_sparse_compressed() {
-        test_filesystem(CbContainerOptions::SparseCompressed);
+        test_filesystem(CbContainerOptions {
+            sparse: true,
+            compressed: true,
+        });
     }
 }
