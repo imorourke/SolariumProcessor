@@ -108,7 +108,7 @@ jobs:
           path: solarium-macos.tar.gz
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -128,26 +128,48 @@ jobs:
           cargo build --release --target x86_64-pc-windows-msvc -p cbc
           cargo build --release --target x86_64-pc-windows-msvc -p jib-term
 
+      - name: Install WinFSP
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi" -OutFile ".\winfsp-2.1.25156.msi"
+          $file = "winfsp-2.1.25156.msi"
+          $log = "install.log"
+          $procMain = Start-Process "msiexec" "/i `"$file`" ADDLOCAL=all /qn /l*! `"$log`"" -NoNewWindow -PassThru
+          $procLog = Start-Process "powershell" "Get-Content -Path `"$log`" -Wait" -NoNewWindow -PassThru
+          $procMain.WaitForExit()
+          $procLog.Kill()
+
+      - name: Build FUSE Driver
+        run: |
+          Import-Module "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\18\Enterprise" -SkipAutomaticLocation -DevCmdArguments "-arch=x64"
+          cargo install --locked cbindgen
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -GNinja
+          ninja -C build
+          cargo build --release --target x86_64-pc-windows-msvc -p cbfs-compat
+
       - name: Copy binaries
         shell: pwsh
         run: |
           New-Item -Path . -Name dist -ItemType Directory
-          Copy-Item target/x86_64-pc-windows-msvc/release/visual-jib.exe dist
-          Copy-Item target/x86_64-pc-windows-msvc/release/cbfs-util.exe dist
-          Copy-Item target/x86_64-pc-windows-msvc/release/cbc.exe dist
-          Copy-Item target/x86_64-pc-windows-msvc/release/jib-term.exe dist
+          Copy-Item target\x86_64-pc-windows-msvc\release\visual-jib.exe dist
+          Copy-Item target\x86_64-pc-windows-msvc\release\cbfs-util.exe dist
+          Copy-Item target\x86_64-pc-windows-msvc\release\cbc.exe dist
+          Copy-Item target\x86_64-pc-windows-msvc\release\jib-term.exe dist
+          Copy-Item target\x86_64-pc-windows-msvc\release\cbfs_compat.dll dist
+          Copy-Item build\cbfs\cbfs-fuse\cbfs.exe dist
 
       - name: Update icon
         shell: pwsh
         run: |
-          magick -density 300 -define icon:auto-resize=256,128,96,64,48,32,16 -background none doc/images/logo.svg doc/images/logo.ico
+          magick -density 300 -define icon:auto-resize=256,128,96,64,48,32,16 -background none doc\images\logo.svg doc\images\logo.ico
           Invoke-WebRequest -Uri "https://github.com/electron/rcedit/releases/download/v1.1.1/rcedit-x64.exe" -OutFile ".\rcedit-x64.exe"
-          .\rcedit-x64.exe dist/visual-jib.exe --set-icon doc/images/logo.ico
+          .\rcedit-x64.exe dist\visual-jib.exe --set-icon doc\images\logo.ico
 
       - name: Package artifacts
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/* -DestinationPath solarium-windows.zip -Force
+          Compress-Archive -Path dist\* -DestinationPath solarium-windows.zip -Force
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
