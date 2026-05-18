@@ -61,6 +61,40 @@ jobs:
           name: solarium-linux-x86_64.tar.gz
           path: solarium-linux-x86_64.tar.gz
 
+  freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v5
+
+      - name: Build project
+        id: vm
+        uses: vmactions/freebsd-vm@v1
+        with:
+          sync: rsync
+          prepare: pkg install -y cmake fusefs-libs3 rust ninja
+          run: |
+            cargo test --workspace
+            cargo build --release --target x86_64-unknown-freebsd -p cbfs-util
+            cargo build --release --target x86_64-unknown-freebsd -p cbc
+            cargo build --release --target x86_64-unknown-freebsd -p jib-term
+            cargo install --locked cbindgen
+            export PATH="$PATH:/root/.cargo/bin"
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -GNinja
+            ninja -C build
+            mkdir dist
+            cp target/x86_64-unknown-freebsd/release/cbfs-util dist/cbfs-util
+            cp target/x86_64-unknown-freebsd/release/cbc dist/cbc
+            cp target/x86_64-unknown-freebsd/release/jib-term dist/jib-term
+            cp build/cbfs/cbfs-fuse/cbfs dist/cbfs
+            tar -czvf solarium-freebsd-x86_64.tar.gz -C dist cbfs cbfs-util cbc jib-term
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: solarium-freebsd-x86_64.tar.gz
+          path: solarium-freebsd-x86_64.tar.gz
+
   macos:
     runs-on: macos-latest
     steps:
@@ -208,7 +242,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [macos, linux, windows, documentation]
+    needs: [macos, linux, windows, freebsd, documentation]
     runs-on: ubuntu-latest
 
     steps:
