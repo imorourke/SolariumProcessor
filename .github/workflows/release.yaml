@@ -50,10 +50,12 @@ jobs:
           cp target/x86_64-unknown-linux-gnu/release/cbfs-util dist/cbfs-util
           cp target/x86_64-unknown-linux-gnu/release/cbc dist/cbc
           cp target/x86_64-unknown-linux-gnu/release/jib-term dist/jib-term
+          cp visual-jib/desktop/visual-jib.desktop dist/visual-jib.desktop
+          cp doc/images/logo.svg dist/visual-jib.svg
           cp build/cbfs/cbfs-fuse/cbfs dist/cbfs
 
       - name: Package binary
-        run: tar -czvf solarium-linux-x86_64.tar.gz -C dist visual-jib cbfs cbfs-util cbc jib-term
+        run: tar -czvf solarium-linux-x86_64.tar.gz -C dist visual-jib cbfs cbfs-util cbc jib-term visual-jib.desktop visual-jib.svg
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
@@ -78,6 +80,7 @@ jobs:
             cargo build --release --target x86_64-unknown-freebsd -p cbfs-util
             cargo build --release --target x86_64-unknown-freebsd -p cbc
             cargo build --release --target x86_64-unknown-freebsd -p jib-term
+            cargo build --release --target x86_64-unknown-freebsd -p visual-jib
             cargo install --locked cbindgen
             export PATH="$PATH:/root/.cargo/bin"
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -GNinja
@@ -86,8 +89,12 @@ jobs:
             cp target/x86_64-unknown-freebsd/release/cbfs-util dist/cbfs-util
             cp target/x86_64-unknown-freebsd/release/cbc dist/cbc
             cp target/x86_64-unknown-freebsd/release/jib-term dist/jib-term
+            cp target/x86_64-unknown-freebsd/release/visual-jib dist/visual-jib
+            cp visual-jib/desktop/visual-jib.desktop dist/visual-jib.desktop
+            cp doc/images/logo.svg dist/visual-jib.svg
             cp build/cbfs/cbfs-fuse/cbfs dist/cbfs
-            tar -czvf solarium-freebsd-x86_64.tar.gz -C dist cbfs cbfs-util cbc jib-term
+            tar -czvf solarium-freebsd-x86_64.tar.gz -C dist cbfs cbfs-util cbc jib-term visual-jib visual-jib.desktop visual-jib.svg
+            rm -rf target build
 
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
