@@ -135,10 +135,13 @@ impl CpuState {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 UiToThread::DiskSave => {
-                    use cbfs_lib::{ContainerHeader, save_container};
+                    use cbfs_lib::{CbContainerOptions, ContainerHeader, save_container};
 
                     save_container(
-                        &ContainerHeader::default(),
+                        &ContainerHeader::new(CbContainerOptions {
+                            sparse: true,
+                            compressed: false,
+                        }),
                         &cbfs_lib::FileSystem::read_bytes(
                             &mut state.computer.get_disk_data()?.as_slice(),
                         )?,

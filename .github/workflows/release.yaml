@@ -57,11 +57,20 @@ jobs:
       - name: Package binary
         run: tar -czvf solarium-linux-x86_64.tar.gz -C dist visual-jib cbfs cbfs-util cbc jib-term visual-jib.desktop visual-jib.svg
 
+      - name: Generate hard disk image
+        run: cargo run --release --target x86_64-unknown-linux-gnu -p jib-term -- -e dist/hd.cbfs
+
       - name: Upload release binaries
         uses: actions/upload-artifact@v7
         with:
           name: solarium-linux-x86_64.tar.gz
           path: solarium-linux-x86_64.tar.gz
+
+      - name: Upload hard disk image
+        uses: actions/upload-artifact@v7
+        with:
+          name: hd.cbfs
+          path: dist/hd.cbfs
 
   freebsd:
     runs-on: ubuntu-latest

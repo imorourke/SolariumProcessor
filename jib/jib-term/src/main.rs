@@ -1,9 +1,41 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
+use cbfs_lib::CbContainerOptions;
+use clap::Parser;
 use jib_computer::{ComputerError, JibComputer};
 
+#[derive(Default, Debug, Parser)]
+#[command(version, about)]
+struct Args {
+    #[arg(
+        short = 'e',
+        long = "export-hd",
+        help = "exports the hard disk image if provided to a file"
+    )]
+    export_hd: Option<PathBuf>,
+}
+
 fn main() -> Result<(), ComputerError> {
+    let args = Args::parse();
+
     let mut computer = JibComputer::new()?;
+
+    if let Some(dest) = args.export_hd {
+        use cbfs_lib::{ContainerHeader, save_container};
+
+        save_container(
+            &ContainerHeader::new(CbContainerOptions {
+                compressed: false,
+                sparse: true,
+            }),
+            &cbfs_lib::FileSystem::read_bytes(&mut computer.get_disk_data()?.as_slice())?,
+            &dest,
+        )
+        .unwrap();
+
+        return Ok(());
+    }
+
     computer.use_bootloader(true)?;
     computer.reset(None)?;
     computer.set_running_request(true);

@@ -17,7 +17,12 @@ use jib_cpu::{
     memory::{MemorySegment, ReadOnlySegment, ReadWriteSegment},
     text::{CharacterError, byte_to_character, character_to_byte},
 };
-use std::{format, path::Path, rc::Rc, vec, vec::Vec};
+use std::{
+    format,
+    path::{Component, Path},
+    rc::Rc,
+    vec::Vec,
+};
 
 pub struct JibComputer {
     running: bool,
@@ -52,7 +57,7 @@ impl JibComputer {
             #[cfg(not(target_arch = "wasm32"))]
             dev_rtc_timer: Rc::new(RefCell::new(RtcTimerDevice::default())),
             inst_history: Default::default(),
-            hard_drive: Self::create_hard_drive()?,
+            hard_drive: Self::create_block_device(&Self::create_hard_drive()?)?,
             #[cfg(test)]
             step_count: 0,
         };
@@ -61,10 +66,13 @@ impl JibComputer {
         Ok(s)
     }
 
-    fn create_hard_drive() -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
+    fn create_hard_drive() -> Result<FileSystem, ComputerError> {
+        // Read the kernel/app files
+        static CODE_APP: &str = include_str!("../../../cbos/app.cb");
+        static CODE_OS: &str = include_str!("../../../cbos/os.cb");
+
         // Compile OS into a file
-        let kernel_compiled =
-            Self::compile_kernel_code(include_str!("../../../cbos/os.cb"), None, false)?;
+        let kernel_compiled = Self::compile_kernel_code(CODE_OS, None, false)?;
         let kernel_data = kernel_compiled.get_assembler()?.bytes;
 
         // Obtain the default interface value
@@ -79,53 +87,78 @@ impl JibComputer {
                 .write_interface(&mut writer)?;
         }
 
+        const CBOS_INTF_GUARD: &str = "CBOS_DEFS";
         let interface_str = match String::from_utf8(interface_data) {
-            Ok(x) => x,
+            Ok(x) => format!("#ifndef {CBOS_INTF_GUARD}\n#define {CBOS_INTF_GUARD}\n\n{x}\n#endif // {CBOS_INTF_GUARD}"),
             Err(_) => return Err(ComputerError::Utf8Error),
         };
 
         // Compile an example program
-        let app_data =
-            Self::compile_app_code(include_str!("../../../cbos/app.cb"), &interface_str)?;
+        let app_data = Self::compile_app_code(CODE_APP, &interface_str)?;
 
-        let mut fs = FileSystem::new("root", 256, 4096)?;
-        fs.create_entry(
-            fs.root_sector(),
-            "hello.txt",
-            EntryType::File,
-            b"Hello, world!",
-        )?;
-        fs.create_entry(
-            fs.root_sector(),
-            "app.exe",
-            EntryType::File,
-            &app_data.get_assembler()?.bytes,
-        )?;
-        fs.create_entry(
-            fs.root_sector(),
-            "test.run",
-            EntryType::File,
-            b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
-        )?;
+        let mut fs = FileSystem::new("cbos", 256, 4096)?;
         fs.create_entry(fs.root_sector(), "boot.bin", EntryType::File, &kernel_data)?;
-        let root_dir = fs.create_entry(fs.root_sector(), "root", EntryType::Directory, &[])?;
+        let home_dir = fs.create_entry(fs.root_sector(), "home", EntryType::Directory, &[])?;
+
         let build_date: &'static str = env!("BUILD_DATE");
         fs.create_entry(
-            root_dir,
+            home_dir,
             "version",
             EntryType::File,
             format!("CB/OS\nBuild Date\n{}\n", build_date).as_bytes(),
         )?;
-        let src = fs.create_entry(root_dir, "src", EntryType::Directory, &[])?;
+        fs.create_entry(
+            home_dir,
+            "hello.exe",
+            EntryType::File,
+            &app_data.get_assembler()?.bytes,
+        )?;
+        fs.create_entry(
+            home_dir,
+            "script.run",
+            EntryType::File,
+            b"date\nmem\n\npwd\ncat hello.txt\ncat hello.txt",
+        )?;
+
+        let src = fs.create_entry(fs.root_sector(), "src", EntryType::Directory, &[])?;
+
+        fs.create_entry(src, "os.cb", EntryType::File, CODE_OS.as_bytes())?;
+        fs.create_entry(src, "cbos_defs.cb", EntryType::File, interface_str.as_bytes())?;
+        fs.create_entry(src, "app_hello.cb", EntryType::File, CODE_APP.as_bytes())?;
 
         for (path, code) in cblang::DEFAULT_FILES.iter() {
-            if let Some(name) = path.split('/').next_back()
+            let mut current_dir = src;
+            let path_val = Path::new(path);
+
+            for p in path_val.parent().unwrap().components() {
+                if let Component::Normal(os_name) = &p
+                    && let Some(name) = os_name.to_str()
+                {
+                    current_dir = if let Some(existing) = fs
+                        .directory_listing(current_dir)?
+                        .iter()
+                        .find(|x| x.get_name() == name)
+                    {
+                        existing.base_block.get()
+                    } else {
+                        fs.create_entry(current_dir, name, EntryType::Directory, &[])?
+                    };
+                } else {
+                    panic!("unsupported name value");
+                }
+            }
+
+            if let Some(name) = path_val.file_name().and_then(|x| x.to_str())
                 && name.len() < VolumeHeader::VOLUME_NAME_SIZE
             {
-                fs.create_entry(src, name, EntryType::File, code.as_bytes())?;
+                fs.create_entry(current_dir, name, EntryType::File, code.as_bytes())?;
             }
         }
 
+        Ok(fs)
+    }
+
+    fn create_block_device(fs: &FileSystem) -> Result<Rc<RefCell<BlockDevice>>, ComputerError> {
         Ok(Rc::new(RefCell::new(BlockDevice::new(fs.get_fs_bytes()?))))
     }
 
@@ -237,7 +270,7 @@ impl JibComputer {
 
         self.cpu = Processor::default();
         self.dev_serial_io.borrow_mut().reset();
-        self.hard_drive = Self::create_hard_drive()?;
+        self.hard_drive = Self::create_block_device(&Self::create_hard_drive()?)?;
 
         self.inst_history.clear();
 
