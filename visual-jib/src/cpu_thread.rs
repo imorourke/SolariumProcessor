@@ -34,9 +34,6 @@ impl CpuState {
             tx,
         };
 
-        s.tx.send(ThreadToUi::BootloaderState(s.computer.using_bootloader()))
-            .unwrap();
-
         Ok(s)
     }
 

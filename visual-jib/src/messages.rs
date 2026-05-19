@@ -14,7 +14,7 @@ pub enum UiToThread {
     SetCode(AssemblerOutput),
     SerialInput(String),
     RequestMemory(u32, u32),
-    SetMultiplier(f64),
+    SetMultiplier(i32),
     #[cfg(not(target_arch = "wasm32"))]
     Exit,
 }

@@ -115,7 +115,6 @@ pub struct VisualJib {
     registers: RegisterManager,
     program_counter: ProgramCounterView,
     current_cpu_speed: i32,
-    last_cpu_speed: i32,
     code_windows: Vec<CodeWindow>,
     code_window_id: usize,
     memory_windows: Vec<MemoryViewWindow>,
@@ -141,9 +140,7 @@ impl Default for VisualJib {
         )
         .compile_cbuoy();
 
-        tx_ui.send(UiToThread::CpuRun(true)).unwrap();
-
-        Self {
+        let window = Self {
             cpu_run_requested: false,
             #[cfg(not(target_arch = "wasm32"))]
             cpu_thread: Some(std::thread::spawn(move || {
@@ -162,13 +159,24 @@ impl Default for VisualJib {
             registers: RegisterManager::default(),
             program_counter: ProgramCounterView::default(),
             current_cpu_speed: 10.clamp(Self::SPEED_MIN, Self::SPEED_MAX),
-            last_cpu_speed: 0,
             code_windows: Vec::new(),
             code_window_id: 0,
             memory_windows: Vec::new(),
             memory_window_id: 0,
             use_bootloader: false,
-        }
+        };
+
+        window
+            .tx_ui
+            .send(UiToThread::SetMultiplier(window.current_cpu_speed))
+            .unwrap();
+        window
+            .tx_ui
+            .send(UiToThread::UseBootloader(window.use_bootloader))
+            .unwrap();
+        window.tx_ui.send(UiToThread::CpuRun(true)).unwrap();
+
+        window
     }
 }
 
@@ -484,18 +492,18 @@ impl eframe::App for VisualJib {
                     });
 
                     ui.label("Speed Multiplier");
-                    ui.add(
-                        Slider::new(
-                            &mut self.current_cpu_speed,
-                            VisualJib::SPEED_MIN..=VisualJib::SPEED_MAX,
+                    if ui
+                        .add(
+                            Slider::new(
+                                &mut self.current_cpu_speed,
+                                VisualJib::SPEED_MIN..=VisualJib::SPEED_MAX,
+                            )
+                            .show_value(true),
                         )
-                        .show_value(true),
-                    );
-
-                    if self.current_cpu_speed != self.last_cpu_speed {
-                        self.last_cpu_speed = self.current_cpu_speed;
+                        .changed()
+                    {
                         self.tx_ui
-                            .send(UiToThread::SetMultiplier(self.current_cpu_speed as f64))
+                            .send(UiToThread::SetMultiplier(self.current_cpu_speed))
                             .unwrap();
                     }
 
